@@ -29,6 +29,8 @@ The core library intentionally does not own:
 
 App layers may collect inputs, display results, persist records, schedule reminders, and adapt content presentation. They should not decide whether advancement is allowed, whether prerequisites are satisfied, whether maintenance is stale, whether decay caps dependent branches, or whether transfer is valid when the core already has a type or evaluator for that rule.
 
+The local persistence boundary is documented in [docs/local-persistence-boundary.md](local-persistence-boundary.md). Persistence code should load and save core facts, not create alternate progression rules.
+
 ## Consumption Pattern
 
 Use the core as a pure decision library:
