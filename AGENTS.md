@@ -4,9 +4,12 @@ These instructions apply to the entire repository.
 
 ## Required Reading
 
-Before starting any work in this repo, every agent must read [docs/foundation/progression-against-vibes.md](docs/foundation/progression-against-vibes.md) in full.
+Before starting any work in this repo, every agent must read these documents in full:
 
-Treat that document as the foundational product philosophy for Mental Gymnastics. It is not decorative context. It should shape product choices, UX language, domain modeling, progression mechanics, and engineering tradeoffs.
+- [docs/foundation/progression-against-vibes.md](docs/foundation/progression-against-vibes.md)
+- [docs/foundation/standards-based-skill-ladder.md](docs/foundation/standards-based-skill-ladder.md)
+
+Treat these documents as the foundational product philosophy and programming frame for Mental Gymnastics. They are not decorative context. They should shape product choices, UX language, domain modeling, progression mechanics, training standards, and engineering tradeoffs.
 
 ## Working Standard
 
