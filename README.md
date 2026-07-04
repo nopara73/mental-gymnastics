@@ -2,6 +2,10 @@
 
 A minimal native Android application written in C# with .NET for Android.
 
+## Documentation
+
+- [Progression Against Vibes](docs/foundation/progression-against-vibes.md) is the foundational philosophy for the app.
+
 ## Requirements
 
 - .NET SDK 10.0.301 or newer compatible 10.0 SDK
