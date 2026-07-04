@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MentalGymnastics.Core\MentalGymnastics.Core.csproj" />
+    <ProjectReference Include="..\..\src\MentalGymnastics.Persistence\MentalGymnastics.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>

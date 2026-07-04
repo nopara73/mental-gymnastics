@@ -12,3 +12,16 @@ The foundational philosophy is not background reading. It is the governing produ
 ## Program Documents
 
 - [MentalGymnastics: Complete Training Program](program/training-program.md)
+
+## Core Library
+
+- [MentalGymnastics Core Library](core-library.md)
+
+The core library documentation explains which training-program rules are already implemented in pure C#, which concerns belong outside the core, and which tested invariants app layers should consume rather than reimplement.
+
+## Persistence Boundary
+
+- [MentalGymnastics Local Persistence Boundary](local-persistence-boundary.md)
+- [MentalGymnastics Local Persistence Requirements](local-persistence-requirements.md)
+
+The persistence documentation explains where local offline storage contracts live, what facts must be stored locally, how they reference the core library, and which responsibilities must stay out of persistence.
