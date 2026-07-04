@@ -1,0 +1,52 @@
+%% Advancement workflow activity diagram.
+%% Clarifies how training becomes test readiness, then pass once, stabilization, ownership, and unlock.
+flowchart TD
+  classDef gate fill:#fff8dd,stroke:#8a6d00,color:#111
+  classDef work fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef test fill:#eef2ff,stroke:#4354a3,color:#111
+  classDef fail fill:#ffeceb,stroke:#9b2c2c,color:#111
+  classDef owned fill:#edf7f6,stroke:#26676b,color:#111
+
+  Start([Select branch level])
+  Prereq{"Prerequisites owned<br/>and maintenance current?"}:::gate
+  Locked["Unopened or capped<br/>restore prerequisites before training"]:::fail
+  Train["Train branch level<br/>practice, load, regression, or recovery"]:::work
+  Participation["Participation, effort, or insight alone"]:::fail
+  NoAdv["No advancement"]:::fail
+  CleanTwice{"Same drill demand clean<br/>in two recent practice sessions?"}:::gate
+  Readiness["Test readiness checklist:<br/>standard stated<br/>honesty constraint named<br/>no overdue prerequisite maintenance"]:::gate
+  Formal["Formal test<br/>record branch, level, drill or transfer task, load variables, standard, critical constraints, score, artifact"]:::test
+  PassingQuality{"Critical constraint intact,<br/>artifact complete,<br/>error threshold met?"}:::gate
+  Classify["Classify failure type<br/>technical failure, effort failure, overload, or bad programming"]:::fail
+  Response["Prescribed response<br/>repeat, regress, stabilize, reduce load, deload, restore prerequisites, or retest later"]:::work
+  PassedOnce["Passed once<br/>formal standard met once"]:::test
+  Stabilize["Stabilization<br/>two additional passes on different days within 14 days<br/>one after adjacent work or controlled distractor"]:::test
+  Stable{"All stabilization passes clean<br/>with no standard change?"}:::gate
+  Owned["Owned<br/>repeatable under retest conditions"]:::owned
+  Balance{"Prerequisites and global balance rules satisfied?"}:::gate
+  Unlock["Next level unlocks<br/>or advanced branch opens"]:::owned
+  Maintain["Maintenance<br/>lower-volume checks prevent decay"]:::work
+
+  Start --> Prereq
+  Prereq -->|No| Locked
+  Locked --> Train
+  Prereq -->|Yes| Train
+  Participation --> NoAdv
+  Train --> CleanTwice
+  CleanTwice -->|No| Train
+  CleanTwice -->|Yes| Readiness
+  Readiness --> Formal
+  Formal --> PassingQuality
+  PassingQuality -->|No| Classify
+  Classify --> Response
+  Response --> Train
+  PassingQuality -->|Yes| PassedOnce
+  PassedOnce --> Stabilize
+  Stabilize --> Stable
+  Stable -->|No| Classify
+  Stable -->|Yes| Owned
+  Owned --> Balance
+  Balance -->|Yes| Unlock
+  Balance -->|No| Maintain
+  Unlock --> Maintain
+  Maintain --> Train

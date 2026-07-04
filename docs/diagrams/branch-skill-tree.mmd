@@ -1,0 +1,82 @@
+%% Branch dependency / skill tree diagram.
+%% Clarifies prerequisites, unlocks, global balance caps, and decay blocks across branches.
+flowchart LR
+  classDef foundation fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef advanced fill:#eef2ff,stroke:#4354a3,color:#111
+  classDef gate fill:#fff8dd,stroke:#8a6d00,color:#111
+  classDef block fill:#ffeceb,stroke:#9b2c2c,color:#111
+  classDef review fill:#f2f2f2,stroke:#555,color:#111
+
+  FH["FH: Focus Hold<br/>Foundational<br/>Universal start"]:::foundation
+  FHL1["FH L1 passed once"]:::gate
+
+  FS["FS: Focus Shift and Recovery<br/>Foundational L1 practice"]:::foundation
+  WM["WM: Working Memory and Reconstruction<br/>Foundational L1 practice"]:::foundation
+  IR["IR: Inhibition and Response Control<br/>Foundational L1 practice"]:::foundation
+  DE["DE: Discrimination and Error Checking<br/>Foundational L1 practice"]:::foundation
+
+  FHL3["FH L3 owned"]:::gate
+  FSL3["FS L3 owned"]:::gate
+  WML3["WM L3 owned"]:::gate
+  IRL3["IR L3 owned"]:::gate
+  DEL3["DE L3 owned"]:::gate
+
+  COReq{"WM L3 + IR L3 + DE L3 owned?"}:::gate
+  AIReq{"FH L3 + FS L3 + IR L3 owned?"}:::gate
+  TIReqA{"All foundational L3 owned?"}:::gate
+  TIReqB{"CO L2 owned or AI L2 owned?"}:::gate
+
+  CO["CO: Concept Operations<br/>Advanced"]:::advanced
+  AI["AI: Affective Interference Control<br/>Advanced"]:::advanced
+  TI["TI: Transfer Integration<br/>Advanced"]:::advanced
+
+  Balance["Global balance cap:<br/>no branch more than two owned levels ahead of lowest foundational branch"]:::review
+  Decay["Decay block:<br/>advanced branches pause if a prerequisite branch decays below maintenance standard"]:::block
+  Review["Global review:<br/>opens advanced emphasis, restores decay, or pauses tests"]:::review
+
+  FH --> FHL1
+  FHL1 --> FS
+  FHL1 --> WM
+  FHL1 --> IR
+  FHL1 --> DE
+
+  FH --> FHL3
+  FS --> FSL3
+  WM --> WML3
+  IR --> IRL3
+  DE --> DEL3
+
+  WML3 --> COReq
+  IRL3 --> COReq
+  DEL3 --> COReq
+  COReq --> CO
+
+  FHL3 --> AIReq
+  FSL3 --> AIReq
+  IRL3 --> AIReq
+  AIReq --> AI
+
+  FHL3 --> TIReqA
+  FSL3 --> TIReqA
+  WML3 --> TIReqA
+  IRL3 --> TIReqA
+  DEL3 --> TIReqA
+  CO --> TIReqB
+  AI --> TIReqB
+  TIReqA --> TI
+  TIReqB --> TI
+
+  Balance -. constrains .-> FH
+  Balance -. constrains .-> FS
+  Balance -. constrains .-> WM
+  Balance -. constrains .-> IR
+  Balance -. constrains .-> DE
+  Balance -. constrains .-> CO
+  Balance -. constrains .-> AI
+  Balance -. constrains .-> TI
+
+  Decay -. caps dependent advancement .-> CO
+  Decay -. caps dependent advancement .-> AI
+  Decay -. caps dependent advancement .-> TI
+  Review -. inspects .-> Balance
+  Review -. inspects .-> Decay

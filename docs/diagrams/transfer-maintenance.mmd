@@ -1,0 +1,71 @@
+%% Transfer and maintenance diagram.
+%% Clarifies how owned capacities stay current, how transfer tests preserve source standards, and how decay blocks dependencies.
+flowchart LR
+  classDef owned fill:#edf7f6,stroke:#26676b,color:#111
+  classDef work fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef gate fill:#fff8dd,stroke:#8a6d00,color:#111
+  classDef block fill:#ffeceb,stroke:#9b2c2c,color:#111
+  classDef source fill:#eef2ff,stroke:#4354a3,color:#111
+
+  subgraph Maintenance["Maintenance Lifecycle"]
+    direction TB
+    Owned["Owned branch level"]:::owned
+    Rule["Maintenance rule:<br/>lower-volume exposure strong enough to prevent decay"]:::work
+    Check{"Maintenance check<br/>standard met and critical constraints intact?"}:::gate
+    Current["Maintenance current<br/>dependent advancement remains valid"]:::owned
+    Warning["One failed check<br/>warning"]:::gate
+    Decayed["Two failed checks<br/>branch marked decayed"]:::block
+    Restore["Restore:<br/>pass last owned standard once<br/>plus one lower-load transfer check"]:::work
+
+    Owned --> Rule --> Check
+    Check -->|Yes| Current
+    Current --> Rule
+    Check -->|First fail| Warning
+    Warning --> Rule
+    Warning -->|Second fail| Decayed
+    Decayed --> Restore --> Rule
+  end
+
+  subgraph Transfer["Transfer Path"]
+    direction TB
+    SourceOwned["Source branch L3 owned"]:::owned
+    Prep["Near-transfer preparation:<br/>one near-transfer practice and one different near-transfer practice"]:::work
+    TransferTest["Transfer test:<br/>same capacity and source standard remain visible<br/>task format or context changes"]:::gate
+    Artifact["Transfer artifact:<br/>branch mapping plus short evidence"]:::work
+    TransferPass{"Transfer pass and retest requirement met?"}:::gate
+    TransferOwned["L4 transfer owned<br/>or required level transfer complete"]:::owned
+    TransferFail["Fail transfer:<br/>return to source branch<br/>or test nearer transfer distance"]:::block
+
+    SourceOwned --> Prep --> TransferTest --> Artifact --> TransferPass
+    TransferPass -->|Yes| TransferOwned
+    TransferPass -->|No| TransferFail --> Prep
+  end
+
+  subgraph BranchTransferTests["Transfer Tests By Source Branch"]
+    direction TB
+    FH["FH: hold target during WM or DE task"]:::source
+    FS["FS: switch between two branch tasks"]:::source
+    WM["WM: reconstruct structure from unfamiliar content"]:::source
+    IR["IR: maintain rule in open task"]:::source
+    DE["DE: audit unstructured output"]:::source
+    CO["CO: apply rule to unseen problem"]:::source
+    AI["AI: repeat standard under new pressure source"]:::source
+    TI["TI: solve new composite task"]:::source
+  end
+
+  Decayed --> Blocks["Decay block:<br/>decayed prerequisites cap dependent branches at maintenance only"]:::block
+  Blocks --> COBlock["CO cannot advance if WM or DE is decayed"]:::block
+  Blocks --> AIBlock["AI cannot advance if FH, FS, or IR is decayed"]:::block
+  Blocks --> TIBlock["TI cannot advance if any component branch is below passing in the last global review"]:::block
+
+  Current --> SourceOwned
+  TransferOwned --> Rule
+
+  FH -. source standard visible .-> TransferTest
+  FS -. source standard visible .-> TransferTest
+  WM -. source standard visible .-> TransferTest
+  IR -. source standard visible .-> TransferTest
+  DE -. source standard visible .-> TransferTest
+  CO -. source standard visible .-> TransferTest
+  AI -. source standard visible .-> TransferTest
+  TI -. source standard visible .-> TransferTest

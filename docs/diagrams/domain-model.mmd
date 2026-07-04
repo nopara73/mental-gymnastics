@@ -1,0 +1,157 @@
+%% Domain model / UML class diagram.
+%% Clarifies the core program entities and how advancement evidence flows through standards and gates.
+classDiagram
+direction LR
+
+class Program {
+  +String status
+  +String scope
+  +enforceEarnedAdvancement()
+  +preventParticipationAdvancement()
+}
+
+class Branch {
+  +String code
+  +String name
+  +String type
+  +String unlockRule
+  +String bottleneckEffect
+}
+
+class Capacity {
+  +String name
+  +String load
+  +String constraint
+  +String testMethod
+}
+
+class Level {
+  +String code
+  +String name
+  +String demandIncrease
+  +String typicalGate
+}
+
+class Drill {
+  +String name
+  +String purpose
+  +String honestyConstraint
+  +String cleanPerformance
+}
+
+class Standard {
+  +String passCondition
+  +String criticalConstraint
+  +String errorThreshold
+  +String repeatabilityRule
+}
+
+class Gate {
+  +String decisionRule
+  +String outcome
+  +evaluateAttempt()
+}
+
+class GateOutcome {
+  <<enumeration>>
+  Fail
+  PassOnce
+  Stabilize
+  Own
+  Maintain
+  Regress
+  Review
+}
+
+class Regression {
+  +String reducedLoadVariable
+  +String preservedDemand
+  +String forbiddenMove
+}
+
+class SessionType {
+  <<enumeration>>
+  Practice
+  Load
+  Test
+  Stabilization
+  Regression
+  Transfer
+  Recovery
+}
+
+class TestAttempt {
+  +Date date
+  +String branch
+  +String level
+  +String loadVariables
+  +String scoreOrRubric
+  +String passState
+}
+
+class EvidenceArtifact {
+  +String artifactType
+  +String summary
+  +String location
+  +constrainInterpretation()
+}
+
+class FailureType {
+  <<enumeration>>
+  TechnicalFailure
+  EffortFailure
+  Overload
+  BadProgramming
+}
+
+class MaintenanceRule {
+  +String cadence
+  +String passRule
+  +String failRule
+  +String restoreRule
+}
+
+class TransferTest {
+  +String sourceBranch
+  +String sameDemand
+  +String changedContext
+  +String retestRule
+}
+
+class GlobalReview {
+  +String cadence
+  +String bottleneckBranch
+  +String decision
+  +String passRequirement
+}
+
+Program "1" *-- "8" Branch : contains
+Program "1" o-- "5" Level : uses global ladder
+Program "1" o-- "*" GlobalReview : schedules
+Branch "1" *-- "1..*" Capacity : trains
+Branch "1" *-- "1..5" Level : progresses through
+Level "1" o-- "1..*" Drill : prepared by
+Drill "*" --> "1..*" Capacity : loads
+Drill "1" --> "1" Standard : defines clean performance
+Standard "1" --> "1" Gate : evaluated by
+Gate "1" --> "1" GateOutcome : emits
+Gate "1" --> "0..*" Regression : may prescribe
+Gate "1" --> "0..*" TransferTest : may require
+SessionType "1" --> "0..*" Drill : structures exposure
+TestAttempt "*" --> "1" Branch : records
+TestAttempt "*" --> "1" Level : attempts
+TestAttempt "*" --> "1" Standard : measures against
+TestAttempt "*" --> "1" Gate : produces decision
+TestAttempt "1" --> "1..*" EvidenceArtifact : records
+TestAttempt "*" --> "0..1" FailureType : classifies failure
+FailureType "1" --> "0..*" Regression : may route to
+MaintenanceRule "1" --> "1" Branch : applies to
+MaintenanceRule "1" --> "1" Level : checks owned level
+MaintenanceRule "1" --> "0..*" EvidenceArtifact : requires short evidence
+TransferTest "*" --> "1" Branch : starts from source
+TransferTest "*" --> "1" Standard : keeps source standard visible
+TransferTest "*" --> "1..*" EvidenceArtifact : records transfer
+GlobalReview "1" --> "*" Branch : evaluates owned levels
+GlobalReview "1" --> "*" MaintenanceRule : checks currency
+GlobalReview "1" --> "*" EvidenceArtifact : reads
+GlobalReview "1" --> "0..*" FailureType : reviews last failures

@@ -1,0 +1,47 @@
+%% Branch-level state machine.
+%% Clarifies the lifecycle of a single branch-level pair and the difference between passing once and owning.
+stateDiagram-v2
+direction LR
+
+[*] --> Unopened
+
+Unopened --> Training: prerequisites owned and branch opened
+Training --> TestReady: two recent clean practice sessions
+TestReady --> Training: readiness expires or preparation incomplete
+TestReady --> PassedOnce: formal test passed once
+TestReady --> Training: test failed and response prescribed
+PassedOnce --> Stabilizing: enter stabilization phase
+Stabilizing --> Owned: two additional clean passes within 14 days
+Stabilizing --> Training: stabilization fail classified
+Owned --> Maintenance: lower-volume checks assigned
+Maintenance --> Owned: maintenance pass current
+Maintenance --> Decayed: two failed checks or prerequisite maintenance failure
+Decayed --> Training: restore prerequisite at lower load
+Decayed --> Maintenance: last owned standard plus lower-load transfer check passed
+Owned --> Training: next level unlocks if global balance allows
+Maintenance --> Training: global review opens next demand
+
+Training --> Training: practice, load, regression, or recovery
+Owned --> Owned: global review passes
+Maintenance --> Maintenance: check not yet due
+
+note right of TestReady
+  Test readiness requires owned prerequisites,
+  clean recent practice, current maintenance,
+  a stated standard, and a named honesty constraint.
+end note
+
+note right of PassedOnce
+  Passed once is not ownership.
+  The next level remains locked.
+end note
+
+note right of Owned
+  Ownership requires repeatability across days,
+  at least one pass after adjacent work or distraction,
+  and no standard changes.
+end note
+
+note right of Decayed
+  Decay caps dependent advancement until restoration.
+end note

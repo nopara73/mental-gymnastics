@@ -1,0 +1,55 @@
+%% Weekly programming overview.
+%% Clarifies high-level beginner, intermediate, and advanced weekly structures without adding UI or automation behavior.
+flowchart TB
+  classDef beginner fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef intermediate fill:#eef2ff,stroke:#4354a3,color:#111
+  classDef advanced fill:#f3eef8,stroke:#62427d,color:#111
+  classDef rule fill:#fff8dd,stroke:#8a6d00,color:#111
+
+  BeginnerRule["Beginner rule:<br/>fixed template until all foundational branches reach L2 owned"]:::rule
+  IntermediateRule["Intermediate rule:<br/>all foundational L3 owned, maintenance current, and one advanced branch may train"]:::rule
+  AdvancedRule["Advanced rule:<br/>global reviews choose emphasis, but prerequisites cannot be bypassed"]:::rule
+
+  subgraph Beginner["Beginner Week"]
+    direction LR
+    B1["Day 1<br/>Practice<br/>FH, FS, WM"]:::beginner
+    B2["Day 2<br/>Practice<br/>FH, IR, DE"]:::beginner
+    B3["Day 3<br/>Recovery or light maintenance<br/>FH plus weakest branch"]:::beginner
+    B4["Day 4<br/>Load<br/>one selected foundational branch; FH support"]:::beginner
+    B5["Day 5<br/>Practice<br/>WM, IR, DE"]:::beginner
+    B6["Day 6<br/>Test or stabilization<br/>one eligible branch only"]:::beginner
+    B7["Day 7<br/>Off or recovery<br/>no advancement work"]:::beginner
+    B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7
+  end
+
+  subgraph Intermediate["Intermediate Week"]
+    direction LR
+    I1["Day 1<br/>Practice<br/>weakest foundational branch plus CO or AI"]:::intermediate
+    I2["Day 2<br/>Load<br/>one advanced branch"]:::intermediate
+    I3["Day 3<br/>Maintenance<br/>FH, FS, WM, IR, DE rotating checks"]:::intermediate
+    I4["Day 4<br/>Practice<br/>advanced branch plus prerequisite branch"]:::intermediate
+    I5["Day 5<br/>Transfer or stabilization<br/>eligible branch"]:::intermediate
+    I6["Day 6<br/>Recovery<br/>low-load maintenance"]:::intermediate
+    I7["Day 7<br/>Off<br/>no structured work"]:::intermediate
+    I1 --> I2 --> I3 --> I4 --> I5 --> I6 --> I7
+  end
+
+  subgraph Advanced["Advanced Week"]
+    direction LR
+    A1["Day 1<br/>Maintenance<br/>foundational checks"]:::advanced
+    A2["Day 2<br/>Load<br/>CO, AI, or TI"]:::advanced
+    A3["Day 3<br/>Practice<br/>bottleneck branch"]:::advanced
+    A4["Day 4<br/>Transfer<br/>TI or branch L4/L5 transfer"]:::advanced
+    A5["Day 5<br/>Stabilization<br/>recently passed branch"]:::advanced
+    A6["Day 6<br/>Recovery or retest<br/>based on fatigue and failure history"]:::advanced
+    A7["Day 7<br/>Off<br/>no structured work"]:::advanced
+    A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7
+  end
+
+  BeginnerRule --> B1
+  IntermediateRule --> I1
+  AdvancedRule --> A1
+
+  B6 -.-> BeginnerRule
+  I5 -.-> IntermediateRule
+  A3 -.-> AdvancedRule

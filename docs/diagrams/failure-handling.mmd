@@ -1,0 +1,61 @@
+%% Failure handling activity diagram / decision flow.
+%% Clarifies that failure is useful only after classification and a prescribed programming response.
+flowchart TD
+  classDef decision fill:#fff8dd,stroke:#8a6d00,color:#111
+  classDef fail fill:#ffeceb,stroke:#9b2c2c,color:#111
+  classDef response fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef review fill:#f2f2f2,stroke:#555,color:#111
+
+  Fail([Failed attempt or failed maintenance check])
+  Evidence["Read evidence:<br/>rule confusion, artifact status, critical constraint, error pattern, load change, prerequisite status"]:::review
+  Classify{"Which failure type<br/>does the evidence support?"}:::decision
+
+  Technical["Technical failure<br/>form of the drill is not understood or executed"]:::fail
+  Effort["Effort failure<br/>standard avoided, rushed, skipped, or changed"]:::fail
+  Overload["Overload<br/>demand exceeds current capacity despite honest execution"]:::fail
+  BadProgramming["Bad programming<br/>sequencing, volume, recovery, or prerequisite mismatch caused failure"]:::fail
+
+  TechResponse["Stop test<br/>return to practice<br/>simplify instruction<br/>increase preparation<br/>retest later"]:::response
+  EffortResponse["Fail attempt<br/>repeat same or lower load<br/>require stricter evidence<br/>clean practice artifact before retest"]:::response
+  OverloadResponse["Reduce one load variable<br/>train regression preserving core demand<br/>stabilize clean form<br/>retest after clean practice"]:::response
+  BadResponse["Deload<br/>restore prerequisites<br/>revise weekly emphasis<br/>run maintenance checks<br/>no new tests"]:::response
+
+  RepeatOverload{"Repeated overload<br/>in same branch?"}:::decision
+  MultiBranch{"Two or more branches<br/>overload or decay in same week?"}:::decision
+  Stuck{"Same gate fails three times<br/>or same critical constraint fails in regressions?"}:::decision
+
+  InspectPrereq["Inspect prerequisite branch<br/>reduce weekly load"]:::response
+  DeloadWeek["Deload week<br/>drop total working sets by roughly one third<br/>suspend tests<br/>keep maintenance checks"]:::response
+  StuckResponse["Stuck response<br/>stop advancement tests<br/>train nearest prerequisite for one week<br/>retest failed constraint before whole gate"]:::response
+  Restore["If maintenance decay exists:<br/>pass last owned standard once<br/>and one lower-load transfer check"]:::response
+  ReturnTraining["Return to training, stabilization, or maintenance with prescribed load"]:::response
+
+  Fail --> Evidence
+  Evidence --> Classify
+  Classify --> Technical
+  Classify --> Effort
+  Classify --> Overload
+  Classify --> BadProgramming
+
+  Technical --> TechResponse
+  Effort --> EffortResponse
+  Overload --> OverloadResponse
+  BadProgramming --> BadResponse
+
+  OverloadResponse --> RepeatOverload
+  RepeatOverload -->|Yes| InspectPrereq
+  RepeatOverload -->|No| ReturnTraining
+
+  BadResponse --> MultiBranch
+  MultiBranch -->|Yes| DeloadWeek
+  MultiBranch -->|No| Restore
+
+  TechResponse --> Stuck
+  EffortResponse --> Stuck
+  InspectPrereq --> Stuck
+  DeloadWeek --> Stuck
+  Restore --> ReturnTraining
+
+  Stuck -->|Yes| StuckResponse
+  Stuck -->|No| ReturnTraining
+  StuckResponse --> ReturnTraining
