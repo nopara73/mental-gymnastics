@@ -176,6 +176,13 @@ public static class StableDomainIdentifiers
             [PromptContentKind.DiscriminationItemSet] = "DiscriminationItemSet",
             [PromptContentKind.RuleExampleSet] = "RuleExampleSet",
         });
+
+    public static IStableDomainIdentifierMap<PromptFreshnessPolicy> PromptFreshnessPolicies { get; } =
+        new StableDomainIdentifierMap<PromptFreshnessPolicy>(new Dictionary<PromptFreshnessPolicy, string>
+        {
+            [PromptFreshnessPolicy.IdenticalReuseAllowed] = "IdenticalReuseAllowed",
+            [PromptFreshnessPolicy.FreshEquivalentRequired] = "FreshEquivalentRequired",
+        });
 }
 
 internal sealed class StableDomainIdentifierMap<TDomain> : IStableDomainIdentifierMap<TDomain>

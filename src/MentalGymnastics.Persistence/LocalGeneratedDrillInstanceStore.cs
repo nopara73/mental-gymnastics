@@ -109,6 +109,40 @@ public sealed class LocalGeneratedDrillContentIdentity
     }
 }
 
+public sealed class LocalGeneratedDrillAuditMaterial
+{
+    public LocalGeneratedDrillAuditMaterial(
+        string kind,
+        string name,
+        string value)
+    {
+        if (string.IsNullOrWhiteSpace(kind))
+        {
+            throw new ArgumentException("Generated drill audit material kind is required.", nameof(kind));
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Generated drill audit material name is required.", nameof(name));
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Generated drill audit material value is required.", nameof(value));
+        }
+
+        Kind = kind;
+        Name = name;
+        Value = value;
+    }
+
+    public string Kind { get; }
+
+    public string Name { get; }
+
+    public string Value { get; }
+}
+
 public sealed class LocalGeneratedDrillInstanceRecord
 {
     public LocalGeneratedDrillInstanceRecord(
@@ -121,7 +155,10 @@ public sealed class LocalGeneratedDrillInstanceRecord
         LocalGeneratedDrillContentIdentity contentIdentity,
         LocalGeneratedDrillInstanceState state = LocalGeneratedDrillInstanceState.Reserved,
         string? activeSessionId = null,
-        string? resultEvidenceArtifactId = null)
+        string? resultEvidenceArtifactId = null,
+        string? contentSummary = null,
+        PromptFreshnessPolicy? freshnessPolicy = null,
+        IEnumerable<LocalGeneratedDrillAuditMaterial>? auditMaterials = null)
     {
         if (string.IsNullOrWhiteSpace(instanceId))
         {
@@ -159,6 +196,25 @@ public sealed class LocalGeneratedDrillInstanceRecord
 
         var normalizedActiveSessionId = NormalizeOptionalString(activeSessionId);
         var normalizedResultEvidenceArtifactId = NormalizeOptionalString(resultEvidenceArtifactId);
+        var normalizedContentSummary = NormalizeOptionalString(contentSummary);
+        var auditMaterialArray = (auditMaterials ?? []).ToArray();
+        foreach (var material in auditMaterialArray)
+        {
+            ArgumentNullException.ThrowIfNull(material);
+        }
+
+        if (freshnessPolicy.HasValue)
+        {
+            EnsureDefined(freshnessPolicy.Value, nameof(freshnessPolicy));
+        }
+
+        if (auditMaterialArray.Length > 0 && normalizedContentSummary is null)
+        {
+            throw new ArgumentException(
+                "Generated drill audit material requires a content summary.",
+                nameof(contentSummary));
+        }
+
         if (state == LocalGeneratedDrillInstanceState.InSession &&
             normalizedActiveSessionId is null)
         {
@@ -201,6 +257,9 @@ public sealed class LocalGeneratedDrillInstanceRecord
         State = state;
         ActiveSessionId = normalizedActiveSessionId;
         ResultEvidenceArtifactId = normalizedResultEvidenceArtifactId;
+        ContentSummary = normalizedContentSummary;
+        FreshnessPolicy = freshnessPolicy;
+        AuditMaterials = Array.AsReadOnly(auditMaterialArray);
     }
 
     public string InstanceId { get; }
@@ -223,6 +282,12 @@ public sealed class LocalGeneratedDrillInstanceRecord
 
     public string? ResultEvidenceArtifactId { get; }
 
+    public string? ContentSummary { get; }
+
+    public PromptFreshnessPolicy? FreshnessPolicy { get; }
+
+    public IReadOnlyList<LocalGeneratedDrillAuditMaterial> AuditMaterials { get; }
+
     public bool CanBeReused =>
         State is LocalGeneratedDrillInstanceState.Reserved or LocalGeneratedDrillInstanceState.InSession;
 
@@ -234,6 +299,15 @@ public sealed class LocalGeneratedDrillInstanceRecord
         }
 
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, value, "Unknown program identifier.");
+        }
     }
 }
 
@@ -256,6 +330,10 @@ public sealed class LocalGeneratedDrillInstanceStore
     private const string ContentKindPropertyName = "ContentKind";
     private const string EquivalenceClassPropertyName = "EquivalenceClass";
     private const string VersionPropertyName = "Version";
+    private const string FreshnessPolicyPropertyName = "FreshnessPolicy";
+    private const string ContentSummaryPropertyName = "ContentSummary";
+    private const string AuditMaterialsPropertyName = "AuditMaterials";
+    private const string KindPropertyName = "Kind";
     private const string StatePropertyName = "State";
     private const string ActiveSessionIdPropertyName = "ActiveSessionId";
     private const string ResultEvidenceArtifactIdPropertyName = "ResultEvidenceArtifactId";
@@ -530,6 +608,22 @@ public sealed class LocalGeneratedDrillInstanceStore
             recordObject[ResultEvidenceArtifactIdPropertyName] = record.ResultEvidenceArtifactId;
         }
 
+        if (record.ContentSummary is not null)
+        {
+            recordObject[ContentSummaryPropertyName] = record.ContentSummary;
+        }
+
+        if (record.FreshnessPolicy is { } freshnessPolicy)
+        {
+            recordObject[FreshnessPolicyPropertyName] =
+                StableDomainIdentifiers.PromptFreshnessPolicies.ToPersistedId(freshnessPolicy);
+        }
+
+        if (record.AuditMaterials.Count > 0)
+        {
+            recordObject[AuditMaterialsPropertyName] = WriteAuditMaterials(record.AuditMaterials);
+        }
+
         return recordObject;
     }
 
@@ -562,6 +656,22 @@ public sealed class LocalGeneratedDrillInstanceStore
         return loadVariableArray;
     }
 
+    private static JsonArray WriteAuditMaterials(IEnumerable<LocalGeneratedDrillAuditMaterial> materials)
+    {
+        var materialArray = new JsonArray();
+        foreach (var material in materials)
+        {
+            materialArray.Add(new JsonObject
+            {
+                [KindPropertyName] = material.Kind,
+                [NamePropertyName] = material.Name,
+                [ValuePropertyName] = material.Value,
+            });
+        }
+
+        return materialArray;
+    }
+
     private static JsonObject WriteDate(TrainingDate date)
     {
         return new JsonObject
@@ -589,7 +699,10 @@ public sealed class LocalGeneratedDrillInstanceStore
             ReadContentIdentity(ReadRequiredObject(recordObject, ContentIdentityPropertyName)),
             GeneratedInstanceStates.FromPersistedId(ReadRequiredString(recordObject, StatePropertyName)),
             ReadOptionalString(recordObject, ActiveSessionIdPropertyName),
-            ReadOptionalString(recordObject, ResultEvidenceArtifactIdPropertyName));
+            ReadOptionalString(recordObject, ResultEvidenceArtifactIdPropertyName),
+            ReadOptionalString(recordObject, ContentSummaryPropertyName),
+            ReadOptionalEnum(recordObject, FreshnessPolicyPropertyName, StableDomainIdentifiers.PromptFreshnessPolicies),
+            ReadAuditMaterials(recordObject));
     }
 
     private static LocalGeneratedDrillContentIdentity ReadContentIdentity(JsonObject contentObject)
@@ -614,6 +727,35 @@ public sealed class LocalGeneratedDrillInstanceStore
         return new LoadVariable(
             ReadRequiredString(loadVariableObject, NamePropertyName),
             ReadRequiredString(loadVariableObject, ValuePropertyName));
+    }
+
+    private static IReadOnlyList<LocalGeneratedDrillAuditMaterial> ReadAuditMaterials(JsonObject recordObject)
+    {
+        if (!recordObject.TryGetPropertyValue(AuditMaterialsPropertyName, out var node) ||
+            node is null)
+        {
+            return [];
+        }
+
+        if (node is not JsonArray materialArray)
+        {
+            throw new InvalidOperationException("The stored generated drill audit material is invalid.");
+        }
+
+        return materialArray.Select(ReadAuditMaterial).ToArray();
+    }
+
+    private static LocalGeneratedDrillAuditMaterial ReadAuditMaterial(JsonNode? node)
+    {
+        if (node is not JsonObject materialObject)
+        {
+            throw new InvalidOperationException("The stored generated drill audit material is invalid.");
+        }
+
+        return new LocalGeneratedDrillAuditMaterial(
+            ReadRequiredString(materialObject, KindPropertyName),
+            ReadRequiredString(materialObject, NamePropertyName),
+            ReadRequiredString(materialObject, ValuePropertyName));
     }
 
     private static TrainingDate ReadDate(JsonObject dateObject)
@@ -707,6 +849,21 @@ public sealed class LocalGeneratedDrillInstanceStore
         }
 
         return node.GetValue<string>();
+    }
+
+    private static TEnum? ReadOptionalEnum<TEnum>(
+        JsonObject jsonObject,
+        string propertyName,
+        IStableDomainIdentifierMap<TEnum> map)
+        where TEnum : struct, Enum
+    {
+        if (!jsonObject.TryGetPropertyValue(propertyName, out var node) ||
+            node is null)
+        {
+            return null;
+        }
+
+        return map.FromPersistedId(node.GetValue<string>());
     }
 
     private static int ReadRequiredInt32(JsonObject jsonObject, string propertyName)

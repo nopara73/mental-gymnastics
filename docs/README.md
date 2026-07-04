@@ -31,3 +31,10 @@ The persistence documentation explains where local offline storage contracts liv
 - [MentalGymnastics Session Runtime Layer](session-runtime-boundary.md)
 
 The session runtime documentation explains how the implemented headless runtime administers live drill sessions, captures evidence, supports protocol execution, handles snapshot/restore, and hands records to Core and Persistence without taking over progression rules, local storage, Android UI, or external-service concerns.
+
+## Generated Content
+
+- [MentalGymnastics Generated Drill Content Boundary](generated-content-boundary.md)
+- [MentalGymnastics Generated Content Requirements](generated-content-requirements.md)
+
+The generated content documentation explains how the implemented local deterministic content layer produces drill instances, prompt material, cue sequences, item sets, seeded errors, transfer variants, and fresh equivalent variants without taking over Core progression rules, Persistence storage, Runtime execution, Android UI, or external-service concerns.
