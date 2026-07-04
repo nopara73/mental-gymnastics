@@ -4,6 +4,6 @@ This section contains the product and engineering foundation for Mental Gymnasti
 
 ## Foundational Philosophy
 
-- [Progression Against Vibes](foundation/progression-against-vibes.md)
+- [MentalGymnastics: Progression Against Vibes](foundation/progression-against-vibes.md)
 
 The foundational philosophy is not background reading. It is the governing product premise for the app: inner practice should be designed as progression, not atmosphere.

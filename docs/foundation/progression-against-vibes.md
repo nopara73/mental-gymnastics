@@ -1,4 +1,4 @@
-# Progression Against Vibes
+# MentalGymnastics: Progression Against Vibes
 
 **Status:** Foundational philosophy  
 **Applies to:** Product design, practice design, UX, engineering decisions, and agent work  
