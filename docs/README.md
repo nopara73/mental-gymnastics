@@ -25,3 +25,9 @@ The core library documentation explains which training-program rules are already
 - [MentalGymnastics Local Persistence Requirements](local-persistence-requirements.md)
 
 The persistence documentation explains where local offline storage contracts live, what facts must be stored locally, how they reference the core library, and which responsibilities must stay out of persistence.
+
+## Session Runtime
+
+- [MentalGymnastics Session Runtime Layer](session-runtime-boundary.md)
+
+The session runtime documentation explains how the implemented headless runtime administers live drill sessions, captures evidence, supports protocol execution, handles snapshot/restore, and hands records to Core and Persistence without taking over progression rules, local storage, Android UI, or external-service concerns.
