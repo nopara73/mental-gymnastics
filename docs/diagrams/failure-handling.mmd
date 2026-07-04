@@ -19,6 +19,7 @@ flowchart TD
   EffortResponse["Fail attempt<br/>repeat same or lower load<br/>require stricter evidence<br/>clean practice artifact before retest"]:::response
   OverloadResponse["Reduce one load variable<br/>train regression preserving core demand<br/>stabilize clean form<br/>retest after clean practice"]:::response
   BadResponse["Deload<br/>restore prerequisites<br/>revise weekly emphasis<br/>run maintenance checks<br/>no new tests"]:::response
+  RevisePlan["Revise weekly emphasis<br/>increase preparation<br/>return only when prerequisites and maintenance are current"]:::response
 
   RepeatOverload{"Repeated overload<br/>in same branch?"}:::decision
   MultiBranch{"Two or more branches<br/>overload or decay in same week?"}:::decision
@@ -48,12 +49,13 @@ flowchart TD
 
   BadResponse --> MultiBranch
   MultiBranch -->|Yes| DeloadWeek
-  MultiBranch -->|No| Restore
+  MultiBranch -->|No| RevisePlan
 
   TechResponse --> Stuck
   EffortResponse --> Stuck
   InspectPrereq --> Stuck
   DeloadWeek --> Stuck
+  RevisePlan --> Restore
   Restore --> ReturnTraining
 
   Stuck -->|Yes| StuckResponse

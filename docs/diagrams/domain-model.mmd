@@ -63,6 +63,28 @@ class GateOutcome {
   Review
 }
 
+class BranchLevelState {
+  +String state
+  +String branchCode
+  +String levelCode
+  +String maintenanceStatus
+  +String nextProgrammingAction
+  +enterStabilizing()
+  +markOwned()
+  +markDecayed()
+}
+
+class PractitionerState {
+  +String category
+  +String bottleneckBranch
+  +String maintenanceCurrency
+  +String volumeHistory
+  +String intensityHistory
+  +String recoveryHistory
+  +String deloadHistory
+  +summarizeForGlobalReview()
+}
+
 class Regression {
   +String reducedLoadVariable
   +String preservedDemand
@@ -128,8 +150,18 @@ class GlobalReview {
 Program "1" *-- "8" Branch : contains
 Program "1" o-- "5" Level : uses global ladder
 Program "1" o-- "*" GlobalReview : schedules
+Program "1" o-- "*" PractitionerState : evaluates
+PractitionerState "1" *-- "*" BranchLevelState : summarizes
+PractitionerState "1" --> "0..*" FailureType : tracks recent failures
+PractitionerState "1" --> "0..*" EvidenceArtifact : references current artifacts
+PractitionerState "1" --> "0..1" GlobalReview : last review
 Branch "1" *-- "1..*" Capacity : trains
 Branch "1" *-- "1..5" Level : progresses through
+BranchLevelState "*" --> "1" Branch : identifies branch
+BranchLevelState "*" --> "1" Level : identifies level
+BranchLevelState "*" --> "0..*" TestAttempt : informed by
+BranchLevelState "*" --> "0..1" MaintenanceRule : checked by
+BranchLevelState "*" --> "0..1" GateOutcome : last gate result
 Level "1" o-- "1..*" Drill : prepared by
 Drill "*" --> "1..*" Capacity : loads
 Drill "1" --> "1" Standard : defines clean performance
@@ -152,6 +184,8 @@ TransferTest "*" --> "1" Branch : starts from source
 TransferTest "*" --> "1" Standard : keeps source standard visible
 TransferTest "*" --> "1..*" EvidenceArtifact : records transfer
 GlobalReview "1" --> "*" Branch : evaluates owned levels
+GlobalReview "1" --> "*" BranchLevelState : reads current states
+GlobalReview "1" --> "1" PractitionerState : updates
 GlobalReview "1" --> "*" MaintenanceRule : checks currency
 GlobalReview "1" --> "*" EvidenceArtifact : reads
 GlobalReview "1" --> "0..*" FailureType : reviews last failures

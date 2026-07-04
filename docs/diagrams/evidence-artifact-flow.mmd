@@ -1,0 +1,60 @@
+%% Evidence artifact flow.
+%% Clarifies where evidence is created, which artifacts are lightweight, and which are formal.
+flowchart LR
+  classDef session fill:#eef2ff,stroke:#4354a3,color:#111
+  classDef light fill:#eef7ee,stroke:#2f6f4e,color:#111
+  classDef formal fill:#fff8dd,stroke:#8a6d00,color:#111
+  classDef decision fill:#f2f2f2,stroke:#555,color:#111
+  classDef guard fill:#ffeceb,stroke:#9b2c2c,color:#111
+
+  subgraph Sessions["Evidence Creation Points"]
+    direction TB
+    Practice["Practice session"]:::session
+    Load["Load session"]:::session
+    Test["Formal test"]:::session
+    Stabilization["Stabilization session"]:::session
+    Transfer["Transfer session"]:::session
+    Maintenance["Maintenance check"]:::session
+    GlobalReview["Global review"]:::session
+  end
+
+  subgraph Lightweight["Lightweight Artifacts"]
+    direction TB
+    PracticeArtifact["One set record, output sample, or bottleneck note"]:::light
+    LoadArtifact["Load variable, error pattern, and failure mode"]:::light
+    MaintenanceArtifact["Short maintenance pass, warning, or decay note"]:::light
+  end
+
+  subgraph Formal["Formal Artifacts"]
+    direction TB
+    TestArtifact["Branch, level, drill or transfer task, load variables, standard, critical constraints, score or rubric, pass state"]:::formal
+    StabilizationArtifact["Repeatability record across days, variance, adjacent work, or controlled distractor"]:::formal
+    TransferArtifact["Source branch mapping, same demand, changed context, result, and retest status"]:::formal
+    ReviewArtifact["Whole-practitioner review: states, maintenance, failures, bottlenecks, volume, intensity, recovery, deload history"]:::formal
+  end
+
+  ProgrammingDecision["Programming decisions:<br/>readiness, repeat, regress, stabilize, maintain, restore, transfer, or review"]:::decision
+  GateDecision["Gate decision:<br/>fail, passed once, stabilizing, owned, maintenance, decayed, or review"]:::decision
+  BusyworkGuard["Busywork guard:<br/>if an artifact cannot affect programming, do not require it"]:::guard
+
+  Practice --> PracticeArtifact
+  Load --> LoadArtifact
+  Test --> TestArtifact
+  Stabilization --> StabilizationArtifact
+  Transfer --> TransferArtifact
+  Maintenance --> MaintenanceArtifact
+  GlobalReview --> ReviewArtifact
+
+  PracticeArtifact --> ProgrammingDecision
+  LoadArtifact --> ProgrammingDecision
+  MaintenanceArtifact --> ProgrammingDecision
+  TestArtifact --> GateDecision
+  StabilizationArtifact --> GateDecision
+  TransferArtifact --> GateDecision
+  ReviewArtifact --> ProgrammingDecision
+
+  GateDecision --> ProgrammingDecision
+  ProgrammingDecision --> BusyworkGuard
+  BusyworkGuard -. constrains .-> PracticeArtifact
+  BusyworkGuard -. constrains .-> LoadArtifact
+  BusyworkGuard -. constrains .-> MaintenanceArtifact

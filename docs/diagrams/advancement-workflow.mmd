@@ -18,7 +18,7 @@ flowchart TD
   Formal["Formal test<br/>record branch, level, drill or transfer task, load variables, standard, critical constraints, score, artifact"]:::test
   PassingQuality{"Critical constraint intact,<br/>artifact complete,<br/>error threshold met?"}:::gate
   Classify["Classify failure type<br/>technical failure, effort failure, overload, or bad programming"]:::fail
-  Response["Prescribed response<br/>repeat, regress, stabilize, reduce load, deload, restore prerequisites, or retest later"]:::work
+  Response["Prescribed response<br/>repeat, regress, stabilize, reduce load, increase preparation, deload, restore prerequisites, or retest later"]:::work
   PassedOnce["Passed once<br/>formal standard met once"]:::test
   Stabilize["Stabilization<br/>two additional passes on different days within 14 days<br/>one after adjacent work or controlled distractor"]:::test
   Stable{"All stabilization passes clean<br/>with no standard change?"}:::gate
@@ -31,6 +31,7 @@ flowchart TD
   Prereq -->|No| Locked
   Locked --> Train
   Prereq -->|Yes| Train
+  Train -. participation, effort, or insight alone .-> Participation
   Participation --> NoAdv
   Train --> CleanTwice
   CleanTwice -->|No| Train

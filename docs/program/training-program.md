@@ -72,16 +72,25 @@ Transfer is performance of the same capacity in a related but non-identical task
 
 An evidence artifact is a short record that constrains interpretation: score, time, error count, reconstruction, comparison, rule explanation, failed item list, or repeatability record. Artifacts exist to support programming decisions, not to create busywork.
 
+### BranchLevelState
+
+A BranchLevelState is the current programming state of one branch at one level. It records whether that branch-level pair is unopened, training, test-ready, passed once, stabilizing, owned, in maintenance, or decayed.
+
+### PractitionerState
+
+A PractitionerState is the whole-practitioner programming picture used during placement, weekly planning, and global review. It summarizes branch-level states, maintenance currency, recent failure types, bottlenecks, volume, intensity, recovery, deload history, and current practitioner category.
+
 ## Program States
 
-Each branch-level pair can be in one of seven states.
+Each branch-level pair has one BranchLevelState.
 
 | State | Meaning | Advancement Effect |
 | --- | --- | --- |
 | Unopened | Prerequisites are not owned. | Cannot train except as exposure during assessment. |
 | Training | The level is being practiced below or near limit. | No advancement. |
 | Test-ready | Recent practice meets clean-performance criteria. | Formal test may be attempted. |
-| Passed once | One formal test passed. | Enter stabilization; next level remains locked. |
+| Passed once | One formal test passed. | Enter stabilizing; next level remains locked. |
+| Stabilizing | Additional passes are being collected under ordinary variance, time, mild fatigue, distraction, or adjacent work. | Can become owned only after all stabilization passes are clean. |
 | Owned | Pass repeated under retest conditions. | Next level may unlock if global balance allows. |
 | Maintenance | Owned level receives lower-volume exposure. | Keeps later levels valid. |
 | Decayed | Maintenance check failed. | Advanced work depending on it is capped until restored. |
@@ -827,30 +836,3 @@ Some capacities need qualitative judgment. Qualitative does not mean vague.
 | Fail | Critical errors missed, uncertainty hidden, or corrections made without evidence. |
 | Pass | Critical errors found, uncertainty marked, and corrections justified. |
 | Excellent | Critical errors found, noncritical errors mostly found, uncertainty well bounded. |
-
-## Requirement Pass Report
-
-This section records the final thinking-test pass after the document has been revised.
-
-| Requirement Range | Result | Evidence in Document |
-| --- | --- | --- |
-| 1-3 Philosophy and ladder | Pass | Purpose, core terms, branch map, advancement logic. |
-| 4-15 Capacities and prerequisites | Pass | Trainable capacities, branch map, branch progressions. |
-| 16-23 Drill integrity and regressions | Pass | Drill library and regression rules. |
-| 24-31 Stabilization, retesting, transfer, novelty control | Pass | Advancement logic, testing structure, transfer tests. |
-| 32-45 Load, volume, intensity, recovery, failure response | Pass | Load rules, volume/intensity/frequency/recovery, failure classification. |
-| 46-51 Anti-cheating, evidence, maintenance | Pass | Advancement logic, evidence artifacts, maintenance, customization rules. |
-| 52-60 Sessions, weekly structure, start rules | Pass | Session types, weekly structure, starting and placement. |
-| 61-69 Practitioner categories and app-encodable structure | Pass | Practitioner categories, program states, formal test records. |
-| 70-81 Terminology and standards | Pass | Core terms, mixed performance, qualitative rubrics. |
-| 82-90 Balance, bottlenecks, reviews, earned advancement | Pass | Global balance, bottlenecks, global review, TI rules. |
-
-## Open Questions Before Coding
-
-These questions should be resolved before the program becomes app behavior.
-
-1. What exact prompt banks or content generators will provide equivalent but fresh test material for WM, DE, CO, and TI?
-2. Will formal tests be self-administered, peer-reviewed, or partly system-scored?
-3. What artifact storage model is sufficient without turning evidence into journaling busywork?
-4. Which qualitative rubrics need external review before they can be trusted for advancement?
-5. How much time should the default beginner session assume: 20, 30, or 45 minutes?

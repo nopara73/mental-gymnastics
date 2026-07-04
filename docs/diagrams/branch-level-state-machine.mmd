@@ -3,20 +3,29 @@
 stateDiagram-v2
 direction LR
 
+state "Unopened" as Unopened
+state "Training" as Training
+state "Test-ready" as TestReady
+state "Passed once" as PassedOnce
+state "Stabilizing" as Stabilizing
+state "Owned" as Owned
+state "Maintenance" as Maintenance
+state "Decayed" as Decayed
+
 [*] --> Unopened
 
 Unopened --> Training: prerequisites owned and branch opened
 Training --> TestReady: two recent clean practice sessions
 TestReady --> Training: readiness expires or preparation incomplete
 TestReady --> PassedOnce: formal test passed once
-TestReady --> Training: test failed and response prescribed
+TestReady --> Training: test failed; response prescribed
 PassedOnce --> Stabilizing: enter stabilization phase
 Stabilizing --> Owned: two additional clean passes within 14 days
-Stabilizing --> Training: stabilization fail classified
+Stabilizing --> Training: stabilization fail classified; repeat, regress, reduce load, deload, or retest later
 Owned --> Maintenance: lower-volume checks assigned
 Maintenance --> Owned: maintenance pass current
 Maintenance --> Decayed: two failed checks or prerequisite maintenance failure
-Decayed --> Training: restore prerequisite at lower load
+Decayed --> Training: regression or prerequisite restoration work
 Decayed --> Maintenance: last owned standard plus lower-load transfer check passed
 Owned --> Training: next level unlocks if global balance allows
 Maintenance --> Training: global review opens next demand
