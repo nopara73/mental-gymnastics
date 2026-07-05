@@ -111,12 +111,19 @@ public sealed class LocalProgrammingEventTransactionContext
     private const string EvidenceArtifactsPropertyName = "EvidenceArtifacts";
     private const string FormalTestAttemptsPropertyName = "FormalTestAttempts";
     private const string CompletedSessionsPropertyName = "CompletedSessions";
+    private const string StabilizationPassesPropertyName = "StabilizationPasses";
+    private const string MaintenanceChecksPropertyName = "MaintenanceChecks";
+    private const string RestorationChecksPropertyName = "RestorationChecks";
+    private const string GeneratedDrillInstancesPropertyName = "GeneratedDrillInstances";
     private const string ArtifactIdPropertyName = "ArtifactId";
     private const string EventPropertyName = "Event";
     private const string EventIdPropertyName = "EventId";
     private const string EventKindPropertyName = "EventKind";
     private const string ArtifactPropertyName = "Artifact";
     private const string AttemptIdPropertyName = "AttemptId";
+    private const string PassIdPropertyName = "PassId";
+    private const string CheckIdPropertyName = "CheckId";
+    private const string InstanceIdPropertyName = "InstanceId";
     private const string EvidenceArtifactIdPropertyName = "EvidenceArtifactId";
     private const string AttemptPropertyName = "Attempt";
     private const string SessionIdPropertyName = "SessionId";
@@ -260,6 +267,54 @@ public sealed class LocalProgrammingEventTransactionContext
             record.SessionId,
             WriteCompletedSessionRecord(record),
             "The stored completed session history is invalid.");
+    }
+
+    public void SaveStabilizationPass(LocalStabilizationPassRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        UpsertByStringId(
+            StabilizationPassesPropertyName,
+            PassIdPropertyName,
+            record.PassId,
+            LocalStabilizationPassStore.WriteRecord(record),
+            "The stored stabilization pass history is invalid.");
+    }
+
+    public void SaveMaintenanceCheck(LocalMaintenanceCheckRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        UpsertByStringId(
+            MaintenanceChecksPropertyName,
+            CheckIdPropertyName,
+            record.CheckId,
+            LocalMaintenanceCheckStore.WriteMaintenanceRecord(record),
+            "The stored maintenance check history is invalid.");
+    }
+
+    public void SaveRestorationCheck(LocalRestorationCheckRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        UpsertByStringId(
+            RestorationChecksPropertyName,
+            CheckIdPropertyName,
+            record.CheckId,
+            LocalMaintenanceCheckStore.WriteRestorationRecord(record),
+            "The stored restoration check history is invalid.");
+    }
+
+    public void SaveGeneratedDrillInstance(LocalGeneratedDrillInstanceRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        UpsertByStringId(
+            GeneratedDrillInstancesPropertyName,
+            InstanceIdPropertyName,
+            record.InstanceId,
+            LocalGeneratedDrillInstanceStore.WriteRecord(record),
+            "The stored generated drill instance history is invalid.");
     }
 
     private void UpsertByStringId(

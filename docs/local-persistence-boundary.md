@@ -42,6 +42,7 @@ The current persistence project is a pure `net10.0` class library. It has no pac
 - Local backup export/restore packages.
 - Persistence integrity validation for missing required records, invalid references, unknown identifiers, impossible persisted lifecycle history, and orphaned evidence.
 - Non-authoritative progress summaries derived from local facts and core rules.
+- Active runtime session snapshots for honest local resume after process death or Android lifecycle interruption.
 
 Persistence must not own progression decisions. If app code needs to know whether a test is ready, whether a formal attempt passes, whether ownership is earned, whether maintenance is overdue, whether a branch decays, whether an advanced dependency is capped, whether transfer is valid, or what a weekly plan should be, it must load facts from persistence and call `MentalGymnastics.Core`.
 
@@ -62,6 +63,7 @@ The local database stores a JSON document with `Kind` and `SchemaVersion` metada
 | Maintenance and restoration checks | `LocalMaintenanceCheckStore`, `LocalMaintenanceCheckRecord`, `LocalRestorationCheckRecord` | Maintenance and restoration check ids, evidence artifact ids, optional session ids, drill, stated standard, and core check evidence. |
 | Decay and restoration history | `LocalDecayRestorationHistoryStore`, `LocalDecayHistoryRecord`, `LocalRestorationHistoryRecord` | Decay/restoration ids, dates, current and next branch-level statuses, core state-machine transition, source check ids, and restoration evidence. |
 | Generated drill instances | `LocalGeneratedDrillInstanceStore`, `LocalGeneratedDrillInstanceRecord` | Generated instance id, generated date, branch, level, drill, load variables, content identity, content kind, equivalence class, version, runtime state, active session id, and result evidence artifact id. |
+| Active runtime snapshots | `LocalActiveRuntimeSessionSnapshotStore`, `LocalActiveRuntimeSessionSnapshotRecord` | Active session id, generated drill instance identity, runtime session definition, lifecycle state, phase plan, active phase/timing state, pending cue state, ordered runtime events, evidence facts, and correctable-event reference needed for Runtime restore. |
 | Progress summaries | `LocalProgressSummaryStore`, `LocalProgressSummaryRecord` | Non-authoritative local read models: branch summaries, maintenance summaries, blockers, bottleneck branch, next programmed emphasis, counts, dates, and source record references. |
 | Repository/query view | `LocalProgramRepository` | App-facing queries for current state, recent sessions, due maintenance, evidence history, progress-relevant records, and generated drill instances. |
 | Backup packages | `LocalBackupService`, `LocalBackupPackage` | Local-only export/restore envelope containing schema metadata, offline/app-owned flags, and the local database document. |
@@ -106,6 +108,14 @@ Backup is local backup/restore support, not cloud sync. It must not grow account
 
 `LocalProgressSummaryStore.RefreshAsync(...)` derives a display-oriented summary from persisted facts and core maintenance rules, saves it as non-authoritative, and records source references. App code may display the summary, but the underlying sessions, attempts, evidence, maintenance checks, and practitioner state remain authoritative.
 
+### Active Runtime Resume
+
+`LocalActiveRuntimeSessionSnapshotStore` saves the live facts needed to resume an in-progress Runtime session from the local JSON database. It records Runtime snapshot data without referencing `MentalGymnastics.Runtime`, so the dependency direction remains Persistence -> Core only.
+
+Saved active snapshots are not successful evidence and must not grant advancement. App integration must restore them through Runtime snapshot/restore APIs. If Runtime rejects a snapshot as unsafe or non-resumable, the app must treat it as non-successful continuation state, not as a completed session, formal attempt, stabilization pass, maintenance pass, or gate result.
+
+Active snapshot delete and clear operations affect only the in-progress resume collection. They must not replace completed session history, evidence artifacts, formal attempts, or generated instance completion records.
+
 ## Migrations
 
 Schema versioning is explicit through `LocalDatabaseSchema.CurrentVersion`.
@@ -136,9 +146,10 @@ Future Android UI and session runtime code should consume persistence in this or
 2. Initialize storage with `LocalDatabaseInitializer` at app startup or first use.
 3. Use `LocalProgramRepository` for app-screen queries: current state, recent sessions, evidence history, due maintenance, progress records, and reusable generated drill instances.
 4. Use specific stores when a screen or runtime needs one record type, such as sessions, evidence artifacts, attempts, maintenance checks, or generated drill instances.
-5. Use `LocalProgrammingEventTransaction` when one completed programming event must save related state, evidence, attempt, and session records atomically.
-6. Pass loaded facts into `MentalGymnastics.Core` evaluators for readiness, gate, stabilization, ownership, maintenance, decay, restoration, dependency cap, global balance, transfer, recovery, deload, weekly planning, category classification, stuck-state, and global review decisions.
-7. Persist the resulting facts or source evidence, not a parallel copy of the rule.
+5. Use `LocalActiveRuntimeSessionSnapshotStore` only for active in-progress session resume data, then restore through `MentalGymnastics.Runtime` before allowing continuation.
+6. Use `LocalProgrammingEventTransaction` when one completed programming event must save related state, evidence, attempt, and session records atomically.
+7. Pass loaded facts into `MentalGymnastics.Core` evaluators for readiness, gate, stabilization, ownership, maintenance, decay, restoration, dependency cap, global balance, transfer, recovery, deload, weekly planning, category classification, stuck-state, and global review decisions.
+8. Persist the resulting facts or source evidence, not a parallel copy of the rule.
 
 Android UI may format records, collect inputs, display core evaluator results, and choose navigation. It must not create alternate local databases, SharedPreferences progression stores, Room entities that redefine core facts, duplicated branch catalogs, duplicate maintenance calculations, or UI-local advancement flags.
 
@@ -173,5 +184,6 @@ The persistence test suite locks down these invariants:
 - Local backup export/restore preserves offline data and rejects invalid or integrity-broken packages without replacing existing data.
 - Integrity validation detects representative corrupted local data.
 - Repository queries expose app-needed local records without duplicating core progression logic.
+- Active runtime snapshots round trip locally, preserve generated instance, phase/timing, pending cues, event history, and evidence facts, and reject progression/gate decision facts as active state.
 
 When future agents add storage behavior, add tests at this boundary and keep rule changes in `MentalGymnastics.Core`.

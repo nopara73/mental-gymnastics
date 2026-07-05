@@ -1,25 +1,68 @@
 # Mental Gymnastics
 
-A minimal native Android application written in C# with .NET for Android.
+Mental Gymnastics is a .NET/C# training-program codebase for standards-based mental practice. The current implementation is mostly a non-UI stack: pure domain rules, local offline persistence, headless session runtime, deterministic generated content, and a pre-UI app integration layer that composes those pieces for future Android screens.
+
+The Android project still exists as the platform host, but the product logic is no longer a minimal placeholder app. Future Android UI should render app-facing state and forward user actions through the pre-UI app integration layer instead of reimplementing progression, storage, timers, generated content, or session completion logic in screens.
+
+## Architecture
+
+| Layer | Project | Responsibility |
+| --- | --- | --- |
+| Core | `src/MentalGymnastics.Core` | Training-program vocabulary, catalogs, branch-level state machine, standards, gates, readiness, ownership, maintenance, decay, dependency caps, balance, transfer, recovery, deload, weekly planning, failure routing, and global review rules. |
+| Persistence | `src/MentalGymnastics.Persistence` | Offline, userless, app-owned local JSON storage for practitioner state, sessions, attempts, evidence, stabilization, maintenance, decay/restoration, generated instances, active runtime snapshots, progress summaries, backup/restore, migrations, transactions, and integrity validation. |
+| Runtime | `src/MentalGymnastics.Runtime` | Headless live session execution: session definitions, lifecycle, deterministic clocks, phases, cues, command handling, scoring facts, evidence capture, completion results, snapshot/restore, and handoffs. |
+| Generated Content | `src/MentalGymnastics.Content` | Local deterministic drill material, content identity/versioning, freshness/equivalence, local content banks, validation, difficulty audit, runtime packaging, and persistence handoff. |
+| App Integration | `src/MentalGymnastics.App` | Pre-UI workflows that compose Core, Persistence, Runtime, and Generated Content for startup, state loading, work selection, content prep, runtime prep, session completion processing, active snapshot handling, and progress refresh. |
+| Android Host | `src/MentalGymnastics.Android` | Future native Android UI host. It should consume `MentalGymnastics.App` and avoid direct rule/storage/runtime/content orchestration in screens. |
+
+Dependency direction should stay one-way: lower libraries do not reference `MentalGymnastics.App` or Android. Android may reference the pre-UI app integration layer.
+
+## Persistence
+
+Persistence is intentionally local JSON right now. SQLite, Room, SharedPreferences progression mirrors, accounts, sync, backend services, telemetry, analytics, notifications, and AI/API dependencies are not required for the current architecture.
+
+Use `LocalDatabaseOptions.ForAppOwnedPath(...)` and the persistence stores through app integration. If a future workflow needs new stored facts, add them to `MentalGymnastics.Persistence` with tests rather than creating a parallel Android-local store.
+
+## Android Consumption
+
+Future Android UI should:
+
+1. Supply an app-owned local JSON file path to `AppStartupConfiguration`.
+2. Use `PreUiTrainingWorkflowService` and related app-layer services for startup, current state, next work, content preparation, runtime session preparation, active session snapshot resume, completion processing, and progress refresh.
+3. Render app-facing read models and runtime state.
+4. Forward user actions into runtime/app integration commands.
+5. Display Core decisions as returned without weakening prerequisites, standards, maintenance blocks, dependency caps, or failed/abandoned session outcomes.
+
+Android UI should not create independent phase timers, cue schedulers, hidden evidence logs, screen-local pass/fail flags, SharedPreferences or Room progression state, ad hoc prompts, generated-content identity schemes, or direct advancement decisions.
 
 ## Documentation
 
-- [MentalGymnastics: Progression Against Vibes](docs/foundation/progression-against-vibes.md) is the foundational philosophy for the app.
+Start with [docs/README.md](docs/README.md). The key references are:
+
+- [Progression Against Vibes](docs/foundation/progression-against-vibes.md)
+- [Standards-Based Skill Ladder](docs/foundation/standards-based-skill-ladder.md)
+- [Complete Training Program](docs/program/training-program.md)
+- [Core Library](docs/core-library.md)
+- [Local Persistence Boundary](docs/local-persistence-boundary.md)
+- [Session Runtime Boundary](docs/session-runtime-boundary.md)
+- [Generated Content Boundary](docs/generated-content-boundary.md)
+- [Pre-UI App Integration Boundary](docs/app-integration-boundary.md)
 
 ## Requirements
 
 - .NET SDK 10.0.301 or newer compatible 10.0 SDK
-- .NET Android workload
-- Android SDK platform tools (`adb`)
+- .NET Android workload for building/deploying the Android host
+- Android SDK platform tools (`adb`) for device deployment
 - A phone with Developer options and USB debugging enabled for deployment
 
-## Build
+## Build And Test
 
 ```powershell
 dotnet build .\MentalGymnastics.sln -c Debug
+dotnet test .\MentalGymnastics.sln --no-build
 ```
 
-## Deploy to a USB-connected Android phone
+## Deploy To A USB-Connected Android Phone
 
 1. Enable Developer options on the phone.
 2. Enable USB debugging.

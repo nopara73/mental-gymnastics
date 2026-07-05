@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using MentalGymnastics.Core;
 
 namespace MentalGymnastics.Persistence;
@@ -28,6 +29,7 @@ public sealed class LocalGeneratedDrillContentIdentity
     {
     }
 
+    [JsonConstructor]
     public LocalGeneratedDrillContentIdentity(
         string contentId,
         BranchCode branch,
@@ -584,7 +586,7 @@ public sealed class LocalGeneratedDrillInstanceStore
         return -1;
     }
 
-    private static JsonObject WriteRecord(LocalGeneratedDrillInstanceRecord record)
+    internal static JsonObject WriteRecord(LocalGeneratedDrillInstanceRecord record)
     {
         var recordObject = new JsonObject
         {

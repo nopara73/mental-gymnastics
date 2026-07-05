@@ -444,7 +444,7 @@ public sealed class LocalMaintenanceCheckStore
         return -1;
     }
 
-    private static JsonObject WriteMaintenanceRecord(LocalMaintenanceCheckRecord record)
+    internal static JsonObject WriteMaintenanceRecord(LocalMaintenanceCheckRecord record)
     {
         var recordObject = new JsonObject
         {
@@ -467,7 +467,7 @@ public sealed class LocalMaintenanceCheckStore
         return recordObject;
     }
 
-    private static JsonObject WriteRestorationRecord(LocalRestorationCheckRecord record)
+    internal static JsonObject WriteRestorationRecord(LocalRestorationCheckRecord record)
     {
         var recordObject = new JsonObject
         {

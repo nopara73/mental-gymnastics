@@ -160,22 +160,45 @@ public static class GeneratedContentSelectionCoordinator
         GeneratedContentSelectionNeed need,
         GeneratedContentSeed seed)
     {
+        return Select(need, seed, []);
+    }
+
+    public static GeneratedContentSelectionResult Select(
+        GeneratedContentSelectionNeed need,
+        GeneratedContentSeed seed,
+        IEnumerable<LocalContentBank> localContentBanks)
+    {
         ArgumentNullException.ThrowIfNull(need);
         ArgumentNullException.ThrowIfNull(seed);
+        ArgumentNullException.ThrowIfNull(localContentBanks);
+
+        var localContentBankArray = localContentBanks.ToArray();
+        if (localContentBankArray.Any(bank => bank is null))
+        {
+            throw new ArgumentException(
+                "Generated content local bank selection cannot contain null banks.",
+                nameof(localContentBanks));
+        }
 
         if (need.TransferRequest is not null)
         {
             return SelectTransferContent(need.TransferRequest, seed);
         }
 
-        return SelectStandardContent(need, seed);
+        return SelectStandardContent(need, seed, localContentBankArray);
     }
 
     private static GeneratedContentSelectionResult SelectStandardContent(
         GeneratedContentSelectionNeed need,
-        GeneratedContentSeed seed)
+        GeneratedContentSeed seed,
+        IReadOnlyCollection<LocalContentBank> localContentBanks)
     {
-        var generated = GenerateStandardContent(need.ContentRequest, seed);
+        var generated = TrySelectLocalContent(
+            need.ContentRequest,
+            localContentBanks,
+            out var localGenerated)
+            ? localGenerated
+            : GenerateStandardContent(need.ContentRequest, seed);
         var freshnessValidation = EvaluateFreshness(generated.Result);
         var difficultyAudit = AuditDifficulty(
             generated.Result,
@@ -197,6 +220,35 @@ public static class GeneratedContentSelectionCoordinator
             difficultyAudit,
             transferValidation: null,
             transferEligibilityRequest: null);
+    }
+
+    private static bool TrySelectLocalContent(
+        GeneratedDrillContentRequest request,
+        IReadOnlyCollection<LocalContentBank> localContentBanks,
+        out StandardGeneratedContent generated)
+    {
+        foreach (var bank in localContentBanks
+            .OrderBy(bank => bank.BankId, StringComparer.Ordinal)
+            .ThenBy(bank => bank.BankVersion, StringComparer.Ordinal))
+        {
+            var selection = LocalContentBankSelector.Select(
+                bank,
+                new LocalContentBankSelectionRequest(request));
+
+            if (selection.Content is null)
+            {
+                continue;
+            }
+
+            generated = new StandardGeneratedContent(
+                selection.Content.Result,
+                selection.Content.Materials,
+                selection.Content);
+            return true;
+        }
+
+        generated = null!;
+        return false;
     }
 
     private static GeneratedContentSelectionResult SelectTransferContent(

@@ -343,7 +343,7 @@ public sealed class LocalStabilizationPassStore
         return -1;
     }
 
-    private static JsonObject WriteRecord(LocalStabilizationPassRecord record)
+    internal static JsonObject WriteRecord(LocalStabilizationPassRecord record)
     {
         var recordObject = new JsonObject
         {

@@ -21,6 +21,7 @@ Persist these records locally on device:
 | Maintenance history | Maintenance check records by branch and owned level, date, check kind, standard result, critical-constraint result, and artifact link. | Currency, warning, overdue, failed, decay, and dependency cap decisions require maintenance history. |
 | Decay and restoration history | Decay event records, failed maintenance evidence, affected branch-level, restoration attempts, last-owned-standard pass, and lower-load transfer check. | Decay is distinct from ordinary training failure and must remain auditable. |
 | Generated drill instances | Concrete prompts, cue sequences, delayed reconstruction tasks, discrimination item sets, rule examples, source content identifiers, freshness policy, equivalence group, and use date. | Retesting and transfer need fresh but equivalent content; offline use needs the exact generated instance. |
+| Active runtime session snapshots | In-progress runtime session id, generated drill instance id, session definition, lifecycle state, active phase, timing state, pending cues, ordered runtime events, evidence facts, and correctable-event reference. | Android lifecycle interruption or process death needs honest resume data without turning an unfinished session into successful evidence. |
 | Progress summaries | Generated progress summary snapshots with date, source snapshot or review period, branch owned levels, maintenance summary, active blockers, bottleneck, and next programmed emphasis. | Offline review screens can show the latest summary, while Core remains the authority for recomputing current decisions. |
 
 All records should use core identifiers where available: `BranchCode`, `GlobalLevelId`, `BranchLevelState`, `SessionType`, `EvidenceArtifactCategory`, `FormalTestPassState`, `FailureType`, maintenance states, rubric outcomes, and related core vocabulary.
@@ -62,6 +63,7 @@ Do not persist derived decisions that can be recomputed from persisted facts and
 - Current weekly plan.
 - Current global review pass/fail result.
 - Current gate decision when the original formal attempt and standard evidence are available.
+- Active runtime snapshots as completed-session, pass, ownership, maintenance, stabilization, or gate authority.
 
 If a derived result is saved for audit or display speed, store it as a non-authoritative read model with its source record IDs and generation date. The app must be able to discard and recompute it from persisted facts plus the core library.
 

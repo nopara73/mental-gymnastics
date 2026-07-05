@@ -2,6 +2,18 @@
 
 This section contains the product and engineering foundation for Mental Gymnastics.
 
+## Current Non-UI Stack
+
+The repository now contains a completed pre-UI stack for the training program:
+
+- `MentalGymnastics.Core` owns progression rules and static program vocabulary.
+- `MentalGymnastics.Persistence` owns offline, userless, app-owned local JSON storage. SQLite is intentionally not required at this stage.
+- `MentalGymnastics.Runtime` owns headless live drill execution.
+- `MentalGymnastics.Content` owns local deterministic generated drill content and runtime/persistence handoffs.
+- `MentalGymnastics.App` composes those layers into non-visual workflows for future Android UI.
+
+Future Android screens should consume `MentalGymnastics.App` workflow/read-model services, render their output, and forward user actions into app/runtime commands. Android UI should not bypass the app integration layer to reimplement progression decisions, local storage paths, timers, cue schedules, prompt generation, evidence logs, completion processing, or progress refresh.
+
 ## Foundation Documents
 
 - [MentalGymnastics: Progression Against Vibes](foundation/progression-against-vibes.md)
@@ -36,5 +48,12 @@ The session runtime documentation explains how the implemented headless runtime 
 
 - [MentalGymnastics Generated Drill Content Boundary](generated-content-boundary.md)
 - [MentalGymnastics Generated Content Requirements](generated-content-requirements.md)
+- [MentalGymnastics Generated Content MVP Offline Depth Audit](generated-content-mvp-offline-audit.md)
 
 The generated content documentation explains how the implemented local deterministic content layer produces drill instances, prompt material, cue sequences, item sets, seeded errors, transfer variants, and fresh equivalent variants without taking over Core progression rules, Persistence storage, Runtime execution, Android UI, or external-service concerns.
+
+## App Integration
+
+- [MentalGymnastics Pre-UI App Integration Boundary](app-integration-boundary.md)
+
+The app integration documentation defines the pure C# layer that composes Core, Persistence, Runtime, and Generated Content into app-facing workflows while keeping Android UI and external-service concerns out of scope. Use it for startup configuration, first-run state initialization, current-state loading, work selection, generated content preparation, runtime session preparation, completed-session processing, active session snapshot handling, and progress refresh.
