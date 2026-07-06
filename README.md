@@ -47,6 +47,7 @@ Start with [docs/README.md](docs/README.md). The key references are:
 - [Session Runtime Boundary](docs/session-runtime-boundary.md)
 - [Generated Content Boundary](docs/generated-content-boundary.md)
 - [Pre-UI App Integration Boundary](docs/app-integration-boundary.md)
+- [Android UI Layer](docs/android-ui-layer.md)
 
 ## Requirements
 

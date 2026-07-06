@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Mental Gymnastics</string>
-    <string name="app_text">Hello from Mental Gymnastics</string>
+    <string name="app_text">Training state</string>
 </resources>

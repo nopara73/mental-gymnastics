@@ -14,4 +14,8 @@
     -->
     <TrimMode>full</TrimMode>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MentalGymnastics.App\MentalGymnastics.App.csproj" />
+  </ItemGroup>
 </Project>

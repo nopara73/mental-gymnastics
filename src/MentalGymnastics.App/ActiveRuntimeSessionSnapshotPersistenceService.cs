@@ -66,6 +66,23 @@ public sealed class ActiveRuntimeSessionSnapshotRestoreRequest
     public RuntimeCueSchedule? CueSchedule { get; }
 }
 
+public sealed class ActiveRuntimeSessionSnapshotRestoreLatestRequest
+{
+    public ActiveRuntimeSessionSnapshotRestoreLatestRequest(
+        IRuntimeClock clock,
+        RuntimeCueSchedule? cueSchedule = null)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+
+        Clock = clock;
+        CueSchedule = cueSchedule;
+    }
+
+    public IRuntimeClock Clock { get; }
+
+    public RuntimeCueSchedule? CueSchedule { get; }
+}
+
 public enum ActiveRuntimeSessionSnapshotRestoreStatus
 {
     Restored,
@@ -115,35 +132,30 @@ public sealed class ActiveRuntimeSessionSnapshotPersistenceService
         {
             record = await snapshotStore.LoadAsync(request.SessionId, cancellationToken)
                 .ConfigureAwait(false);
-            if (record is null)
-            {
-                return new ActiveRuntimeSessionSnapshotRestoreResult(
-                    ActiveRuntimeSessionSnapshotRestoreStatus.NotFound,
-                    CommandHandler: null,
-                    CueScheduler: null,
-                    SnapshotRecord: null,
-                    "No active runtime session snapshot was found.");
-            }
-
-            var snapshot = ToRuntimeSnapshot(record);
-            var commandHandler = RuntimeInputCommandHandler.Restore(snapshot, request.Clock);
-            var cueScheduler = RestoreCueSchedulerIfPresent(record, request, commandHandler);
-
-            return new ActiveRuntimeSessionSnapshotRestoreResult(
-                ActiveRuntimeSessionSnapshotRestoreStatus.Restored,
-                commandHandler,
-                cueScheduler,
-                record,
-                "Active runtime session snapshot restored.");
+            return RestoreRecord(record, request.Clock, request.CueSchedule);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
-            return new ActiveRuntimeSessionSnapshotRestoreResult(
-                ActiveRuntimeSessionSnapshotRestoreStatus.Unsafe,
-                CommandHandler: null,
-                CueScheduler: null,
-                record,
-                exception.Message);
+            return Unsafe(record, exception.Message);
+        }
+    }
+
+    public async ValueTask<ActiveRuntimeSessionSnapshotRestoreResult> RestoreLatestAsync(
+        ActiveRuntimeSessionSnapshotRestoreLatestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        LocalActiveRuntimeSessionSnapshotRecord? record = null;
+        try
+        {
+            record = await snapshotStore.LoadLatestAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return RestoreRecord(record, request.Clock, request.CueSchedule);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return Unsafe(record, exception.Message);
         }
     }
 
@@ -159,9 +171,56 @@ public sealed class ActiveRuntimeSessionSnapshotPersistenceService
         return snapshotStore.ClearAsync(cancellationToken);
     }
 
+    private static ActiveRuntimeSessionSnapshotRestoreResult RestoreRecord(
+        LocalActiveRuntimeSessionSnapshotRecord? record,
+        IRuntimeClock clock,
+        RuntimeCueSchedule? cueSchedule)
+    {
+        try
+        {
+            if (record is null)
+            {
+                return new ActiveRuntimeSessionSnapshotRestoreResult(
+                    ActiveRuntimeSessionSnapshotRestoreStatus.NotFound,
+                    CommandHandler: null,
+                    CueScheduler: null,
+                    SnapshotRecord: null,
+                    "No active runtime session snapshot was found.");
+            }
+
+            var snapshot = ToRuntimeSnapshot(record);
+            var commandHandler = RuntimeInputCommandHandler.Restore(snapshot, clock);
+            var cueScheduler = RestoreCueSchedulerIfPresent(record, clock, cueSchedule, commandHandler);
+
+            return new ActiveRuntimeSessionSnapshotRestoreResult(
+                ActiveRuntimeSessionSnapshotRestoreStatus.Restored,
+                commandHandler,
+                cueScheduler,
+                record,
+                "Active runtime session snapshot restored.");
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return Unsafe(record, exception.Message);
+        }
+    }
+
+    private static ActiveRuntimeSessionSnapshotRestoreResult Unsafe(
+        LocalActiveRuntimeSessionSnapshotRecord? record,
+        string detail)
+    {
+        return new ActiveRuntimeSessionSnapshotRestoreResult(
+            ActiveRuntimeSessionSnapshotRestoreStatus.Unsafe,
+            CommandHandler: null,
+            CueScheduler: null,
+            record,
+            detail);
+    }
+
     private static RuntimeCueScheduler? RestoreCueSchedulerIfPresent(
         LocalActiveRuntimeSessionSnapshotRecord record,
-        ActiveRuntimeSessionSnapshotRestoreRequest request,
+        IRuntimeClock clock,
+        RuntimeCueSchedule? cueSchedule,
         RuntimeInputCommandHandler commandHandler)
     {
         if (record.CueScheduler is null)
@@ -169,15 +228,15 @@ public sealed class ActiveRuntimeSessionSnapshotPersistenceService
             return null;
         }
 
-        if (request.CueSchedule is null)
+        if (cueSchedule is null)
         {
             throw new InvalidOperationException(
                 "A cue schedule is required to restore an active cue scheduler snapshot.");
         }
 
         return RuntimeCueScheduler.Restore(
-            request.CueSchedule,
-            request.Clock,
+            cueSchedule,
+            clock,
             commandHandler.EventLog,
             ToRuntimeCueSchedulerSnapshot(record.CueScheduler));
     }

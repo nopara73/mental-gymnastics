@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using MentalGymnastics.Content;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
@@ -112,6 +115,34 @@ public sealed class PreUiTrainingWorkflowPreparationRequest
             throw new ArgumentOutOfRangeException(parameterName, value, "Unknown program identifier.");
         }
     }
+}
+
+public sealed class PreUiTrainingWorkflowDefaultPreparationRequest
+{
+    public PreUiTrainingWorkflowDefaultPreparationRequest(
+        NextTrainingWorkSelectionQuery selectionQuery,
+        string preparationSource = "android-session-start",
+        RuntimeInputCommandOptions? inputOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(selectionQuery);
+
+        if (string.IsNullOrWhiteSpace(preparationSource))
+        {
+            throw new ArgumentException(
+                "Default pre-UI training workflow preparation requires a source.",
+                nameof(preparationSource));
+        }
+
+        SelectionQuery = selectionQuery;
+        PreparationSource = preparationSource;
+        InputOptions = inputOptions ?? RuntimeInputCommandOptions.Default;
+    }
+
+    public NextTrainingWorkSelectionQuery SelectionQuery { get; }
+
+    public string PreparationSource { get; }
+
+    public RuntimeInputCommandOptions InputOptions { get; }
 }
 
 public sealed class PreUiTrainingWorkflowPreparationResult
@@ -398,6 +429,23 @@ public sealed class PreUiActiveSessionResumeRequest
     }
 
     public string SessionId { get; }
+
+    public IRuntimeClock Clock { get; }
+
+    public RuntimeCueSchedule? CueSchedule { get; }
+}
+
+public sealed class PreUiActiveSessionResumeLatestRequest
+{
+    public PreUiActiveSessionResumeLatestRequest(
+        IRuntimeClock clock,
+        RuntimeCueSchedule? cueSchedule = null)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+
+        Clock = clock;
+        CueSchedule = cueSchedule;
+    }
 
     public IRuntimeClock Clock { get; }
 
@@ -698,6 +746,8 @@ public sealed class PreUiActiveSessionResumeState
 
 public sealed class PreUiTrainingWorkflowService
 {
+    private const string LatestActiveSessionFallbackId = "latest-active-runtime-session";
+
     private readonly CurrentTrainingStateLoader stateLoader;
     private readonly NextTrainingWorkSelector workSelector;
     private readonly SelectedWorkGeneratedContentPreparer contentPreparer;
@@ -735,20 +785,105 @@ public sealed class PreUiTrainingWorkflowService
             return PreUiTrainingWorkflowPreparationResult.Blocked(selection);
         }
 
+        return await PrepareSelectedSessionAsync(
+            selection,
+            request.SelectionQuery.AsOf,
+            request.ContentKind,
+            request.EquivalenceClass,
+            request.FreshnessPolicy,
+            request.Seed,
+            request.RuntimeSessionId,
+            request.PreviouslyUsedContentIds,
+            request.AdditionalCriticalConstraints,
+            request.LoadChangeMode,
+            request.IncreasedVariablesStableSeparately,
+            request.TransferCapacity,
+            request.TransferDistance,
+            request.InputOptions,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<PreUiTrainingWorkflowPreparationResult> PrepareNextSessionWithDefaultsAsync(
+        PreUiTrainingWorkflowDefaultPreparationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var selection = await workSelector.SelectAsync(
+            request.SelectionQuery,
+            cancellationToken).ConfigureAwait(false);
+
+        if (selection.SelectedWork is null)
+        {
+            return PreUiTrainingWorkflowPreparationResult.Blocked(selection);
+        }
+
+        var selectedWork = selection.SelectedWork;
+        var equivalenceClass = EquivalenceClassFor(selectedWork);
+        var previouslyUsedContentIds = await LoadPreviouslyUsedContentIdsAsync(
+            selectedWork,
+            equivalenceClass,
+            cancellationToken).ConfigureAwait(false);
+        var stablePreparationId = StablePreparationIdFor(
+            request.PreparationSource,
+            request.SelectionQuery.AsOf,
+            selectedWork);
+
+        return await PrepareSelectedSessionAsync(
+            selection,
+            request.SelectionQuery.AsOf,
+            ContentKindFor(selectedWork.Drill),
+            equivalenceClass,
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            new GeneratedContentSeed($"{stablePreparationId}-seed"),
+            stablePreparationId,
+            previouslyUsedContentIds,
+            additionalCriticalConstraints: [],
+            loadChangeMode: LoadChangeMode.Acquisition,
+            increasedVariablesStableSeparately: false,
+            transferCapacity: null,
+            transferDistance: null,
+            inputOptions: request.InputOptions,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<PreUiTrainingWorkflowPreparationResult> PrepareSelectedSessionAsync(
+        NextTrainingWorkSelection selection,
+        TrainingDate generatedOn,
+        PromptContentKind contentKind,
+        string equivalenceClass,
+        PromptFreshnessPolicy freshnessPolicy,
+        GeneratedContentSeed seed,
+        string runtimeSessionId,
+        IEnumerable<string> previouslyUsedContentIds,
+        IEnumerable<CriticalConstraint> additionalCriticalConstraints,
+        LoadChangeMode loadChangeMode,
+        bool increasedVariablesStableSeparately,
+        CapacityId? transferCapacity,
+        string? transferDistance,
+        RuntimeInputCommandOptions inputOptions,
+        CancellationToken cancellationToken)
+    {
+        var selectedWork = selection.SelectedWork
+            ?? throw new ArgumentException(
+                "Selected session preparation requires selected work.",
+                nameof(selection));
+
         var generatedContent = contentPreparer.Prepare(
             new SelectedWorkGeneratedContentPreparationRequest(
-                selection.SelectedWork,
-                request.ContentKind,
-                request.EquivalenceClass,
-                request.FreshnessPolicy,
-                request.Seed,
-                request.SelectionQuery.AsOf,
-                request.PreviouslyUsedContentIds,
-                request.AdditionalCriticalConstraints,
-                request.LoadChangeMode,
-                request.IncreasedVariablesStableSeparately,
-                request.TransferCapacity,
-                request.TransferDistance));
+                selectedWork,
+                contentKind,
+                equivalenceClass,
+                freshnessPolicy,
+                seed,
+                generatedOn,
+                previouslyUsedContentIds,
+                additionalCriticalConstraints,
+                loadChangeMode,
+                increasedVariablesStableSeparately,
+                transferCapacity,
+                transferDistance));
         if (!generatedContent.IsPrepared)
         {
             return PreUiTrainingWorkflowPreparationResult.ContentRejected(selection, generatedContent);
@@ -756,9 +891,9 @@ public sealed class PreUiTrainingWorkflowService
 
         var runtimeSession = runtimeSessionPreparer.Prepare(
             new SelectedWorkRuntimeSessionPreparationRequest(
-                request.RuntimeSessionId,
+                runtimeSessionId,
                 generatedContent,
-                request.InputOptions));
+                inputOptions));
         if (!runtimeSession.IsPrepared)
         {
             return PreUiTrainingWorkflowPreparationResult.RuntimeRejected(
@@ -798,6 +933,116 @@ public sealed class PreUiTrainingWorkflowService
             generatedContent,
             runtimeSession,
             generatedRecord);
+    }
+
+    private async ValueTask<IReadOnlyList<string>> LoadPreviouslyUsedContentIdsAsync(
+        SelectedTrainingWork selectedWork,
+        string equivalenceClass,
+        CancellationToken cancellationToken)
+    {
+        var records = await generatedDrillInstanceStore.ListByDrillAsync(
+            selectedWork.Drill,
+            cancellationToken).ConfigureAwait(false);
+
+        return records
+            .Where(record =>
+                !record.CanBeReused &&
+                record.Branch == selectedWork.Branch &&
+                record.Level == selectedWork.Level &&
+                record.ContentIdentity.Kind == ContentKindFor(selectedWork.Drill) &&
+                string.Equals(record.ContentIdentity.EquivalenceClass, equivalenceClass, StringComparison.Ordinal))
+            .Select(record => record.ContentIdentity.ContentId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static PromptContentKind ContentKindFor(DrillId drill)
+    {
+        return drill switch
+        {
+            DrillId.FH1TargetHold => PromptContentKind.EquivalentPrompt,
+            DrillId.FH2DistractorHold => PromptContentKind.CueSequence,
+            DrillId.FS1CueSwitch => PromptContentKind.CueSequence,
+            DrillId.FS2InvalidCueFilter => PromptContentKind.CueSequence,
+            DrillId.WM1DelayedReconstruction => PromptContentKind.DelayedReconstructionTask,
+            DrillId.WM2MentalTransform => PromptContentKind.DelayedReconstructionTask,
+            DrillId.IR1GoNoGoRule => PromptContentKind.CueSequence,
+            DrillId.IR2ExceptionRule => PromptContentKind.CueSequence,
+            DrillId.DE1PairDiscrimination => PromptContentKind.DiscriminationItemSet,
+            DrillId.DE2SeededAudit => PromptContentKind.DiscriminationItemSet,
+            DrillId.CO1RuleExtraction => PromptContentKind.RuleExampleSet,
+            DrillId.CO2StructureMapping => PromptContentKind.RuleExampleSet,
+            DrillId.AI1PressureRepeat => PromptContentKind.EquivalentPrompt,
+            DrillId.AI2DisruptionRecovery => PromptContentKind.EquivalentPrompt,
+            DrillId.TI1CompositeTask => PromptContentKind.EquivalentPrompt,
+            DrillId.TI2GlobalReviewTask => PromptContentKind.EquivalentPrompt,
+            _ => throw new ArgumentOutOfRangeException(nameof(drill), drill, "Unknown drill."),
+        };
+    }
+
+    private static string EquivalenceClassFor(SelectedTrainingWork selectedWork)
+    {
+        var drill = ProgramCatalog.Drills.Single(definition => definition.Id == selectedWork.Drill);
+        return string.Join(
+            "-",
+            selectedWork.Branch.ToString().ToLowerInvariant(),
+            selectedWork.Level.ToString().ToLowerInvariant(),
+            ToKebabCase(drill.Name));
+    }
+
+    private static string StablePreparationIdFor(
+        string source,
+        TrainingDate date,
+        SelectedTrainingWork selectedWork)
+    {
+        var loadFingerprint = string.Join(
+            "|",
+            selectedWork.LoadVariables.Select(variable => $"{variable.Name}={variable.Value}"));
+        var raw = string.Join(
+            "|",
+            source,
+            date.Year.ToString(CultureInfo.InvariantCulture),
+            date.Month.ToString(CultureInfo.InvariantCulture),
+            date.Day.ToString(CultureInfo.InvariantCulture),
+            selectedWork.Branch,
+            selectedWork.Level,
+            selectedWork.Drill,
+            selectedWork.SessionType,
+            loadFingerprint);
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)))
+            .Substring(0, 12)
+            .ToLowerInvariant();
+
+        return string.Join(
+            "-",
+            "session",
+            ToKebabCase(source),
+            date.Year.ToString("0000", CultureInfo.InvariantCulture) +
+                date.Month.ToString("00", CultureInfo.InvariantCulture) +
+                date.Day.ToString("00", CultureInfo.InvariantCulture),
+            selectedWork.Branch.ToString().ToLowerInvariant(),
+            selectedWork.Level.ToString().ToLowerInvariant(),
+            hash);
+    }
+
+    private static string ToKebabCase(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value.Trim())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+                continue;
+            }
+
+            if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        return builder.ToString().Trim('-');
     }
 
     public async ValueTask<PreUiTrainingWorkflowCompletionResult> CompleteSessionAsync(
@@ -971,6 +1216,41 @@ public sealed class PreUiTrainingWorkflowService
             restored.CueScheduler);
     }
 
+    public async ValueTask<PreUiActiveSessionResumeResult> TryResumeLatestActiveSessionAsync(
+        PreUiActiveSessionResumeLatestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var restored = await activeSnapshotService.RestoreLatestAsync(
+            new ActiveRuntimeSessionSnapshotRestoreLatestRequest(
+                request.Clock,
+                request.CueSchedule),
+            cancellationToken).ConfigureAwait(false);
+
+        var state = restored.Status switch
+        {
+            ActiveRuntimeSessionSnapshotRestoreStatus.Restored =>
+                PreUiActiveSessionResumeState.Resumable(restored.SnapshotRecord!, restored.Detail),
+            ActiveRuntimeSessionSnapshotRestoreStatus.NotFound =>
+                PreUiActiveSessionResumeState.NotFound(
+                    restored.SnapshotRecord?.SessionId ?? LatestActiveSessionFallbackId,
+                    restored.Detail),
+            ActiveRuntimeSessionSnapshotRestoreStatus.Unsafe =>
+                PreUiActiveSessionResumeState.Unsafe(
+                    restored.SnapshotRecord,
+                    restored.SnapshotRecord?.SessionId ?? LatestActiveSessionFallbackId,
+                    restored.Detail),
+            _ => throw new ArgumentOutOfRangeException(nameof(restored), restored.Status, "Unknown active session restore status."),
+        };
+
+        return new PreUiActiveSessionResumeResult(
+            state,
+            restored.CommandHandler,
+            restored.CueScheduler);
+    }
+
     public async ValueTask<PreUiActiveSessionInvalidationResult> InvalidateActiveSessionSnapshotAsync(
         PreUiActiveSessionInvalidationRequest request,
         CancellationToken cancellationToken = default)
@@ -978,8 +1258,16 @@ public sealed class PreUiTrainingWorkflowService
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await activeSnapshotService.DeleteAsync(request.SessionId, cancellationToken)
-            .ConfigureAwait(false);
+        if (string.Equals(request.SessionId, LatestActiveSessionFallbackId, StringComparison.Ordinal))
+        {
+            await activeSnapshotService.ClearAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await activeSnapshotService.DeleteAsync(request.SessionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return new PreUiActiveSessionInvalidationResult(
             request.SessionId,

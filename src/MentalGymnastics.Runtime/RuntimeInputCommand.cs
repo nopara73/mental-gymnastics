@@ -6,6 +6,7 @@ public enum RuntimeInputCommandKind
     RespondToCue,
     SubmitAnswer,
     MarkGuess,
+    MarkError,
     Correct,
     StartAudit,
     FinishPhase,
@@ -82,6 +83,16 @@ public sealed class RuntimeInputCommand
         return new RuntimeInputCommand(
             RuntimeInputCommandKind.MarkGuess,
             [new RuntimeEventFact("guess_id", guessId)]);
+    }
+
+    public static RuntimeInputCommand MarkError(string errorId, string errorKind)
+    {
+        return new RuntimeInputCommand(
+            RuntimeInputCommandKind.MarkError,
+            [
+                new RuntimeEventFact("error_id", errorId),
+                new RuntimeEventFact("error_kind", errorKind),
+            ]);
     }
 
     public static RuntimeInputCommand Correct(string correctionId, string correctionReference)
@@ -198,6 +209,14 @@ public sealed record RuntimeInputCommandResult(
     RuntimeSessionPhaseInvalidCompletionReason? PhaseInvalidReason,
     RuntimeSessionLifecycleInvalidTransitionReason? LifecycleInvalidReason);
 
+public sealed record RuntimeInputCommandAvailability(
+    RuntimeInputCommandKind Command,
+    bool IsAvailable,
+    RuntimeInputCommandInvalidReason? InvalidReason,
+    RuntimeSessionLifecycleState LifecycleState,
+    RuntimePhaseSchedulerStatus SchedulerStatus,
+    RuntimeSessionPhaseDefinition? CurrentPhase);
+
 public sealed class RuntimeInputCommandHandler
 {
     private readonly IRuntimeClock _clock;
@@ -239,6 +258,25 @@ public sealed class RuntimeInputCommandHandler
             EventLog.Events,
             _lastCorrectableEvent?.SequenceNumber,
             _clock.Now);
+    }
+
+    public RuntimeInputCommandAvailability AvailabilityFor(RuntimeInputCommandKind command)
+    {
+        EnsureDefined(command, nameof(command));
+
+        if (IsTerminal(LifecycleState.Status))
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.CommandAfterTerminalSession);
+        }
+
+        return command switch
+        {
+            RuntimeInputCommandKind.Pause => PauseAvailability(command),
+            RuntimeInputCommandKind.Resume => ResumeAvailability(command),
+            RuntimeInputCommandKind.Abandon => Availability(command, true, invalidReason: null),
+            RuntimeInputCommandKind.FinishPhase => FinishPhaseAvailability(command),
+            _ => PhaseInputAvailability(command),
+        };
     }
 
     public static RuntimeInputCommandHandler Start(
@@ -340,6 +378,46 @@ public sealed class RuntimeInputCommandHandler
         };
     }
 
+    public RuntimeInputCommandResult AdvanceToCurrentTime()
+    {
+        if (IsTerminal(LifecycleState.Status))
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.CommandAfterTerminalSession);
+        }
+
+        if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Paused)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.SessionPaused);
+        }
+
+        if (LifecycleState.Status != RuntimeSessionLifecycleStatus.Running)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.SessionNotRunning);
+        }
+
+        var schedulerResult = _scheduler.AdvanceToCurrentTime();
+        if (!schedulerResult.IsValid)
+        {
+            return Rejected(
+                RuntimeInputCommandInvalidReason.InvalidPhaseCompletion,
+                phaseInvalidReason: schedulerResult.PhaseInvalidReason);
+        }
+
+        var appendedEvents = EventLog.AppendSchedulerEvents(schedulerResult.Events);
+        if (_scheduler.Status == RuntimePhaseSchedulerStatus.Completed)
+        {
+            var lifecycleResult = RuntimeSessionLifecycleStateMachine.TryApply(
+                LifecycleState,
+                RuntimeSessionLifecycleTransition.Complete);
+            if (lifecycleResult.IsValid)
+            {
+                LifecycleState = lifecycleResult.State;
+            }
+        }
+
+        return Accepted(appendedEvents);
+    }
+
     private RuntimeInputCommandResult CapturePhaseInput(RuntimeInputCommand command)
     {
         if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Paused)
@@ -387,6 +465,57 @@ public sealed class RuntimeInputCommandHandler
         return Accepted([appendedEvent]);
     }
 
+    private RuntimeInputCommandAvailability PhaseInputAvailability(RuntimeInputCommandKind command)
+    {
+        if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Paused)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.SessionPaused);
+        }
+
+        if (LifecycleState.Status != RuntimeSessionLifecycleStatus.Running)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.SessionNotRunning);
+        }
+
+        var phase = CurrentPhase;
+        if (phase is null)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.NoActivePhase);
+        }
+
+        if (!IsAllowedInPhase(command, phase.Kind))
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase);
+        }
+
+        if (command == RuntimeInputCommandKind.Correct)
+        {
+            var correctionAvailability = CorrectionAvailability(command);
+            if (correctionAvailability is not null)
+            {
+                return correctionAvailability;
+            }
+        }
+
+        return Availability(command, true, invalidReason: null);
+    }
+
+    private RuntimeInputCommandAvailability? CorrectionAvailability(RuntimeInputCommandKind command)
+    {
+        if (_lastCorrectableEvent is null)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.NoCorrectableEvent);
+        }
+
+        var elapsed = _clock.Now.ElapsedSince(_lastCorrectableEvent.OccurredAt);
+        if (elapsed.Value > _options.CorrectionWindow.Value)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.CorrectionWindowExpired);
+        }
+
+        return null;
+    }
+
     private RuntimeInputCommandResult? ValidateCorrectionWindow()
     {
         if (_lastCorrectableEvent is null)
@@ -401,6 +530,37 @@ public sealed class RuntimeInputCommandHandler
         }
 
         return null;
+    }
+
+    private RuntimeInputCommandAvailability FinishPhaseAvailability(RuntimeInputCommandKind command)
+    {
+        if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Paused)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.SessionPaused);
+        }
+
+        if (LifecycleState.Status != RuntimeSessionLifecycleStatus.Running)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.SessionNotRunning);
+        }
+
+        if (CurrentPhase is null)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.NoActivePhase);
+        }
+
+        if (CurrentPhase.CompletionRule == RuntimeSessionPhaseCompletionRule.Timed)
+        {
+            var phaseElapsed = _scheduler.CaptureSnapshot().CurrentPhaseElapsed;
+            if (!CurrentPhase.ScheduledDuration.HasValue ||
+                !phaseElapsed.HasValue ||
+                phaseElapsed.Value.Value < CurrentPhase.ScheduledDuration.Value.Value)
+            {
+                return Availability(command, false, RuntimeInputCommandInvalidReason.InvalidPhaseCompletion);
+            }
+        }
+
+        return Availability(command, true, invalidReason: null);
     }
 
     private RuntimeInputCommandResult FinishPhase()
@@ -480,6 +640,24 @@ public sealed class RuntimeInputCommandHandler
         return Accepted([appendedEvent]);
     }
 
+    private RuntimeInputCommandAvailability PauseAvailability(RuntimeInputCommandKind command)
+    {
+        var lifecycleResult = RuntimeSessionLifecycleStateMachine.TryApply(
+            LifecycleState,
+            RuntimeSessionLifecycleTransition.Pause);
+        if (!lifecycleResult.IsValid)
+        {
+            var reason = lifecycleResult.InvalidReason == RuntimeSessionLifecycleInvalidTransitionReason.PauseNotAllowed
+                ? RuntimeInputCommandInvalidReason.PauseNotAllowed
+                : RuntimeInputCommandInvalidReason.IllegalLifecycleTransition;
+            return Availability(command, false, reason);
+        }
+
+        return CanPauseCurrentPhase()
+            ? Availability(command, true, invalidReason: null)
+            : Availability(command, false, RuntimeInputCommandInvalidReason.PauseNotAllowed);
+    }
+
     private RuntimeInputCommandResult Resume(RuntimeInputCommand command)
     {
         var lifecycleResult = RuntimeSessionLifecycleStateMachine.TryApply(
@@ -507,6 +685,16 @@ public sealed class RuntimeInputCommandHandler
             BuildCommandFacts(command));
 
         return Accepted([appendedEvent]);
+    }
+
+    private RuntimeInputCommandAvailability ResumeAvailability(RuntimeInputCommandKind command)
+    {
+        var lifecycleResult = RuntimeSessionLifecycleStateMachine.TryApply(
+            LifecycleState,
+            RuntimeSessionLifecycleTransition.Resume);
+        return lifecycleResult.IsValid
+            ? Availability(command, true, invalidReason: null)
+            : Availability(command, false, RuntimeInputCommandInvalidReason.IllegalLifecycleTransition);
     }
 
     private RuntimeInputCommandResult Abandon(RuntimeInputCommand command)
@@ -561,6 +749,20 @@ public sealed class RuntimeInputCommandHandler
             lifecycleInvalidReason);
     }
 
+    private RuntimeInputCommandAvailability Availability(
+        RuntimeInputCommandKind command,
+        bool isAvailable,
+        RuntimeInputCommandInvalidReason? invalidReason)
+    {
+        return new RuntimeInputCommandAvailability(
+            command,
+            isAvailable,
+            invalidReason,
+            LifecycleState,
+            _scheduler.Status,
+            CurrentPhase);
+    }
+
     private static bool IsAllowedInPhase(
         RuntimeInputCommandKind command,
         RuntimeSessionPhaseKind phase)
@@ -575,6 +777,9 @@ public sealed class RuntimeInputCommandHandler
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput,
             RuntimeInputCommandKind.MarkGuess =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
+            RuntimeInputCommandKind.MarkError =>
+                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or
+                    RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit or RuntimeSessionPhaseKind.Recovery,
             RuntimeInputCommandKind.Correct =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
             RuntimeInputCommandKind.StartAudit =>
@@ -596,6 +801,7 @@ public sealed class RuntimeInputCommandHandler
             RuntimeInputCommandKind.RespondToCue => RuntimeEventKind.CueResponseSubmitted,
             RuntimeInputCommandKind.SubmitAnswer => RuntimeEventKind.AnswerSubmitted,
             RuntimeInputCommandKind.MarkGuess => RuntimeEventKind.GuessMarked,
+            RuntimeInputCommandKind.MarkError => RuntimeEventKind.ErrorRecorded,
             RuntimeInputCommandKind.Correct => RuntimeEventKind.CorrectionSubmitted,
             RuntimeInputCommandKind.StartAudit => RuntimeEventKind.AuditStarted,
             _ => throw new ArgumentOutOfRangeException(nameof(command), command, "Command does not map to an input event."),
@@ -620,6 +826,7 @@ public sealed class RuntimeInputCommandHandler
             RuntimeInputCommandKind.RespondToCue => "respond_to_cue",
             RuntimeInputCommandKind.SubmitAnswer => "submit_answer",
             RuntimeInputCommandKind.MarkGuess => "mark_guess",
+            RuntimeInputCommandKind.MarkError => "mark_error",
             RuntimeInputCommandKind.Correct => "correct",
             RuntimeInputCommandKind.StartAudit => "start_audit",
             RuntimeInputCommandKind.FinishPhase => "finish_phase",
@@ -628,6 +835,15 @@ public sealed class RuntimeInputCommandHandler
             RuntimeInputCommandKind.Abandon => "abandon",
             _ => throw new ArgumentOutOfRangeException(nameof(command), command, "Unknown runtime input command kind."),
         };
+    }
+
+    private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, value, "Unknown runtime input command value.");
+        }
     }
 
     private bool CanPauseCurrentPhase()

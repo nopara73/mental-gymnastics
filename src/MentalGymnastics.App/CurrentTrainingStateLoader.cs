@@ -65,6 +65,10 @@ public sealed record CurrentTrainingStateNextWork(
     IReadOnlyList<BranchCode> BranchEmphasis,
     bool IsAdvancementWork);
 
+public sealed record CurrentGlobalReviewReadModel(
+    GlobalReviewInput Input,
+    GlobalReviewEvaluationResult Evaluation);
+
 public sealed class CurrentTrainingStateReadModel
 {
     public CurrentTrainingStateReadModel(
@@ -77,7 +81,8 @@ public sealed class CurrentTrainingStateReadModel
         PractitionerCategoryClassificationResult categoryClassification,
         WeeklyPlan weeklyPlan,
         IEnumerable<CurrentTrainingStateBlocker> blockedAdvancement,
-        IEnumerable<CurrentTrainingStateNextWork> availableNextWork)
+        IEnumerable<CurrentTrainingStateNextWork> availableNextWork,
+        CurrentGlobalReviewReadModel globalReview)
     {
         ArgumentNullException.ThrowIfNull(currentPractitionerState);
         ArgumentNullException.ThrowIfNull(branchLevelStates);
@@ -89,6 +94,7 @@ public sealed class CurrentTrainingStateReadModel
         ArgumentNullException.ThrowIfNull(weeklyPlan);
         ArgumentNullException.ThrowIfNull(blockedAdvancement);
         ArgumentNullException.ThrowIfNull(availableNextWork);
+        ArgumentNullException.ThrowIfNull(globalReview);
 
         CurrentPractitionerState = currentPractitionerState;
         BranchLevelStates = branchLevelStates.ToArray();
@@ -100,6 +106,7 @@ public sealed class CurrentTrainingStateReadModel
         WeeklyPlan = weeklyPlan;
         BlockedAdvancement = blockedAdvancement.ToArray();
         AvailableNextWork = availableNextWork.ToArray();
+        GlobalReview = globalReview;
     }
 
     public PractitionerState CurrentPractitionerState { get; }
@@ -121,6 +128,8 @@ public sealed class CurrentTrainingStateReadModel
     public IReadOnlyList<CurrentTrainingStateBlocker> BlockedAdvancement { get; }
 
     public IReadOnlyList<CurrentTrainingStateNextWork> AvailableNextWork { get; }
+
+    public CurrentGlobalReviewReadModel GlobalReview { get; }
 }
 
 public sealed class CurrentTrainingStateLoader
@@ -200,6 +209,15 @@ public sealed class CurrentTrainingStateLoader
                 day.BranchEmphasis,
                 day.IsAdvancementWork))
             .ToArray();
+        var globalReview = BuildGlobalReviewReadModel(
+            query.AsOf,
+            currentState,
+            maintenanceCurrency,
+            recentSessions,
+            evidenceSummaries,
+            progressRecords,
+            categoryClassification,
+            weeklyPlan);
 
         return new CurrentTrainingStateReadModel(
             currentState,
@@ -211,7 +229,8 @@ public sealed class CurrentTrainingStateLoader
             categoryClassification,
             weeklyPlan,
             blockedAdvancement,
-            availableNextWork);
+            availableNextWork,
+            globalReview);
     }
 
     private async ValueTask<IReadOnlyList<MaintenanceCurrencyResult>> LoadMaintenanceCurrencyAsync(
@@ -306,6 +325,169 @@ public sealed class CurrentTrainingStateLoader
                     issue.Detail,
                     GlobalBalanceIssueKind: issue.Kind)),
         ];
+    }
+
+    private static CurrentGlobalReviewReadModel BuildGlobalReviewReadModel(
+        TrainingDate asOf,
+        PractitionerState currentState,
+        IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
+        IReadOnlyList<LocalSessionHistoryRecord> recentSessions,
+        IReadOnlyList<LocalEvidenceArtifactRecord> evidenceSummaries,
+        LocalProgressRecords progressRecords,
+        PractitionerCategoryClassificationResult categoryClassification,
+        WeeklyPlan weeklyPlan)
+    {
+        var input = new GlobalReviewInput(
+            asOf,
+            categoryClassification.Category,
+            currentState,
+            BuildGlobalReviewOwnedLevels(currentState),
+            maintenanceCurrency,
+            BuildGlobalReviewFailures(progressRecords),
+            evidenceSummaries.Select(record => record.Artifact),
+            BuildGlobalReviewBottleneck(progressRecords.LatestSummary, weeklyPlan),
+            BuildGlobalReviewVolumeIntensityHistory(recentSessions),
+            BuildGlobalReviewRecoveryHistory(recentSessions),
+            BuildGlobalReviewAdvancements(progressRecords),
+            pauseTestsForDeload: weeklyPlan.Constraints.Any(
+                constraint => constraint.Kind == WeeklyProgrammingConstraintKind.AdvancementTestingSuspended),
+            openAdvancedBranch: false,
+            attemptTransferIntegrationTransfer: false);
+
+        return new CurrentGlobalReviewReadModel(input, GlobalReviewEvaluator.Evaluate(input));
+    }
+
+    private static IReadOnlyList<GlobalReviewOwnedLevel> BuildGlobalReviewOwnedLevels(
+        PractitionerState currentState)
+    {
+        return ProgramCatalog.Branches
+            .Select(branch => new GlobalReviewOwnedLevel(
+                branch.Code,
+                currentState.BranchLevels
+                    .Where(status =>
+                        status.Branch == branch.Code &&
+                        status.State is BranchLevelState.Owned
+                            or BranchLevelState.Maintenance
+                            or BranchLevelState.Decayed)
+                    .OrderByDescending(status => LevelRank(status.Level))
+                    .Select(status => (GlobalLevelId?)status.Level)
+                    .FirstOrDefault()))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ClassifiedFailure> BuildGlobalReviewFailures(
+        LocalProgressRecords progressRecords)
+    {
+        return progressRecords.FormalTestAttempts
+            .Where(record => record.Attempt.FailureType is not null)
+            .OrderByDescending(record => record.Attempt.Date.Year)
+            .ThenByDescending(record => record.Attempt.Date.Month)
+            .ThenByDescending(record => record.Attempt.Date.Day)
+            .Take(3)
+            .Select(record => new ClassifiedFailure(
+                record.Attempt.Branch,
+                record.Attempt.Level,
+                record.Attempt.FailureType!.Value,
+                Array.Empty<FailureEvidenceSignal>()))
+            .ToArray();
+    }
+
+    private static GlobalReviewBottleneckInput? BuildGlobalReviewBottleneck(
+        LocalProgressSummaryRecord? latestSummary,
+        WeeklyPlan weeklyPlan)
+    {
+        if (latestSummary?.BottleneckBranch is not { } bottleneckBranch ||
+            BottleneckKindForBranch(bottleneckBranch) is not { } bottleneck)
+        {
+            return null;
+        }
+
+        var hasProgrammedResponse =
+            latestSummary.NextProgrammedEmphasis.Branch == bottleneckBranch ||
+            weeklyPlan.Days.Any(day => day.BranchEmphasis.Contains(bottleneckBranch));
+        var needsEmphasis =
+            latestSummary.NextProgrammedEmphasis.Kind == LocalProgressEmphasisKind.EmphasizeBottleneckBranch &&
+            latestSummary.NextProgrammedEmphasis.Branch == bottleneckBranch;
+
+        return new GlobalReviewBottleneckInput(
+            bottleneckBranch,
+            bottleneck,
+            hasProgrammedResponse,
+            needsEmphasis);
+    }
+
+    private static IReadOnlyList<GlobalReviewVolumeIntensityRecord> BuildGlobalReviewVolumeIntensityHistory(
+        IReadOnlyList<LocalSessionHistoryRecord> recentSessions)
+    {
+        return recentSessions
+            .SelectMany(session => session.BranchLevels.Select(branchLevel => new
+            {
+                branchLevel.Branch,
+                session.Intensity,
+            }))
+            .GroupBy(item => (item.Branch, item.Intensity))
+            .OrderBy(group => BranchOrder(group.Key.Branch))
+            .ThenBy(group => group.Key.Intensity)
+            .Select(group => new GlobalReviewVolumeIntensityRecord(
+                group.Key.Branch,
+                group.Count(),
+                ToTrainingIntensity(group.Key.Intensity)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<GlobalReviewRecoveryRecord> BuildGlobalReviewRecoveryHistory(
+        IReadOnlyList<LocalSessionHistoryRecord> recentSessions)
+    {
+        return recentSessions
+            .Where(session =>
+                session.RecoveryMarked ||
+                session.DeloadMarked ||
+                session.SessionType == LocalCompletedSessionType.Recovery)
+            .OrderByDescending(session => session.Date.Year)
+            .ThenByDescending(session => session.Date.Month)
+            .ThenByDescending(session => session.Date.Day)
+            .Select(session => new GlobalReviewRecoveryRecord(session.Date, session.DeloadMarked))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<GlobalReviewAdvancementRecord> BuildGlobalReviewAdvancements(
+        LocalProgressRecords progressRecords)
+    {
+        return progressRecords.FormalTestAttempts
+            .Where(record => record.Attempt.PassState is not FormalTestPassState.Fail)
+            .OrderByDescending(record => record.Attempt.Date.Year)
+            .ThenByDescending(record => record.Attempt.Date.Month)
+            .ThenByDescending(record => record.Attempt.Date.Day)
+            .Select(record => new GlobalReviewAdvancementRecord(
+                record.Attempt.Branch,
+                record.Attempt.Level,
+                advancedByParticipationAlone: false))
+            .ToArray();
+    }
+
+    private static BottleneckKind? BottleneckKindForBranch(BranchCode branch)
+    {
+        return branch switch
+        {
+            BranchCode.FH => BottleneckKind.FocusHoldReturnAfterDrift,
+            BranchCode.FS => BottleneckKind.FocusShiftRecovery,
+            BranchCode.WM => BottleneckKind.WorkingMemoryEncodingFidelity,
+            BranchCode.IR => BottleneckKind.InhibitionRuleFidelity,
+            BranchCode.DE => BottleneckKind.DiscriminationAuditAccuracy,
+            BranchCode.AI => BottleneckKind.AffectiveInterferencePressureStability,
+            _ => null,
+        };
+    }
+
+    private static TrainingIntensityKind ToTrainingIntensity(LocalSessionIntensity intensity)
+    {
+        return intensity switch
+        {
+            LocalSessionIntensity.Low => TrainingIntensityKind.Low,
+            LocalSessionIntensity.Moderate => TrainingIntensityKind.Moderate,
+            LocalSessionIntensity.High => TrainingIntensityKind.High,
+            _ => throw new ArgumentOutOfRangeException(nameof(intensity), intensity, "Unsupported session intensity."),
+        };
     }
 
     private static BranchCode SelectWeakestFoundationalBranch(PractitionerState currentState)

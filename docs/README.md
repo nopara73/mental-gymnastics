@@ -57,3 +57,13 @@ The generated content documentation explains how the implemented local determini
 - [MentalGymnastics Pre-UI App Integration Boundary](app-integration-boundary.md)
 
 The app integration documentation defines the pure C# layer that composes Core, Persistence, Runtime, and Generated Content into app-facing workflows while keeping Android UI and external-service concerns out of scope. Use it for startup configuration, first-run state initialization, current-state loading, work selection, generated content preparation, runtime session preparation, completed-session processing, active session snapshot handling, and progress refresh.
+
+## Android UI
+
+- [MentalGymnastics Android UI Layer](android-ui-layer.md)
+- [MentalGymnastics Android UI Strategy](android-ui-strategy.md)
+- [MentalGymnastics Android Visual State Language](android-visual-state-language.md)
+- [MentalGymnastics Android Component Inventory](android-component-inventory.md)
+- [MentalGymnastics Android Screen Plans](android-screen-plans.md)
+
+The Android UI documents define the native UI ownership boundary plus a simple, visual-first, low-text direction for screens, including state language, reusable component contracts, and low-fidelity workflow screen plans, while preserving standards, honesty constraints, failure, decay, blocked advancement, stabilization, transfer, offline-only storage, and the pre-UI layer boundaries.

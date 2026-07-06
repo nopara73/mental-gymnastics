@@ -361,7 +361,10 @@ public static class GeneratedContentRuntimePackager
 
         if (!addedWorkPhase)
         {
-            phases.Add(ManualPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork));
+            var holdDuration = FirstDuration(materials, GeneratedContentMaterialKind.HoldDuration);
+            phases.Add(holdDuration.HasValue
+                ? TimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, holdDuration.Value)
+                : ManualPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork));
         }
 
         phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));

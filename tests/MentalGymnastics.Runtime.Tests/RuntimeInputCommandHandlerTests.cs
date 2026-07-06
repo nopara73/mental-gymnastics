@@ -29,6 +29,8 @@ public sealed class RuntimeInputCommandHandlerTests
         clock.AdvanceBy(RuntimeDuration.FromSeconds(1));
         var guess = handler.Handle(RuntimeInputCommand.MarkGuess("guess-1"));
         clock.AdvanceBy(RuntimeDuration.FromSeconds(1));
+        var error = handler.Handle(RuntimeInputCommand.MarkError("error-1", "incorrect_response"));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(1));
         var correction = handler.Handle(RuntimeInputCommand.Correct("correction-1", "target held without reset"));
         clock.AdvanceBy(RuntimeDuration.FromSeconds(1));
         var activeFinished = handler.Handle(RuntimeInputCommand.FinishPhase());
@@ -40,7 +42,7 @@ public sealed class RuntimeInputCommandHandlerTests
         var auditGuess = handler.Handle(RuntimeInputCommand.MarkGuess("audit-guess-1"));
 
         Assert.All(
-            [drift, answer, guess, correction, activeFinished, cueResponse, cueFinished, reconstruction, reconstructFinished, auditStarted, auditGuess],
+            [drift, answer, guess, error, correction, activeFinished, cueResponse, cueFinished, reconstruction, reconstructFinished, auditStarted, auditGuess],
             result => Assert.True(result.IsAccepted));
         Assert.Equal(RuntimeSessionLifecycleStatus.Running, handler.LifecycleState.Status);
         Assert.Equal("audit", handler.CurrentPhase?.Id);
@@ -52,6 +54,7 @@ public sealed class RuntimeInputCommandHandlerTests
             kind => Assert.Equal(RuntimeEventKind.DriftMarked, kind),
             kind => Assert.Equal(RuntimeEventKind.AnswerSubmitted, kind),
             kind => Assert.Equal(RuntimeEventKind.GuessMarked, kind),
+            kind => Assert.Equal(RuntimeEventKind.ErrorRecorded, kind),
             kind => Assert.Equal(RuntimeEventKind.CorrectionSubmitted, kind),
             kind => Assert.Equal(RuntimeEventKind.PhaseEnded, kind),
             kind => Assert.Equal(RuntimeEventKind.PhaseStarted, kind),
@@ -64,6 +67,46 @@ public sealed class RuntimeInputCommandHandlerTests
             kind => Assert.Equal(RuntimeEventKind.AuditStarted, kind),
             kind => Assert.Equal(RuntimeEventKind.GuessMarked, kind));
         Assert.Contains(handler.Events[2].Facts, fact => fact.Name == "command_kind" && fact.Value == "mark_drift");
+        Assert.Contains(handler.Events[5].Facts, fact => fact.Name == "error_kind" && fact.Value == "incorrect_response");
+    }
+
+    [Fact]
+    public void AvailabilityReportsRuntimeCommandStateWithoutMutatingEvents()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+                RuntimeSessionPhaseDefinition.Manual("cue", RuntimeSessionPhaseKind.CueResponse),
+            ]),
+            new RuntimeInputCommandOptions(
+                PauseAllowed: true,
+                CorrectionWindow: RuntimeDuration.FromSeconds(10),
+                PauseAllowedPhaseKinds: [RuntimeSessionPhaseKind.ActiveWork]));
+
+        var eventCount = handler.Events.Count;
+
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkDrift).IsAvailable);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkError).IsAvailable);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.Pause).IsAvailable);
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.RespondToCue).IsAvailable);
+        Assert.Equal(
+            RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase,
+            handler.AvailabilityFor(RuntimeInputCommandKind.RespondToCue).InvalidReason);
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.Correct).IsAvailable);
+        Assert.Equal(RuntimeInputCommandInvalidReason.NoCorrectableEvent, handler.AvailabilityFor(RuntimeInputCommandKind.Correct).InvalidReason);
+        Assert.Equal(eventCount, handler.Events.Count);
+
+        Assert.True(handler.Handle(RuntimeInputCommand.SubmitAnswer("answer-1", "first")).IsAccepted);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.Correct).IsAvailable);
+        Assert.True(handler.Handle(RuntimeInputCommand.FinishPhase()).IsAccepted);
+
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.RespondToCue).IsAvailable);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkError).IsAvailable);
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
     }
 
     [Fact]
@@ -301,8 +344,11 @@ public sealed class RuntimeInputCommandHandlerTests
 
         clock.AdvanceBy(RuntimeDuration.FromSeconds(30));
         var eventCountBeforeEarlyFinish = handler.Events.Count;
+        var earlyFinishAvailability = handler.AvailabilityFor(RuntimeInputCommandKind.FinishPhase);
         var earlyFinish = handler.Handle(RuntimeInputCommand.FinishPhase());
 
+        Assert.False(earlyFinishAvailability.IsAvailable);
+        Assert.Equal(RuntimeInputCommandInvalidReason.InvalidPhaseCompletion, earlyFinishAvailability.InvalidReason);
         Assert.False(earlyFinish.IsAccepted);
         Assert.Equal(RuntimeInputCommandInvalidReason.InvalidPhaseCompletion, earlyFinish.InvalidReason);
         Assert.Equal(RuntimeSessionPhaseInvalidCompletionReason.ScheduledDurationNotReached, earlyFinish.PhaseInvalidReason);
@@ -310,12 +356,56 @@ public sealed class RuntimeInputCommandHandlerTests
         Assert.Equal("encode", handler.CurrentPhase?.Id);
 
         clock.AdvanceBy(RuntimeDuration.FromSeconds(30));
+        var deadlineAvailability = handler.AvailabilityFor(RuntimeInputCommandKind.FinishPhase);
         var finishAtDeadline = handler.Handle(RuntimeInputCommand.FinishPhase());
 
+        Assert.True(deadlineAvailability.IsAvailable);
         Assert.True(finishAtDeadline.IsAccepted);
         Assert.Equal("reconstruct", handler.CurrentPhase?.Id);
         Assert.Contains(finishAtDeadline.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.PhaseEnded);
         Assert.Contains(finishAtDeadline.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.PhaseStarted);
+    }
+
+    [Fact]
+    public void AdvanceToCurrentTimeAdvancesDueTimedPhaseWithoutCompletingManualPhases()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("prep", RuntimeSessionPhaseKind.InstructionPrep),
+                RuntimeSessionPhaseDefinition.Timed("active", RuntimeSessionPhaseKind.ActiveWork, RuntimeDuration.FromSeconds(10)),
+                RuntimeSessionPhaseDefinition.Manual("review", RuntimeSessionPhaseKind.Review),
+            ]));
+
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(10));
+        var manualAdvance = handler.AdvanceToCurrentTime();
+
+        Assert.True(manualAdvance.IsAccepted);
+        Assert.Empty(manualAdvance.Events);
+        Assert.Equal("prep", handler.CurrentPhase?.Id);
+
+        Assert.True(handler.Handle(RuntimeInputCommand.FinishPhase()).IsAccepted);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(9));
+        var earlyTimedAdvance = handler.AdvanceToCurrentTime();
+
+        Assert.True(earlyTimedAdvance.IsAccepted);
+        Assert.Empty(earlyTimedAdvance.Events);
+        Assert.Equal("active", handler.CurrentPhase?.Id);
+
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(1));
+        var timedAdvance = handler.AdvanceToCurrentTime();
+
+        Assert.True(timedAdvance.IsAccepted);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Running, handler.LifecycleState.Status);
+        Assert.Equal("review", handler.CurrentPhase?.Id);
+        Assert.Contains(timedAdvance.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.PhaseTimedOut);
+        Assert.Contains(timedAdvance.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.PhaseEnded);
+        Assert.Contains(timedAdvance.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.PhaseStarted);
+
+        Assert.True(handler.Handle(RuntimeInputCommand.FinishPhase()).IsAccepted);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Completed, handler.LifecycleState.Status);
     }
 
     private static RuntimeInputCommandHandler StartHandler(

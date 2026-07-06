@@ -7,6 +7,51 @@ namespace MentalGymnastics.Content.Tests;
 public sealed class GeneratedContentRuntimePackagingTests
 {
     [Fact]
+    public void FocusHoldTargetHoldPackageUsesGeneratedHoldDurationAsTimedActiveWork()
+    {
+        var generated = FocusHoldGeneratedContentGenerator.Generate(
+            CreateTargetHoldRequest(),
+            new GeneratedContentSeed("fh-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.FH &&
+            item.Level == GlobalLevelId.L1);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.True(package.CanBeConsumedByRuntime);
+        Assert.False(package.RuntimeInventsContent);
+        Assert.False(package.GrantsAdvancement);
+        Assert.Empty(package.Cues);
+        Assert.Collection(
+            package.Phases,
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Manual, phase.CompletionRule);
+            },
+            phase =>
+            {
+                Assert.Equal("active-work", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Timed, phase.CompletionRule);
+                Assert.Equal(TimeSpan.FromMinutes(3), phase.ScheduledDuration);
+            },
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Manual, phase.CompletionRule);
+            });
+        Assert.Contains(package.InputMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.HoldDuration &&
+            material.Value == "3 minutes");
+        Assert.Contains(package.ExpectedEvidenceFacts, fact =>
+            fact.Value.Contains("drift", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void CueSequencePackageCanBeConsumedByRuntimeWithoutRuntimeInventingContent()
     {
         var generated = FocusShiftGeneratedContentGenerator.Generate(
@@ -108,6 +153,29 @@ public sealed class GeneratedContentRuntimePackagingTests
 
     private const string ValidCueConstraint = "Switch only on valid cue.";
     private const string NoAnticipatorySwitchingConstraint = "No anticipatory switching.";
+    private const string TargetAndDriftConstraint = "Target is stated before set; every drift is marked.";
+    private const string NoTargetSubstitutionConstraint = "No target substitution.";
+
+    private static GeneratedDrillContentRequest CreateTargetHoldRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold,
+            SessionType.Practice,
+            PromptContentKind.EquivalentPrompt,
+            "fh-l1-target-hold",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("duration", "3 minutes"),
+                new LoadVariable("target subtlety", "simple phrase"),
+                new LoadVariable("recovery window", "10 seconds"),
+            ],
+            [
+                new CriticalConstraint(TargetAndDriftConstraint),
+                new CriticalConstraint(NoTargetSubstitutionConstraint),
+            ]);
+    }
 
     private static GeneratedDrillContentRequest CreateCueSwitchRequest()
     {

@@ -148,6 +148,48 @@ public sealed class PreUiTrainingWorkflowServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DefaultWorkflowDerivesContentDefaultsFromSelectedWorkBeforeRuntimePreparation()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.PassedOnce),
+            Status(BranchCode.WM, GlobalLevelId.L1, BranchLevelState.Training));
+
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.WM,
+                        GlobalLevelId.L1,
+                        DrillId.WM1DelayedReconstruction,
+                        AppTrainingSessionType.Practice))));
+
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+        Assert.True(prepared.CanStartRuntimeSession);
+        Assert.Equal(BranchCode.WM, prepared.Selection.SelectedWork?.Branch);
+        Assert.Equal(DrillId.WM1DelayedReconstruction, prepared.Selection.SelectedWork?.Drill);
+        Assert.NotNull(prepared.GeneratedContent);
+        Assert.Equal(
+            PromptContentKind.DelayedReconstructionTask,
+            prepared.GeneratedContent!.GeneratedContent?.Result.ContentKind);
+        Assert.Equal(
+            "wm-l1-delayed-reconstruction",
+            prepared.GeneratedContent.GeneratedContent?.Result.EquivalenceClass);
+        Assert.NotNull(prepared.RuntimeSession);
+        Assert.NotEmpty(prepared.RuntimeSession!.ExpectedEvidenceFacts);
+
+        var generated = await new LocalGeneratedDrillInstanceStore(configuration.LocalDatabaseOptions)
+            .LoadAsync(prepared.GeneratedContent.PersistenceHandoff!.InstanceId);
+
+        Assert.NotNull(generated);
+        Assert.Equal(LocalGeneratedDrillInstanceState.InSession, generated.State);
+        Assert.Equal(prepared.RuntimeSession.SessionId, generated.ActiveSessionId);
+    }
+
+    [Fact]
     public async Task BlockedWorkflowDoesNotGenerateContentOrPrepareRuntimeSession()
     {
         var configuration = Configuration();

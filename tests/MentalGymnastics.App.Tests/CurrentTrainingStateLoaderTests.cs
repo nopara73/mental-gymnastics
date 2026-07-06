@@ -104,6 +104,34 @@ public sealed class CurrentTrainingStateLoaderTests : IDisposable
         Assert.DoesNotContain(readModel.AvailableNextWork, work => work.IsAdvancementWork);
     }
 
+    [Fact]
+    public async Task ExposesCoreGlobalReviewInputsAndDecisions()
+    {
+        var configuration = Configuration();
+        var state = State(
+        [
+            Status(BranchCode.WM, GlobalLevelId.L2, BranchLevelState.Decayed),
+        ]);
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(state);
+
+        var readModel = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.Equal(
+            Enum.GetValues<BranchCode>(),
+            readModel.GlobalReview.Input.CurrentOwnedLevels.Select(level => level.Branch));
+        Assert.False(readModel.GlobalReview.Evaluation.Passed);
+        Assert.Contains(
+            readModel.GlobalReview.Evaluation.Failures,
+            failure => failure.Kind == GlobalReviewFailureKind.PrerequisiteBranchDecayed &&
+                failure.Branch == BranchCode.WM &&
+                failure.Level == GlobalLevelId.L2);
+        Assert.Contains(
+            readModel.GlobalReview.Evaluation.Decisions,
+            decision => decision.Kind == GlobalReviewDecisionKind.RestoreDecayedBranch &&
+                decision.Branch == BranchCode.WM);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(tempDirectory))
