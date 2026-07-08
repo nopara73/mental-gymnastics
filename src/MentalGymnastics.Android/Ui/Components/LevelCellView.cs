@@ -96,14 +96,14 @@ internal sealed class LevelCellView : LinearLayout
     {
         return state switch
         {
-            BranchLevelState.Unopened => "X",
+            BranchLevelState.Unopened => "",
             BranchLevelState.Training => "",
             BranchLevelState.TestReady => "T",
             BranchLevelState.PassedOnce => "1",
             BranchLevelState.Stabilizing => "S",
             BranchLevelState.Owned => "O",
             BranchLevelState.Maintenance => "M",
-            BranchLevelState.Decayed => "!",
+            BranchLevelState.Decayed => "D",
             _ => "",
         };
     }
@@ -146,7 +146,7 @@ internal sealed class LevelCellView : LinearLayout
 
         if (nextWork)
         {
-            overlays.Add("in app next work");
+            overlays.Add("next prescribed work");
         }
 
         return overlays.Count == 0

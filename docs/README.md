@@ -60,10 +60,12 @@ The app integration documentation defines the pure C# layer that composes Core, 
 
 ## Android UI
 
+- [MentalGymnastics Android UI Operating Principle](android-ui-operating-principle.md)
+- [MentalGymnastics Android First-Seen Workflow](android-first-seen-workflow.md)
 - [MentalGymnastics Android UI Layer](android-ui-layer.md)
 - [MentalGymnastics Android UI Strategy](android-ui-strategy.md)
 - [MentalGymnastics Android Visual State Language](android-visual-state-language.md)
 - [MentalGymnastics Android Component Inventory](android-component-inventory.md)
 - [MentalGymnastics Android Screen Plans](android-screen-plans.md)
 
-The Android UI documents define the native UI ownership boundary plus a simple, visual-first, low-text direction for screens, including state language, reusable component contracts, and low-fidelity workflow screen plans, while preserving standards, honesty constraints, failure, decay, blocked advancement, stabilization, transfer, offline-only storage, and the pre-UI layer boundaries.
+The Android UI operating principle and first-seen workflow are the canonical replacement direction for redesign work. They preserve the native UI ownership boundary while tightening the product target around the first-screen question, visual structure before text, one primary action per screen, hidden implementation detail by default, and honest handling of standards, failure, decay, blocked advancement, stabilization, maintenance, and transfer. Older Android UI strategy, visual language, component, and screen-plan documents remain useful background where they do not conflict with this direction.

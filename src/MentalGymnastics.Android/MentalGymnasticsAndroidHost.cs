@@ -89,7 +89,7 @@ public sealed class MentalGymnasticsAndroidHost
         var prepared = preparedSessionStart?.Preparation
             ?? throw new InvalidOperationException("No prepared Android session is available to start.");
         var runtimeSession = prepared.RuntimeSession
-            ?? throw new InvalidOperationException("Prepared work did not include a runtime session.");
+            ?? throw new InvalidOperationException("Prepared work is not startable.");
 
         if (!prepared.CanStartRuntimeSession)
         {
@@ -127,7 +127,7 @@ public sealed class MentalGymnasticsAndroidHost
             return;
         }
 
-        var state = controller.CaptureState("Android lifecycle captured active runtime state.");
+        var state = controller.CaptureState("Android lifecycle saved active session state.");
         var pauseCommand = state.Commands.FirstOrDefault(command =>
             command.Command == RuntimeInputCommandKind.Pause);
 
@@ -176,7 +176,7 @@ public sealed class MentalGymnasticsAndroidHost
             resumed.CommandHandler,
             resumed.CueScheduler);
         var state = liveSessionController.CaptureState(
-            "Active runtime session restored from app integration snapshot.");
+            "Active session restored from local resume state.");
         return new AndroidActiveSessionResumeSnapshot(
             resumed.State,
             LiveSnapshot(state),
@@ -201,7 +201,7 @@ public sealed class MentalGymnasticsAndroidHost
         CancellationToken cancellationToken = default)
     {
         var controller = liveSessionController
-            ?? throw new InvalidOperationException("No live Android runtime session is active.");
+            ?? throw new InvalidOperationException("No live session is active.");
 
         var state = await controller.RefreshAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -215,7 +215,7 @@ public sealed class MentalGymnasticsAndroidHost
         CancellationToken cancellationToken = default)
     {
         var controller = liveSessionController
-            ?? throw new InvalidOperationException("No live Android runtime session is active.");
+            ?? throw new InvalidOperationException("No live session is active.");
 
         var state = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(command, targetId, value),
@@ -227,7 +227,7 @@ public sealed class MentalGymnasticsAndroidHost
         CancellationToken cancellationToken = default)
     {
         var controller = liveSessionController
-            ?? throw new InvalidOperationException("No live Android runtime session is active.");
+            ?? throw new InvalidOperationException("No live session is active.");
 
         var today = DateTime.Now.Date;
         var result = await controller.CompleteAsync(
@@ -338,7 +338,7 @@ public sealed class MentalGymnasticsAndroidHost
             .ToArray();
 
         return details.Length == 0
-            ? "Prepared session is not startable according to the app workflow."
+            ? "Prepared session is not startable."
             : string.Join(Environment.NewLine, details);
     }
 
@@ -351,7 +351,7 @@ public sealed class MentalGymnasticsAndroidHost
             .ToArray();
 
         return details.Length == 0
-            ? "Runtime rejected the prepared session."
+            ? "Prepared session could not start."
             : string.Join(Environment.NewLine, details);
     }
 }
@@ -361,27 +361,43 @@ public sealed record AndroidTrainingStateSnapshot(
     ApplicationIntegrationCapabilities Capabilities,
     string LocalDatabasePath,
     DateTime LoadedDate,
-    LocalDataBackupReadModel LocalData);
+    LocalDataBackupReadModel LocalData)
+{
+    public CurrentTrainingPresentationReadModel Presentation { get; } =
+        TrainingPresentationMapper.FromCurrentState(CurrentState);
+}
 
 public sealed record AndroidSessionStartSnapshot(
     PreUiTrainingWorkflowPreparationResult Preparation,
     ApplicationIntegrationCapabilities Capabilities,
     string LocalDatabasePath,
     DateTime PreparedDate,
-    LocalDataBackupReadModel LocalData);
+    LocalDataBackupReadModel LocalData)
+{
+    public SessionPreflightPresentationReadModel Presentation { get; } =
+        TrainingPresentationMapper.FromPreflight(Preparation);
+}
 
 public sealed record AndroidLiveSessionSnapshot(
     PreUiLiveSessionState LiveSession,
     ApplicationIntegrationCapabilities Capabilities,
     string LocalDatabasePath,
-    DateTime LoadedDate);
+    DateTime LoadedDate)
+{
+    public LiveSessionPresentationReadModel Presentation { get; } =
+        TrainingPresentationMapper.FromLiveSession(LiveSession);
+}
 
 public sealed record AndroidLiveSessionCompletionSnapshot(
     PreUiLiveSessionCompletionResult Completion,
     ApplicationIntegrationCapabilities Capabilities,
     string LocalDatabasePath,
     DateTime LoadedDate,
-    LocalDataBackupReadModel LocalData);
+    LocalDataBackupReadModel LocalData)
+{
+    public ResultPresentationReadModel Presentation { get; } =
+        TrainingPresentationMapper.FromResult(Completion);
+}
 
 public sealed record AndroidActiveSessionResumeSnapshot(
     PreUiActiveSessionResumeState ActiveSession,

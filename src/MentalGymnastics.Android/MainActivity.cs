@@ -17,6 +17,14 @@ public class MainActivity : Activity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        ActionBar?.Hide();
+#pragma warning disable CA1422
+        Window?.SetStatusBarColor(global::Android.Graphics.Color.Rgb(24, 27, 32));
+        if (Window?.DecorView is { } decorView)
+        {
+            decorView.SystemUiFlags = global::Android.Views.SystemUiFlags.LightStatusBar;
+        }
+#pragma warning restore CA1422
 
         appHost = MentalGymnasticsAndroidHost.Create(this);
         shell = new MgNavigationShell(this);

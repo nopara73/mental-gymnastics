@@ -12,6 +12,10 @@ internal sealed class SessionActionButton : Button
         Text = text;
         Enabled = enabled;
         SetAllCaps(false);
+        SetMinHeight(0);
+        SetMinimumHeight(0);
+        SetMinWidth(0);
+        SetMinimumWidth(0);
         ContentDescription = enabled ? text : $"{text} unavailable";
         SetTextColor(enabled ? Color.White : MgColors.InkMuted);
         Background = enabled

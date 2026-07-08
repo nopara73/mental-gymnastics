@@ -21,7 +21,7 @@ internal sealed class TimerRingView : View
         trackPaint = new Paint(PaintFlags.AntiAlias)
         {
             Color = MgColors.Hairline,
-            StrokeWidth = MgSpacing.Dp(context, 10),
+            StrokeWidth = MgSpacing.Dp(context, 8),
         };
         trackPaint.SetStyle(Paint.Style.Stroke);
         trackPaint.StrokeCap = Paint.Cap.Round;
@@ -29,7 +29,7 @@ internal sealed class TimerRingView : View
         progressPaint = new Paint(PaintFlags.AntiAlias)
         {
             Color = MgColors.Training,
-            StrokeWidth = MgSpacing.Dp(context, 10),
+            StrokeWidth = MgSpacing.Dp(context, 8),
         };
         progressPaint.SetStyle(Paint.Style.Stroke);
         progressPaint.StrokeCap = Paint.Cap.Round;
@@ -38,12 +38,12 @@ internal sealed class TimerRingView : View
         {
             Color = MgColors.Ink,
             TextAlign = Paint.Align.Center,
-            TextSize = MgSpacing.Dp(context, 20),
+            TextSize = MgSpacing.Dp(context, 18),
         };
         textPaint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
 
-        SetMinimumWidth(MgSpacing.Dp(context, 144));
-        SetMinimumHeight(MgSpacing.Dp(context, 144));
+        SetMinimumWidth(MgSpacing.Dp(context, 104));
+        SetMinimumHeight(MgSpacing.Dp(context, 104));
     }
 
     public void Update(
