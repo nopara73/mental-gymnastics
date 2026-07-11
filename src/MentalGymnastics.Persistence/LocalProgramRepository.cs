@@ -98,6 +98,11 @@ public sealed record LocalDueMaintenanceRecord(
     BranchLevelStatus BranchLevel,
     MaintenanceCurrencyResult Currency);
 
+public sealed record LocalProgramReviewCadenceFacts(
+    TrainingDate ProgramStartedOn,
+    TrainingDate? LastCompletedReviewOn,
+    bool? LastCompletedReviewPassed);
+
 public sealed class LocalProgressRecords
 {
     public LocalProgressRecords(
@@ -146,6 +151,7 @@ public sealed class LocalProgramRepository
     private readonly LocalDecayRestorationHistoryStore decayRestorationHistoryStore;
     private readonly LocalGeneratedDrillInstanceStore generatedDrillInstanceStore;
     private readonly LocalProgressSummaryStore progressSummaryStore;
+    private readonly LocalDailyTrainingPrescriptionStore dailyTrainingPrescriptionStore;
 
     public LocalProgramRepository(LocalDatabaseOptions options)
     {
@@ -160,12 +166,63 @@ public sealed class LocalProgramRepository
         decayRestorationHistoryStore = new LocalDecayRestorationHistoryStore(options);
         generatedDrillInstanceStore = new LocalGeneratedDrillInstanceStore(options);
         progressSummaryStore = new LocalProgressSummaryStore(options);
+        dailyTrainingPrescriptionStore = new LocalDailyTrainingPrescriptionStore(options);
     }
 
     public ValueTask<PractitionerState?> LoadCurrentStateAsync(
         CancellationToken cancellationToken = default)
     {
         return practitionerStateStore.LoadAsync(cancellationToken);
+    }
+
+    public async ValueTask<LocalProgramReviewCadenceFacts> LoadReviewCadenceFactsAsync(
+        TrainingDate asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var prescriptions = await dailyTrainingPrescriptionStore.ListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var sessions = await sessionHistoryStore.ListAsync(cancellationToken).ConfigureAwait(false);
+        var artifacts = await evidenceArtifactStore.ListAsync(cancellationToken).ConfigureAwait(false);
+        var timelineDates = prescriptions
+            .Where(record => OnOrBefore(record.Date, asOf))
+            .Select(record => record.CycleAnchor)
+            .Concat(sessions.Where(record => OnOrBefore(record.Date, asOf)).Select(record => record.Date))
+            .Concat(artifacts.Where(record => OnOrBefore(record.Artifact.Date, asOf)).Select(record => record.Artifact.Date))
+            .OrderBy(date => date.Year)
+            .ThenBy(date => date.Month)
+            .ThenBy(date => date.Day)
+            .ToArray();
+        var latestReview = artifacts
+            .Where(record =>
+                record.Artifact.Category == EvidenceArtifactCategory.GlobalReview &&
+                OnOrBefore(record.Artifact.Date, asOf))
+            .OrderByDescending(record => record.Artifact.Date.Year)
+            .ThenByDescending(record => record.Artifact.Date.Month)
+            .ThenByDescending(record => record.Artifact.Date.Day)
+            .ThenBy(record => record.ArtifactId, StringComparer.Ordinal)
+            .FirstOrDefault();
+        var latestReviewSession = sessions
+            .Where(record =>
+                record.SessionType == LocalCompletedSessionType.Review &&
+                OnOrBefore(record.Date, asOf))
+            .OrderByDescending(record => record.Date.Year)
+            .ThenByDescending(record => record.Date.Month)
+            .ThenByDescending(record => record.Date.Day)
+            .ThenBy(record => record.SessionId, StringComparer.Ordinal)
+            .FirstOrDefault();
+        var lastReviewOn = latestReviewSession is not null &&
+            (latestReview is null || latestReview.Artifact.Date.DaysUntil(latestReviewSession.Date) >= 0)
+                ? latestReviewSession.Date
+                : latestReview?.Artifact.Date;
+        var lastReviewPassed = latestReviewSession is not null &&
+            lastReviewOn == latestReviewSession.Date
+                ? latestReviewSession.CleanPerformance
+                : (bool?)null;
+
+        return new LocalProgramReviewCadenceFacts(
+            timelineDates.FirstOrDefault(asOf),
+            lastReviewOn,
+            lastReviewPassed);
     }
 
     public async ValueTask<IReadOnlyList<LocalSessionHistoryRecord>> ListRecentSessionsAsync(
@@ -219,12 +276,11 @@ public sealed class LocalProgramRepository
         var due = new List<LocalDueMaintenanceRecord>();
         foreach (var branchLevel in currentState.BranchLevels.Where(IsMaintenanceRelevant))
         {
-            var request = await maintenanceCheckStore.LoadMaintenanceCurrencyRequestAsync(
+            var currency = await LoadMaintenanceCurrencyAsync(
                 branchLevel.Branch,
                 branchLevel.Level,
                 asOf,
                 cancellationToken).ConfigureAwait(false);
-            var currency = MaintenanceCurrencyEvaluator.Evaluate(request);
 
             if (currency.State != MaintenanceCurrencyState.Current)
             {
@@ -236,6 +292,54 @@ public sealed class LocalProgramRepository
             .OrderBy(record => record.BranchLevel.Branch)
             .ThenBy(record => record.BranchLevel.Level)
             .ToArray();
+    }
+
+    public async ValueTask<MaintenanceCurrencyResult> LoadMaintenanceCurrencyAsync(
+        BranchCode branch,
+        GlobalLevelId ownedLevel,
+        TrainingDate asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var request = await LoadMaintenanceCurrencyRequestAsync(
+            branch,
+            ownedLevel,
+            asOf,
+            cancellationToken).ConfigureAwait(false);
+        return MaintenanceCurrencyEvaluator.Evaluate(request);
+    }
+
+    public async ValueTask<MaintenanceCurrencyRequest> LoadMaintenanceCurrencyRequestAsync(
+        BranchCode branch,
+        GlobalLevelId ownedLevel,
+        TrainingDate asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var request = await maintenanceCheckStore.LoadMaintenanceCurrencyRequestAsync(
+            branch,
+            ownedLevel,
+            asOf,
+            cancellationToken).ConfigureAwait(false);
+        var stabilization = await stabilizationPassStore.ListByBranchLevelAsync(
+            branch,
+            ownedLevel,
+            cancellationToken).ConfigureAwait(false);
+        var cadence = MaintenanceCurrencyEvaluator.CadenceFor(branch, ownedLevel);
+        var ownershipBaselines = stabilization
+            .Where(record =>
+                record.Evidence.IsCleanPass &&
+                record.Evidence.Date.DaysUntil(asOf) >= 0)
+            .Select(record => new MaintenanceCheckEvidence(
+                branch,
+                ownedLevel,
+                record.Evidence.Date,
+                cadence.RequiredCheckKind,
+                record.Evidence.StandardEvaluationResult));
+
+        return new MaintenanceCurrencyRequest(
+            branch,
+            ownedLevel,
+            asOf,
+            request.Checks.Concat(ownershipBaselines));
     }
 
     public async ValueTask<LocalProgressRecords> LoadProgressRecordsAsync(

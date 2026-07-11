@@ -52,6 +52,44 @@ public sealed class GeneratedContentRuntimePackagingTests
     }
 
     [Fact]
+    public void DistractorHoldPackageKeepsTimedHoldAndSchedulesNoResponseInterruptions()
+    {
+        var generated = FocusHoldGeneratedContentGenerator.Generate(
+            CreateDistractorHoldRequest(),
+            new GeneratedContentSeed("fh2-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.FH &&
+            item.Level == GlobalLevelId.L3);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Timed, phase.CompletionRule);
+                Assert.Equal(TimeSpan.FromMinutes(5), phase.ScheduledDuration);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+        Assert.NotEmpty(package.Cues);
+        Assert.All(package.Cues, cue =>
+        {
+            Assert.Equal(GeneratedRuntimeCueKind.Interruption, cue.Kind);
+            Assert.Equal(GeneratedRuntimeCueResponseExpectation.NoResponseExpected, cue.ResponseExpectation);
+            Assert.Null(cue.ExpectedResponse);
+            Assert.InRange(cue.ScheduledAtOffset, TimeSpan.Zero, TimeSpan.FromMinutes(5));
+        });
+        Assert.Equal(
+            generated.Materials.Count(material => material.Kind == GeneratedContentMaterialKind.DistractorPrompt),
+            package.Cues.Count);
+    }
+
+    [Fact]
     public void CueSequencePackageCanBeConsumedByRuntimeWithoutRuntimeInventingContent()
     {
         var generated = FocusShiftGeneratedContentGenerator.Generate(
@@ -113,6 +151,8 @@ public sealed class GeneratedContentRuntimePackagingTests
             Assert.Equal(RuntimeCueKind.FocusShift, cue.Kind);
             Assert.Equal(RuntimeCueResponseExpectation.ResponseRequired, cue.ResponseExpectation);
             Assert.Equal(TimeSpan.FromSeconds(2), cue.ResponseWindow.Value);
+            Assert.DoesNotContain("valid cue", cue.Cue, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("lure", cue.Cue, StringComparison.OrdinalIgnoreCase);
         });
         Assert.Equal(TimeSpan.FromSeconds(5), cueSchedule.Cues[0].ScheduledAt.Offset);
         Assert.Equal(TimeSpan.FromSeconds(20), cueSchedule.Cues[^1].ScheduledAt.Offset);
@@ -151,6 +191,196 @@ public sealed class GeneratedContentRuntimePackagingTests
             fact.Value == generated.Result.ContentId);
     }
 
+    [Fact]
+    public void GoNoGoPackagePreservesWithholdAndCanonicalResponseActions()
+    {
+        var generated = InhibitionGeneratedContentGenerator.Generate(
+            CreateGoNoGoRequest(),
+            new GeneratedContentSeed("ir-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.IR &&
+            item.Level == GlobalLevelId.L1);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        var noGoCues = package.Cues
+            .Where(cue => cue.Value.StartsWith("no-go:", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var goCues = package.Cues
+            .Where(cue => cue.Value.StartsWith("go:", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.NotEmpty(noGoCues);
+        Assert.NotEmpty(goCues);
+        Assert.All(noGoCues, cue =>
+        {
+            Assert.Equal(GeneratedRuntimeCueResponseExpectation.NoResponseExpected, cue.ResponseExpectation);
+            Assert.Null(cue.ExpectedResponse);
+            Assert.DoesNotContain("cue id", cue.Value, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(goCues, cue =>
+        {
+            Assert.Equal(GeneratedRuntimeCueResponseExpectation.ResponseRequired, cue.ResponseExpectation);
+            Assert.Equal("tap", cue.ExpectedResponse);
+            Assert.DoesNotContain("pace", cue.Value, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void ExceptionRuleCueStepsPackageAsExecutableTimedResponses()
+    {
+        var generated = InhibitionGeneratedContentGenerator.Generate(
+            CreateExceptionRuleRequest(),
+            new GeneratedContentSeed("ir2-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.IR &&
+            item.Level == GlobalLevelId.L2);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Equal(8, package.Cues.Count);
+        Assert.Equal(TimeSpan.FromSeconds(2), package.Cues[0].ScheduledAtOffset);
+        Assert.Equal(TimeSpan.FromSeconds(16), package.Cues[^1].ScheduledAtOffset);
+        Assert.All(package.Cues, cue =>
+        {
+            Assert.Equal(GeneratedRuntimeCueKind.TimedResponse, cue.Kind);
+            Assert.DoesNotContain("cue id", cue.Value, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.Contains(package.Cues, cue =>
+            cue.ResponseExpectation == GeneratedRuntimeCueResponseExpectation.ResponseRequired &&
+            cue.ExpectedResponse == "tap");
+        Assert.Contains(package.Cues, cue =>
+            cue.ResponseExpectation == GeneratedRuntimeCueResponseExpectation.NoResponseExpected &&
+            cue.ExpectedResponse is null);
+    }
+
+    [Fact]
+    public void PressureRepeatPackageExecutesItsFoundationalSourceDrill()
+    {
+        var generated = AffectiveInterferenceGeneratedContentGenerator.Generate(
+            CreatePressureRepeatRequest(),
+            new GeneratedContentSeed("ai1-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.AI && item.Level == GlobalLevelId.L1);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Equal(DrillId.FH2DistractorHold, package.SourceDrill);
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+                Assert.Equal(TimeSpan.FromMinutes(5), phase.ScheduledDuration);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+        Assert.NotEmpty(package.Cues);
+        Assert.All(package.Cues, cue =>
+            Assert.Equal(GeneratedRuntimeCueResponseExpectation.NoResponseExpected, cue.ResponseExpectation));
+        Assert.Contains(package.InputMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.TargetStatement);
+    }
+
+    [Fact]
+    public void DisruptionRecoveryPackageInterruptsThenContinuesItsSourceCueStream()
+    {
+        var generated = AffectiveInterferenceGeneratedContentGenerator.Generate(
+            CreateDisruptionRecoveryRequest(),
+            new GeneratedContentSeed("ai2-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.AI && item.Level == GlobalLevelId.L3);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Equal(DrillId.FS2InvalidCueFilter, package.SourceDrill);
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.CueResponse, phase.Kind),
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+        var disruption = Assert.Single(package.Cues, cue => cue.Id == "controlled-disruption");
+        Assert.Equal(GeneratedRuntimeCueKind.Interruption, disruption.Kind);
+        Assert.Equal(GeneratedRuntimeCueResponseExpectation.ResponseRequired, disruption.ResponseExpectation);
+        Assert.Equal("resume", disruption.ExpectedResponse);
+        Assert.Equal(TimeSpan.FromSeconds(30), disruption.ResponseWindow);
+        Assert.Contains(package.Cues, cue => cue.ScheduledAtOffset < disruption.ScheduledAtOffset);
+        Assert.Contains(package.Cues, cue => cue.ScheduledAtOffset > disruption.ScheduledAtOffset);
+    }
+
+    [Fact]
+    public void GlobalReviewPackageOrdersWorkAuditDelayAndReconstruction()
+    {
+        var generated = TransferIntegrationGeneratedContentGenerator.Generate(
+            CreateGlobalReviewRequest(),
+            new GeneratedContentSeed("ti2-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.TI &&
+            item.Level == GlobalLevelId.L5);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.ManualOrTimed, phase.CompletionRule);
+                Assert.Equal(TimeSpan.FromMinutes(20), phase.ScheduledDuration);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Audit, phase.Kind),
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.DelayWindow, phase.Kind);
+                Assert.Equal(TimeSpan.FromMinutes(5), phase.ScheduledDuration);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.ReconstructionInput, phase.Kind),
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+    }
+
+    [Fact]
+    public void SeededAuditPackageEnforcesDelayBeforeOriginalIsAudited()
+    {
+        var generated = DiscriminationGeneratedContentGenerator.Generate(
+            CreateSeededAuditRequest(),
+            new GeneratedContentSeed("de2-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.DE &&
+            item.Level == GlobalLevelId.L3);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal(GeneratedRuntimePhaseKind.DelayWindow, phase.Kind);
+                Assert.Equal(TimeSpan.FromMinutes(5), phase.ScheduledDuration);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Audit, phase.Kind),
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+    }
+
     private const string ValidCueConstraint = "Switch only on valid cue.";
     private const string NoAnticipatorySwitchingConstraint = "No anticipatory switching.";
     private const string TargetAndDriftConstraint = "Target is stated before set; every drift is marked.";
@@ -177,6 +407,30 @@ public sealed class GeneratedContentRuntimePackagingTests
             ]);
     }
 
+    private static GeneratedDrillContentRequest CreateDistractorHoldRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.FH,
+            GlobalLevelId.L3,
+            DrillId.FH2DistractorHold,
+            SessionType.Practice,
+            PromptContentKind.CueSequence,
+            "fh-l3-distractor-hold",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("duration", "5 minutes"),
+                new LoadVariable("target subtlety", "simple phrase"),
+                new LoadVariable("recovery window", "10 seconds"),
+                new LoadVariable("distractor frequency", "periodic"),
+                new LoadVariable("distractor salience", "low"),
+            ],
+            [
+                new CriticalConstraint(TargetAndDriftConstraint),
+                new CriticalConstraint(NoTargetSubstitutionConstraint),
+                new CriticalConstraint("Do not respond to distractor unless drill says so."),
+            ]);
+    }
+
     private static GeneratedDrillContentRequest CreateCueSwitchRequest()
     {
         return new GeneratedDrillContentRequest(
@@ -197,6 +451,120 @@ public sealed class GeneratedContentRuntimePackagingTests
                 new CriticalConstraint(ValidCueConstraint),
                 new CriticalConstraint(NoAnticipatorySwitchingConstraint),
             ]);
+    }
+
+    private static GeneratedDrillContentRequest CreateGoNoGoRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.IR,
+            GlobalLevelId.L1,
+            DrillId.IR1GoNoGoRule,
+            SessionType.Practice,
+            PromptContentKind.CueSequence,
+            "ir-l1-go-no-go",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("cue conflict", "simple go/no-go symbols"),
+                new LoadVariable("response speed", "2 seconds"),
+                new LoadVariable("no-go frequency", "every third cue"),
+            ],
+            [new CriticalConstraint("Premature response fails item.")]);
+    }
+
+    private static GeneratedDrillContentRequest CreateExceptionRuleRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.IR,
+            GlobalLevelId.L2,
+            DrillId.IR2ExceptionRule,
+            SessionType.Practice,
+            PromptContentKind.CueSequence,
+            "ir-l2-exception-rule",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("exception count", "3"),
+                new LoadVariable("response speed", "2 seconds"),
+                new LoadVariable("similarity", "near symbols"),
+            ],
+            [new CriticalConstraint("Rule and exceptions stated before set.")]);
+    }
+
+    private static GeneratedDrillContentRequest CreateGlobalReviewRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.TI,
+            GlobalLevelId.L5,
+            DrillId.TI2GlobalReviewTask,
+            SessionType.Test,
+            PromptContentKind.EquivalentPrompt,
+            "ti-l5-global-review",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("task length", "20 minutes"),
+                new LoadVariable("pressure", "visible review pressure"),
+                new LoadVariable("ambiguity", "moderate ambiguity"),
+                new LoadVariable("delay", "5 minutes"),
+                new LoadVariable("number of branches", "4"),
+            ],
+            [
+                new CriticalConstraint("Audit and delayed reconstruction are required."),
+                new CriticalConstraint("No rereading after encode window."),
+            ]);
+    }
+
+    private static GeneratedDrillContentRequest CreatePressureRepeatRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.AI,
+            GlobalLevelId.L1,
+            DrillId.AI1PressureRepeat,
+            SessionType.Practice,
+            PromptContentKind.EquivalentPrompt,
+            "ai-l1-pressure-repeat-fh-l3",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("time pressure", "90 seconds"),
+                new LoadVariable("observation", "visible evaluator note"),
+            ],
+            [new CriticalConstraint("Original standard cannot be lowered.")]);
+    }
+
+    private static GeneratedDrillContentRequest CreateDisruptionRecoveryRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.AI,
+            GlobalLevelId.L3,
+            DrillId.AI2DisruptionRecovery,
+            SessionType.Practice,
+            PromptContentKind.EquivalentPrompt,
+            "ai-l3-disruption-recovery-fs-l3",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("interruption timing", "mid-task after first checkpoint"),
+                new LoadVariable("restart delay", "10 seconds"),
+                new LoadVariable("task complexity", "two-target cue sequence"),
+                new LoadVariable("recovery window", "30 seconds"),
+            ],
+            [new CriticalConstraint("Full restart prohibited unless specified.")]);
+    }
+
+    private static GeneratedDrillContentRequest CreateSeededAuditRequest()
+    {
+        return new GeneratedDrillContentRequest(
+            BranchCode.DE,
+            GlobalLevelId.L3,
+            DrillId.DE2SeededAudit,
+            SessionType.Practice,
+            PromptContentKind.DiscriminationItemSet,
+            "de-l3-seeded-audit",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            [
+                new LoadVariable("error subtlety", "subtle wording errors"),
+                new LoadVariable("output length", "6 lines"),
+                new LoadVariable("audit delay", "5 minutes"),
+                new LoadVariable("quantity", "3"),
+            ],
+            [new CriticalConstraint("Original output cannot be edited during audit.")]);
     }
 
     private static RuntimeSessionPhaseDefinition ToRuntimePhase(GeneratedRuntimePhaseDefinition phase)

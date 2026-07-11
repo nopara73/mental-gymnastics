@@ -419,7 +419,7 @@ public sealed class LocalProgressSummaryStore
         }
         else
         {
-            summaries.Add(WriteRecord(record));
+            summaries.AddNode(WriteRecord(record));
         }
 
         document[ProgressSummariesPropertyName] = summaries;
@@ -477,10 +477,8 @@ public sealed class LocalProgressSummaryStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -524,7 +522,7 @@ public sealed class LocalProgressSummaryStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -848,7 +846,7 @@ public sealed class LocalProgressSummaryStore
                 summaryObject[StateAtHighestOwnedLevelPropertyName] = StableDomainIdentifiers.BranchLevelStates.ToPersistedId(stateAtHighestOwnedLevel);
             }
 
-            summaries.Add(summaryObject);
+            summaries.AddNode(summaryObject);
         }
 
         return summaries;
@@ -877,7 +875,7 @@ public sealed class LocalProgressSummaryStore
                 summaryObject[DaysSinceLastPassingCheckPropertyName] = daysSinceLastPassingCheck;
             }
 
-            summaries.Add(summaryObject);
+            summaries.AddNode(summaryObject);
         }
 
         return summaries;
@@ -904,7 +902,7 @@ public sealed class LocalProgressSummaryStore
                 blockerObject[SourceRecordIdPropertyName] = blocker.SourceRecordId;
             }
 
-            blockers.Add(blockerObject);
+            blockers.AddNode(blockerObject);
         }
 
         return blockers;
@@ -935,7 +933,7 @@ public sealed class LocalProgressSummaryStore
         var references = new JsonArray();
         foreach (var sourceReference in sourceReferences)
         {
-            references.Add(new JsonObject
+            references.AddNode(new JsonObject
             {
                 [SourceKindPropertyName] = SourceKinds.ToPersistedId(sourceReference.Kind),
                 [SourceIdPropertyName] = sourceReference.SourceId,

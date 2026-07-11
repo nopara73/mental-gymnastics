@@ -162,6 +162,7 @@ public sealed class GeneratedContentRuntimePackage
     internal GeneratedContentRuntimePackage(
         GeneratedDrillContentResult result,
         BranchLevelStandard standard,
+        DrillId? sourceDrill,
         IEnumerable<GeneratedRuntimePhaseDefinition> phases,
         IEnumerable<GeneratedRuntimeCueDefinition> cues,
         IEnumerable<GeneratedContentMaterial> inputMaterials,
@@ -212,6 +213,7 @@ public sealed class GeneratedContentRuntimePackage
 
         Result = result;
         Standard = standard;
+        SourceDrill = sourceDrill;
         Phases = Array.AsReadOnly(phaseArray);
         Cues = Array.AsReadOnly(cueArray);
         InputMaterials = Array.AsReadOnly(materialArray);
@@ -227,6 +229,8 @@ public sealed class GeneratedContentRuntimePackage
     public GlobalLevelId Level => Result.Level;
 
     public DrillId Drill => Result.Drill;
+
+    public DrillId? SourceDrill { get; }
 
     public SessionType SessionType => Result.SessionType;
 
@@ -281,8 +285,9 @@ public static class GeneratedContentRuntimePackager
             result,
             materials);
 
-        var phases = BuildPhases(result, materialArray);
-        var cues = BuildCues(result, materialArray);
+        var sourceDrill = SourceDrillFor(result, materialArray);
+        var phases = BuildPhases(result, materialArray, sourceDrill);
+        var cues = BuildCues(result, materialArray, sourceDrill);
         if (result.ContentKind == PromptContentKind.CueSequence && cues.Count == 0)
         {
             throw new InvalidOperationException(
@@ -293,6 +298,7 @@ public static class GeneratedContentRuntimePackager
         return new GeneratedContentRuntimePackage(
             result,
             standard,
+            sourceDrill,
             phases,
             cues,
             materialArray,
@@ -301,15 +307,99 @@ public static class GeneratedContentRuntimePackager
 
     private static IReadOnlyList<GeneratedRuntimePhaseDefinition> BuildPhases(
         GeneratedDrillContentResult result,
-        IReadOnlyCollection<GeneratedContentMaterial> materials)
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        DrillId? sourceDrill)
     {
         var phases = new List<GeneratedRuntimePhaseDefinition>
         {
             ManualPhase("instruction-prep", GeneratedRuntimePhaseKind.InstructionPrep),
         };
 
+        if (result.Drill == DrillId.TI2GlobalReviewTask)
+        {
+            var taskLength = FirstDuration(materials, GeneratedContentMaterialKind.TaskLength) ??
+                TimeSpan.FromMinutes(20);
+            var delay = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength) ??
+                TimeSpan.FromMinutes(5);
+            phases.Add(ManualOrTimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, taskLength));
+            phases.Add(ManualPhase("audit", GeneratedRuntimePhaseKind.Audit));
+            phases.Add(TimedPhase("delay-window", GeneratedRuntimePhaseKind.DelayWindow, delay));
+            phases.Add(ManualPhase("reconstruction-input", GeneratedRuntimePhaseKind.ReconstructionInput));
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Drill == DrillId.TI1CompositeTask)
+        {
+            var taskLength = FirstDuration(materials, GeneratedContentMaterialKind.TaskLength) ??
+                TimeSpan.FromMinutes(12);
+            phases.Add(ManualOrTimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, taskLength));
+            var delay = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength);
+            if (delay.HasValue)
+            {
+                phases.Add(TimedPhase("delay-window", GeneratedRuntimePhaseKind.DelayWindow, delay.Value));
+                phases.Add(ManualPhase("reconstruction-input", GeneratedRuntimePhaseKind.ReconstructionInput));
+            }
+
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Drill == DrillId.CO1RuleExtraction)
+        {
+            phases.Add(ManualPhase("rule-statement", GeneratedRuntimePhaseKind.ActiveWork));
+            phases.Add(ManualPhase("unseen-test", GeneratedRuntimePhaseKind.ReconstructionInput));
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Drill == DrillId.CO2StructureMapping)
+        {
+            phases.Add(ManualPhase("relation-naming", GeneratedRuntimePhaseKind.ActiveWork));
+            phases.Add(ManualPhase("mapping-input", GeneratedRuntimePhaseKind.ReconstructionInput));
+            if (materials.Any(material => material.Kind == GeneratedContentMaterialKind.AuditPayload))
+            {
+                phases.Add(ManualPhase("model-audit", GeneratedRuntimePhaseKind.Audit));
+            }
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Branch == BranchCode.AI && sourceDrill.HasValue)
+        {
+            if (sourceDrill == DrillId.FH2DistractorHold)
+            {
+                var holdDuration = FirstDuration(materials, GeneratedContentMaterialKind.HoldDuration) ??
+                    TimeSpan.FromMinutes(5);
+                phases.Add(TimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, holdDuration));
+            }
+            else
+            {
+                phases.Add(ManualPhase("cue-response", GeneratedRuntimePhaseKind.CueResponse));
+            }
+
+            AddComponentEvidencePhase(phases, materials);
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
         var addedWorkPhase = false;
-        if (result.ContentKind == PromptContentKind.CueSequence ||
+        if (result.Drill == DrillId.WM2MentalTransform &&
+            materials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload) &&
+            FirstDuration(materials, GeneratedContentMaterialKind.TaskLength) is { } integratedTaskLength)
+        {
+            phases.Add(ManualOrTimedPhase("integrated-work", GeneratedRuntimePhaseKind.ActiveWork, integratedTaskLength));
+            addedWorkPhase = true;
+        }
+
+        if (result.Drill == DrillId.FH2DistractorHold)
+        {
+            var holdDuration = FirstDuration(materials, GeneratedContentMaterialKind.HoldDuration) ??
+                TimeSpan.FromMinutes(5);
+            phases.Add(TimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, holdDuration));
+            addedWorkPhase = true;
+        }
+        else if (result.ContentKind == PromptContentKind.CueSequence ||
             materials.Any(material => material.Kind is
                 GeneratedContentMaterialKind.CueStep or
                 GeneratedContentMaterialKind.ValidCue or
@@ -333,7 +423,8 @@ public static class GeneratedContentRuntimePackager
                 addedWorkPhase = true;
             }
 
-            var delayDuration = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength);
+            var delayDuration = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength) ??
+                FirstDuration(materials, GeneratedContentMaterialKind.AuditDelay);
             if (delayDuration.HasValue)
             {
                 phases.Add(TimedPhase("delay-window", GeneratedRuntimePhaseKind.DelayWindow, delayDuration.Value));
@@ -343,7 +434,8 @@ public static class GeneratedContentRuntimePackager
             if (materials.Any(material => material.Kind is
                     GeneratedContentMaterialKind.ReconstructionInstruction or
                     GeneratedContentMaterialKind.ExpectedReconstruction or
-                    GeneratedContentMaterialKind.FinalExpectedOutput))
+                    GeneratedContentMaterialKind.FinalExpectedOutput or
+                    GeneratedContentMaterialKind.DelayedReconstructionPayload))
             {
                 phases.Add(ManualPhase("reconstruction-input", GeneratedRuntimePhaseKind.ReconstructionInput));
                 addedWorkPhase = true;
@@ -367,20 +459,46 @@ public static class GeneratedContentRuntimePackager
                 : ManualPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork));
         }
 
+        AddComponentEvidencePhase(phases, materials);
         phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
         return Array.AsReadOnly(phases.ToArray());
     }
 
-    private static IReadOnlyList<GeneratedRuntimeCueDefinition> BuildCues(
-        GeneratedDrillContentResult result,
+    private static void AddComponentEvidencePhase(
+        ICollection<GeneratedRuntimePhaseDefinition> phases,
         IReadOnlyCollection<GeneratedContentMaterial> materials)
     {
-        if (result.ContentKind != PromptContentKind.CueSequence)
+        if (!materials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload) ||
+            phases.Any(phase => phase.Kind == GeneratedRuntimePhaseKind.ReconstructionInput))
+        {
+            return;
+        }
+
+        phases.Add(ManualPhase("component-evidence", GeneratedRuntimePhaseKind.ReconstructionInput));
+    }
+
+    private static IReadOnlyList<GeneratedRuntimeCueDefinition> BuildCues(
+        GeneratedDrillContentResult result,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        DrillId? sourceDrill)
+    {
+        var cueDrill = sourceDrill ?? result.Drill;
+        if (cueDrill == DrillId.FH2DistractorHold)
+        {
+            var distractorCues = BuildDistractorCues(materials);
+            return result.Drill == DrillId.AI2DisruptionRecovery
+                ? AddDisruptionCue(distractorCues, materials)
+                : distractorCues;
+        }
+
+        if (result.ContentKind != PromptContentKind.CueSequence && sourceDrill is null)
         {
             return [];
         }
 
-        var cueInterval = FirstDuration(materials, GeneratedContentMaterialKind.CueDensity) ?? DefaultCueInterval;
+        var cueInterval = FirstDuration(materials, GeneratedContentMaterialKind.CueDensity) ??
+            FirstDuration(materials, GeneratedContentMaterialKind.CuePace) ??
+            DefaultCueInterval;
         var responseWindow = FirstDuration(
             materials,
             GeneratedContentMaterialKind.ResponseWindow,
@@ -391,9 +509,11 @@ public static class GeneratedContentRuntimePackager
         var validCues = IndexedMaterials(materials, GeneratedContentMaterialKind.ValidCue);
         var invalidCues = IndexedMaterials(materials, GeneratedContentMaterialKind.InvalidCue);
         var goNoGoCues = IndexedMaterials(materials, GeneratedContentMaterialKind.GoNoGoCue);
+        var genericCueSteps = IndexedMaterials(materials, GeneratedContentMaterialKind.CueStep);
         var cueSteps = validCues.Keys
             .Concat(invalidCues.Keys)
             .Concat(goNoGoCues.Keys)
+            .Concat(genericCueSteps.Keys)
             .Distinct()
             .OrderBy(step => step);
         var cues = new List<GeneratedRuntimeCueDefinition>();
@@ -412,7 +532,7 @@ public static class GeneratedContentRuntimePackager
 
                 cues.Add(new GeneratedRuntimeCueDefinition(
                     validCue.Name,
-                    CueKindForValidCue(result.Drill),
+                    CueKindForValidCue(cueDrill),
                     validCue.Value,
                     ScheduledOffset(cueInterval, cues.Count + 1),
                     stepResponseWindow,
@@ -433,31 +553,138 @@ public static class GeneratedContentRuntimePackager
                 continue;
             }
 
-            if (!goNoGoCues.TryGetValue(step, out var goNoGoCue))
+            var expectedAction = expectedActions.TryGetValue(step, out var action)
+                ? action.Value
+                : null;
+            var expectation = IsWithholdAction(expectedAction)
+                ? GeneratedRuntimeCueResponseExpectation.NoResponseExpected
+                : GeneratedRuntimeCueResponseExpectation.ResponseRequired;
+
+            if (goNoGoCues.TryGetValue(step, out var goNoGoCue))
+            {
+                cues.Add(new GeneratedRuntimeCueDefinition(
+                    goNoGoCue.Name,
+                    GeneratedRuntimeCueKind.GoNoGo,
+                    goNoGoCue.Value,
+                    ScheduledOffset(cueInterval, cues.Count + 1),
+                    stepResponseWindow,
+                    expectation,
+                    expectation == GeneratedRuntimeCueResponseExpectation.ResponseRequired
+                        ? ExpectedResponseToken(expectedAction)
+                        : null));
+                continue;
+            }
+
+            if (!genericCueSteps.TryGetValue(step, out var genericCue))
             {
                 continue;
             }
 
-            var expectedAction = expectedActions.TryGetValue(step, out var action)
-                ? action.Value
-                : null;
-            var expectation = string.Equals(expectedAction, "withhold", StringComparison.OrdinalIgnoreCase)
-                ? GeneratedRuntimeCueResponseExpectation.NoResponseExpected
-                : GeneratedRuntimeCueResponseExpectation.ResponseRequired;
-
             cues.Add(new GeneratedRuntimeCueDefinition(
-                goNoGoCue.Name,
-                GeneratedRuntimeCueKind.GoNoGo,
-                goNoGoCue.Value,
+                genericCue.Name,
+                GeneratedRuntimeCueKind.TimedResponse,
+                genericCue.Value,
                 ScheduledOffset(cueInterval, cues.Count + 1),
-                responseWindow,
+                stepResponseWindow,
                 expectation,
-                expectation == GeneratedRuntimeCueResponseExpectation.ResponseRequired ? expectedAction : null));
+                expectation == GeneratedRuntimeCueResponseExpectation.ResponseRequired
+                    ? ExpectedResponseToken(expectedAction)
+                    : null));
         }
 
-        return Array.AsReadOnly(cues
+        var ordered = Array.AsReadOnly(cues
             .OrderBy(cue => cue.ScheduledAtOffset)
             .ThenBy(cue => cue.Id, StringComparer.Ordinal)
+            .ToArray());
+        return result.Drill == DrillId.AI2DisruptionRecovery
+            ? AddDisruptionCue(ordered, materials)
+            : ordered;
+    }
+
+    private static IReadOnlyList<GeneratedRuntimeCueDefinition> AddDisruptionCue(
+        IReadOnlyList<GeneratedRuntimeCueDefinition> sourceCues,
+        IReadOnlyCollection<GeneratedContentMaterial> materials)
+    {
+        var disruption = materials.Single(material =>
+            material.Kind == GeneratedContentMaterialKind.DisruptionEvent);
+        var recoveryWindow = FirstDuration(materials, GeneratedContentMaterialKind.RecoveryWindow) ??
+            TimeSpan.FromSeconds(30);
+        var insertionIndex = Math.Min(2, sourceCues.Count);
+        var priorOffset = insertionIndex == 0
+            ? TimeSpan.Zero
+            : sourceCues[insertionIndex - 1].ScheduledAtOffset;
+        var disruptionOffset = priorOffset + TimeSpan.FromSeconds(3);
+        var shifted = sourceCues
+            .Select((cue, index) => index < insertionIndex
+                ? cue
+                : new GeneratedRuntimeCueDefinition(
+                    cue.Id,
+                    cue.Kind,
+                    cue.Value,
+                    cue.ScheduledAtOffset + recoveryWindow,
+                    cue.ResponseWindow,
+                    cue.ResponseExpectation,
+                    cue.ExpectedResponse))
+            .ToList();
+        shifted.Add(new GeneratedRuntimeCueDefinition(
+            "controlled-disruption",
+            GeneratedRuntimeCueKind.Interruption,
+            disruption.Value,
+            disruptionOffset,
+            recoveryWindow,
+            GeneratedRuntimeCueResponseExpectation.ResponseRequired,
+            "resume"));
+
+        return Array.AsReadOnly(shifted
+            .OrderBy(cue => cue.ScheduledAtOffset)
+            .ThenBy(cue => cue.Id, StringComparer.Ordinal)
+            .ToArray());
+    }
+
+    private static DrillId? SourceDrillFor(
+        GeneratedDrillContentResult result,
+        IReadOnlyCollection<GeneratedContentMaterial> materials)
+    {
+        if (result.Branch != BranchCode.AI)
+        {
+            return null;
+        }
+
+        var value = materials.Single(material =>
+            material.Kind == GeneratedContentMaterialKind.SourceDrill).Value;
+        if (!Enum.TryParse<DrillId>(value, out var sourceDrill) || sourceDrill is not
+            (DrillId.FH2DistractorHold or DrillId.FS2InvalidCueFilter or DrillId.IR2ExceptionRule))
+        {
+            throw new InvalidOperationException(
+                "Affective Interference content must identify an executable foundational source drill.");
+        }
+
+        return sourceDrill;
+    }
+
+    private static IReadOnlyList<GeneratedRuntimeCueDefinition> BuildDistractorCues(
+        IReadOnlyCollection<GeneratedContentMaterial> materials)
+    {
+        var distractors = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.DistractorPrompt)
+            .OrderBy(material => material.Name, StringComparer.Ordinal)
+            .ToArray();
+        if (distractors.Length == 0)
+        {
+            return [];
+        }
+
+        var holdDuration = FirstDuration(materials, GeneratedContentMaterialKind.HoldDuration) ??
+            TimeSpan.FromMinutes(5);
+        var interval = TimeSpan.FromTicks(holdDuration.Ticks / (distractors.Length + 1));
+        return Array.AsReadOnly(distractors
+            .Select((material, index) => new GeneratedRuntimeCueDefinition(
+                material.Name,
+                GeneratedRuntimeCueKind.Interruption,
+                material.Value,
+                ScheduledOffset(interval, index + 1),
+                TimeSpan.FromSeconds(5),
+                GeneratedRuntimeCueResponseExpectation.NoResponseExpected))
             .ToArray());
     }
 
@@ -469,6 +696,48 @@ public static class GeneratedContentRuntimePackager
             DrillId.IR1GoNoGoRule => GeneratedRuntimeCueKind.GoNoGo,
             _ => GeneratedRuntimeCueKind.TimedResponse,
         };
+    }
+
+    private static bool IsWithholdAction(string? expectedAction)
+    {
+        if (string.IsNullOrWhiteSpace(expectedAction))
+        {
+            return false;
+        }
+
+        var normalized = expectedAction.Trim();
+        return normalized.StartsWith("withhold", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains(": withhold", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExpectedResponseToken(string? expectedAction)
+    {
+        if (string.IsNullOrWhiteSpace(expectedAction))
+        {
+            return "respond";
+        }
+
+        var action = expectedAction;
+        var colon = action.IndexOf(':');
+        if (colon >= 0 && colon < action.Length - 1)
+        {
+            action = action[(colon + 1)..];
+        }
+
+        var within = action.IndexOf(" within", StringComparison.OrdinalIgnoreCase);
+        if (within >= 0)
+        {
+            action = action[..within];
+        }
+
+        var instead = action.IndexOf(" instead", StringComparison.OrdinalIgnoreCase);
+        if (instead >= 0)
+        {
+            action = action[..instead];
+        }
+
+        var token = action.Trim();
+        return token.Length == 0 ? "respond" : token;
     }
 
     private static TimeSpan ScheduledOffset(TimeSpan interval, int oneBasedPosition)
@@ -543,7 +812,7 @@ public static class GeneratedContentRuntimePackager
             return null;
         }
 
-        var unit = trimmed[digits.Length..].Trim().ToLowerInvariant();
+        var unit = trimmed[digits.Length..].Trim().TrimStart('-').TrimStart().ToLowerInvariant();
         if (unit.StartsWith("second", StringComparison.Ordinal) ||
             unit is "s" or "sec" or "secs")
         {
@@ -578,6 +847,18 @@ public static class GeneratedContentRuntimePackager
             id,
             kind,
             GeneratedRuntimePhaseCompletionRule.Timed,
+            duration);
+    }
+
+    private static GeneratedRuntimePhaseDefinition ManualOrTimedPhase(
+        string id,
+        GeneratedRuntimePhaseKind kind,
+        TimeSpan duration)
+    {
+        return new GeneratedRuntimePhaseDefinition(
+            id,
+            kind,
+            GeneratedRuntimePhaseCompletionRule.ManualOrTimed,
             duration);
     }
 }

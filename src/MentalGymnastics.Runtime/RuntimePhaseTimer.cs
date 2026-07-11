@@ -20,6 +20,13 @@ public sealed class TimeProviderRuntimeClock : IRuntimeClock
         _initialTimestamp = _timeProvider.GetTimestamp();
     }
 
+    public static TimeProviderRuntimeClock CreateUtcTimeline(TimeProvider? timeProvider = null)
+    {
+        var provider = timeProvider ?? TimeProvider.System;
+        var utcOffset = provider.GetUtcNow() - DateTimeOffset.UnixEpoch;
+        return new TimeProviderRuntimeClock(provider, new RuntimeInstant(utcOffset));
+    }
+
     public RuntimeInstant Now
     {
         get

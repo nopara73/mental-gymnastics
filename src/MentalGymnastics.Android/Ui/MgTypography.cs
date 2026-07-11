@@ -5,11 +5,13 @@ namespace MentalGymnastics.Android;
 
 internal static class MgTypography
 {
-    public const float TitleSp = 22;
-    public const float HeadingSp = 17;
-    public const float BodySp = 14;
-    public const float LabelSp = 12;
-    public const float MicroSp = 10;
+    public const float TitleSp = 28;
+    public const float HeadingSp = 20;
+    public const float BodySp = 16;
+    public const float LabelSp = 13;
+    public const float MicroSp = 12;
+    public const float AppTitleSp = 20;
+    public const float AppSubtitleSp = 13;
 
     public static void ApplyTitle(TextView view)
     {
@@ -36,13 +38,24 @@ internal static class MgTypography
         Apply(view, MicroSp, TypefaceStyle.Bold, MgColors.InkMuted);
     }
 
+    public static void ApplyAppTitle(TextView view)
+    {
+        Apply(view, AppTitleSp, TypefaceStyle.Bold, MgColors.Ink);
+    }
+
+    public static void ApplyAppSubtitle(TextView view)
+    {
+        Apply(view, AppSubtitleSp, TypefaceStyle.Bold, MgColors.InkMuted);
+    }
+
     private static void Apply(TextView view, float textSizeSp, TypefaceStyle style, Color color)
     {
         ArgumentNullException.ThrowIfNull(view);
 
         view.SetTextSize(ComplexUnitType.Sp, textSizeSp);
-        view.SetTypeface(Typeface.Default, style);
+        var family = style == TypefaceStyle.Normal ? "sans-serif" : "sans-serif-medium";
+        view.SetTypeface(Typeface.Create(family, style), style);
         view.SetTextColor(color);
-        view.SetIncludeFontPadding(true);
+        view.SetIncludeFontPadding(false);
     }
 }

@@ -94,14 +94,22 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         if (request.Drill == DrillId.AI2DisruptionRecovery)
         {
             var plan = BuildDisruptionRecoveryPlan(request, seedPlan);
-            materials = BuildDisruptionRecoveryMaterials(request, plan);
-            payloadFacts = BuildDisruptionRecoveryPayloadFacts(materials);
+            var source = GenerateExecutableSourceTask(request, plan.SourceStandard, seedPlan);
+            materials = MergeSourceMaterials(
+                BuildDisruptionRecoveryMaterials(request, plan),
+                source.Materials);
+            payloadFacts = BuildDisruptionRecoveryPayloadFacts(materials)
+                .Concat(SourcePayloadFacts(source));
         }
         else
         {
             var plan = BuildPressureRepeatPlan(request, seedPlan);
-            materials = BuildPressureRepeatMaterials(request, plan);
-            payloadFacts = BuildPressureRepeatPayloadFacts(materials);
+            var source = GenerateExecutableSourceTask(request, plan.SourceStandard, seedPlan);
+            materials = MergeSourceMaterials(
+                BuildPressureRepeatMaterials(request, plan),
+                source.Materials);
+            payloadFacts = BuildPressureRepeatPayloadFacts(materials)
+                .Concat(SourcePayloadFacts(source));
         }
 
         var result = new GeneratedDrillContentResult(
@@ -167,9 +175,13 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             "source-branch-standard",
             sourceStandardValue));
         materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.SourceDrill,
+            "source-drill",
+            plan.SourceStandard.Drill.ToString()));
+        materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.SourceTask,
             "source-content-reference",
-            $"source content reference {plan.SourceStandard.StandardId}: host must attach or reuse content for {plan.SourceStandard.Drill}; this pressure wrapper does not replace the source task or lower its demand."));
+            $"{plan.SourceStandard.StandardId} executable source task; complete {plan.SourceStandard.Drill} without lowering its standard."));
 
         AddPressureMetadataMaterials(materials, request);
 
@@ -221,6 +233,10 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             "source-branch-standard",
             sourceStandardValue));
         materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.SourceDrill,
+            "source-drill",
+            plan.SourceStandard.Drill.ToString()));
+        materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.SourceTask,
             "source-task",
             $"source task {plan.SourceStandard.StandardId}: branch {plan.SourceStandard.Branch}; level {plan.SourceStandard.Level}; drill {plan.SourceStandard.Drill}; underlying branch demand and source standard remain visible; task complexity {plan.TaskComplexity}; this disruption wrapper does not replace, reset, or reduce the source task."));
@@ -246,14 +262,74 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             $"full restart prohibited unless specified; restart delay metadata {plan.RestartDelay}; resume the same source task without resetting evidence or changing the source standard."));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.RecoveryWindow,
-            "recovery-window",
+            "disruption-recovery-window",
             plan.RecoveryWindow));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.PostDisruptionEvidence,
             "post-disruption-evidence",
             $"record recovery time within {plan.RecoveryWindow}; post-disruption errors; post-error cascade; whether the source standard remained visible; no full restart."));
 
+        AddPressureMetadataMaterials(materials, request, includeDefaults: false);
+        AddComponentMaterials(materials, request);
+
         return Array.AsReadOnly(materials.ToArray());
+    }
+
+    private static void AddComponentMaterials(
+        ICollection<GeneratedContentMaterial> materials,
+        GeneratedDrillContentRequest request)
+    {
+        var count = ParseLoadCount(request, "number of branches") ??
+            ParseLoadCount(request, "branch count");
+        if (count is null)
+        {
+            return;
+        }
+
+        var branches = new[]
+        {
+            BranchCode.FH,
+            BranchCode.FS,
+            BranchCode.WM,
+            BranchCode.IR,
+            BranchCode.DE,
+            BranchCode.CO,
+            BranchCode.TI,
+        };
+        foreach (var branch in branches.Take(Math.Clamp(count.Value, 1, branches.Length)))
+        {
+            var level = GlobalLevelId.L3;
+            var standard = ProgramCatalog.Standards.Single(item =>
+                item.Branch == branch && item.Level == level);
+            var drillId = ExecutableStandardCatalog.Get(branch, level).Drill;
+            var drill = ProgramCatalog.Drills.Single(item => item.Id == drillId);
+            var task = ObjectiveComponentTaskCatalog.Select(
+                branch,
+                request.EquivalenceClass,
+                (int)request.Level);
+            var branchId = branch.ToString().ToLowerInvariant();
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.ComponentPayload,
+                $"pressure-component-{branchId}",
+                ObjectiveComponentTaskCatalog.PayloadValue(
+                    task,
+                    level,
+                    drillId,
+                    "complete the component without pressure-based simplification",
+                    standard.Demand,
+                    standard.Standard,
+                    drill.HonestyConstraint)));
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                $"pressure-evidence-{branchId}",
+                $"branch {branch} requires its own scored response and error record."));
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.BranchScoringKey,
+                $"pressure-scoring-{branchId}",
+                ObjectiveComponentTaskCatalog.ScoringKeyValue(
+                    task,
+                    $"branch {branch} passes only when its source standard passes without pressure-based lowering")));
+        }
     }
 
     private static void AddHonestyConstraints(
@@ -294,7 +370,8 @@ public static class AffectiveInterferenceGeneratedContentGenerator
 
     private static void AddPressureMetadataMaterials(
         ICollection<GeneratedContentMaterial> materials,
-        GeneratedDrillContentRequest request)
+        GeneratedDrillContentRequest request,
+        bool includeDefaults = true)
     {
         var added = new HashSet<string>(StringComparer.Ordinal);
         foreach (var loadVariable in request.LoadVariables)
@@ -322,7 +399,8 @@ public static class AffectiveInterferenceGeneratedContentGenerator
                 loadVariable.Value);
         }
 
-        if (!materials.Any(material => material.Kind == GeneratedContentMaterialKind.TimePressure))
+        if (includeDefaults &&
+            !materials.Any(material => material.Kind == GeneratedContentMaterialKind.TimePressure))
         {
             AddPressureMetadataMaterial(
                 materials,
@@ -332,7 +410,8 @@ public static class AffectiveInterferenceGeneratedContentGenerator
                 DefaultTimePressure);
         }
 
-        if (!materials.Any(material => material.Kind == GeneratedContentMaterialKind.EvaluativePressure))
+        if (includeDefaults &&
+            !materials.Any(material => material.Kind == GeneratedContentMaterialKind.EvaluativePressure))
         {
             AddPressureMetadataMaterial(
                 materials,
@@ -429,7 +508,9 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             .Single(material => material.Kind == GeneratedContentMaterialKind.RestartRule)
             .Value;
         var recoveryWindow = materials
-            .Single(material => material.Kind == GeneratedContentMaterialKind.RecoveryWindow)
+            .Single(material =>
+                material.Kind == GeneratedContentMaterialKind.RecoveryWindow &&
+                material.Name == "disruption-recovery-window")
             .Value;
         var postDisruptionEvidence = materials
             .Single(material => material.Kind == GeneratedContentMaterialKind.PostDisruptionEvidence)
@@ -450,6 +531,99 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             "source-demand-preservation",
             $"underlying branch demand preserved through disruption wrapper: {sourceTask}");
     }
+
+    private static SourceGeneratedContent GenerateExecutableSourceTask(
+        GeneratedDrillContentRequest wrapperRequest,
+        SourceStandardTemplate source,
+        GeneratedContentSeedPlan seedPlan)
+    {
+        var request = new GeneratedDrillContentRequest(
+            source.Branch,
+            source.Level,
+            source.Drill,
+            wrapperRequest.SessionType,
+            PromptContentKind.CueSequence,
+            $"{wrapperRequest.EquivalenceClass}-source-{source.StandardId.ToLowerInvariant()}",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            SourceLoadVariables(source.Drill),
+            [new CriticalConstraint(
+                ProgramCatalog.Drills.Single(drill => drill.Id == source.Drill).HonestyConstraint)]);
+        var sourceSeed = new GeneratedContentSeed($"{seedPlan.PayloadSeed}|ai-source|{source.StandardId}");
+
+        return source.Branch switch
+        {
+            BranchCode.FH => From(FocusHoldGeneratedContentGenerator.Generate(request, sourceSeed)),
+            BranchCode.FS => From(FocusShiftGeneratedContentGenerator.Generate(request, sourceSeed)),
+            BranchCode.IR => From(InhibitionGeneratedContentGenerator.Generate(request, sourceSeed)),
+            _ => throw new InvalidOperationException(
+                $"Affective Interference source branch {source.Branch} is not executable."),
+        };
+    }
+
+    private static IReadOnlyList<LoadVariable> SourceLoadVariables(DrillId drill)
+    {
+        return drill switch
+        {
+            DrillId.FH2DistractorHold =>
+            [
+                new LoadVariable("duration", "5 minutes"),
+                new LoadVariable("target subtlety", "simple phrase"),
+                new LoadVariable("recovery window", "10 seconds"),
+                new LoadVariable("distractor frequency", "periodic"),
+                new LoadVariable("distractor salience", "low"),
+            ],
+            DrillId.FS2InvalidCueFilter =>
+            [
+                new LoadVariable("target count", "2"),
+                new LoadVariable("switch count", "6"),
+                new LoadVariable("cue density", "5 seconds"),
+                new LoadVariable("rule contrast", "valid symbol versus invalid lure"),
+                new LoadVariable("return precision", "next valid cue"),
+            ],
+            DrillId.IR2ExceptionRule =>
+            [
+                new LoadVariable("exception count", "3"),
+                new LoadVariable("response speed", "2 seconds"),
+                new LoadVariable("similarity", "near symbols"),
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(drill),
+                drill,
+                "Unsupported Affective Interference source drill."),
+        };
+    }
+
+    private static IReadOnlyList<GeneratedContentMaterial> MergeSourceMaterials(
+        IReadOnlyList<GeneratedContentMaterial> wrapperMaterials,
+        IReadOnlyList<GeneratedContentMaterial> sourceMaterials)
+    {
+        return Array.AsReadOnly(wrapperMaterials
+            .Concat(sourceMaterials.Where(material => material.Kind is not
+                GeneratedContentMaterialKind.LoadVariable and not
+                GeneratedContentMaterialKind.HonestyConstraint))
+            .ToArray());
+    }
+
+    private static IEnumerable<GeneratedContentPayloadFact> SourcePayloadFacts(
+        SourceGeneratedContent source)
+    {
+        yield return new GeneratedContentPayloadFact("source-instance-id", source.Result.InstanceId);
+        yield return new GeneratedContentPayloadFact("source-content-id", source.Result.ContentId);
+        yield return new GeneratedContentPayloadFact("source-drill", source.Result.Drill.ToString());
+        foreach (var fact in source.Result.PayloadFacts)
+        {
+            yield return new GeneratedContentPayloadFact($"source-{fact.Name}", fact.Value);
+        }
+    }
+
+    private static SourceGeneratedContent From(FocusHoldGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static SourceGeneratedContent From(FocusShiftGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static SourceGeneratedContent From(InhibitionGeneratedContent content) =>
+        new(content.Result, content.Materials);
 
     private static SourceStandardTemplate SelectSourceStandard(GeneratedDrillContentRequest request)
     {
@@ -515,6 +689,27 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             ?.Value ?? defaultValue;
     }
 
+    private static int? ParseLoadCount(
+        GeneratedDrillContentRequest request,
+        string name)
+    {
+        var rawValue = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
+        if (rawValue is null)
+        {
+            return null;
+        }
+
+        var numericPrefix = new string(rawValue.Trim().TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(
+            numericPrefix,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var count)
+                ? count
+                : null;
+    }
+
     private static int SelectIndex(
         string seedMaterial,
         string purpose,
@@ -548,6 +743,10 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         BranchCode Branch,
         GlobalLevelId Level,
         DrillId Drill);
+
+    private sealed record SourceGeneratedContent(
+        GeneratedDrillContentResult Result,
+        IReadOnlyList<GeneratedContentMaterial> Materials);
 
     private sealed record PressureSourceTemplate(
         string SourceId,

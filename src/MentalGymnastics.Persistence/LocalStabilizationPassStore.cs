@@ -187,7 +187,7 @@ public sealed class LocalStabilizationPassStore
         }
         else
         {
-            passes.Add(WriteRecord(record));
+            passes.AddNode(WriteRecord(record));
         }
 
         document[StabilizationPassesPropertyName] = passes;
@@ -260,10 +260,8 @@ public sealed class LocalStabilizationPassStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -307,7 +305,7 @@ public sealed class LocalStabilizationPassStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -401,7 +399,7 @@ public sealed class LocalStabilizationPassStore
         var failureArray = new JsonArray();
         foreach (var failure in failures)
         {
-            failureArray.Add(new JsonObject
+            failureArray.AddNode(new JsonObject
             {
                 [FailureKindPropertyName] = StandardFailureKinds.ToPersistedId(failure.Kind),
                 [DetailPropertyName] = failure.Detail,

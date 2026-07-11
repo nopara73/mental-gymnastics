@@ -19,7 +19,7 @@ internal sealed class StatusChipView : TextView
             MgSpacing.Dp(context, MgSpacing.Sm),
             MgSpacing.Dp(context, MgSpacing.Xs));
         MgTypography.ApplyMicro(this);
-        SetTextColor(filled ? Color.White : MgColors.Ink);
+        SetTextColor(filled ? MgColors.ReadableTextOn(strokeColor) : MgColors.Ink);
         Background = filled
             ? MgTheme.Filled(context, strokeColor, cornerRadius: 16)
             : MgTheme.Outline(context, strokeColor, cornerRadius: 16);

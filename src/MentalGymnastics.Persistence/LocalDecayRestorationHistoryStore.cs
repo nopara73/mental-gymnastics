@@ -260,7 +260,7 @@ public sealed class LocalDecayRestorationHistoryStore
         }
         else
         {
-            history.Add(WriteDecayRecord(record));
+            history.AddNode(WriteDecayRecord(record));
         }
 
         document[DecayHistoryPropertyName] = history;
@@ -313,7 +313,7 @@ public sealed class LocalDecayRestorationHistoryStore
         }
         else
         {
-            history.Add(WriteRestorationRecord(record));
+            history.AddNode(WriteRestorationRecord(record));
         }
 
         document[RestorationHistoryPropertyName] = history;
@@ -409,10 +409,8 @@ public sealed class LocalDecayRestorationHistoryStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -456,7 +454,7 @@ public sealed class LocalDecayRestorationHistoryStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -550,7 +548,7 @@ public sealed class LocalDecayRestorationHistoryStore
         var checks = new JsonArray();
         foreach (var check in evidence.Checks)
         {
-            checks.Add(WriteRestorationCheckEvidence(check));
+            checks.AddNode(WriteRestorationCheckEvidence(check));
         }
 
         return new JsonObject
@@ -587,7 +585,7 @@ public sealed class LocalDecayRestorationHistoryStore
         var failureArray = new JsonArray();
         foreach (var failure in failures)
         {
-            failureArray.Add(new JsonObject
+            failureArray.AddNode(new JsonObject
             {
                 [FailureKindPropertyName] = StandardFailureKinds.ToPersistedId(failure.Kind),
                 [DetailPropertyName] = failure.Detail,
@@ -602,7 +600,7 @@ public sealed class LocalDecayRestorationHistoryStore
         var array = new JsonArray();
         foreach (var value in values)
         {
-            array.Add(value);
+            array.AddString(value);
         }
 
         return array;

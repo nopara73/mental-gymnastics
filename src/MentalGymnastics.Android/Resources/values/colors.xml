@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="launch_surface">#F4F8FA</color>
+  <color name="launch_status">#F4F8FA</color>
+  <color name="brand_teal">#0C7168</color>
+</resources>

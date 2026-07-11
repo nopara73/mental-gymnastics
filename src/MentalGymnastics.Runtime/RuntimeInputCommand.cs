@@ -3,6 +3,8 @@ namespace MentalGymnastics.Runtime;
 public enum RuntimeInputCommandKind
 {
     MarkDrift,
+    MarkReturn,
+    MarkTargetChange,
     RespondToCue,
     SubmitAnswer,
     MarkGuess,
@@ -24,6 +26,10 @@ public enum RuntimeInputCommandInvalidReason
     CommandNotAllowedInCurrentPhase,
     NoCorrectableEvent,
     CorrectionWindowExpired,
+    InvalidCommandPayload,
+    CommandNotSupportedByDrill,
+    NoOpenDrift,
+    OpenDriftRequiresReturn,
     InvalidPhaseCompletion,
     PauseNotAllowed,
     IllegalLifecycleTransition,
@@ -56,6 +62,43 @@ public sealed class RuntimeInputCommand
         return new RuntimeInputCommand(
             RuntimeInputCommandKind.MarkDrift,
             [new RuntimeEventFact("drift_id", driftId)]);
+    }
+
+    public static RuntimeInputCommand MarkReturn(RuntimeDuration returnWindow)
+    {
+        if (returnWindow.Value <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(returnWindow),
+                returnWindow,
+                "Focus return window must be positive.");
+        }
+
+        return new RuntimeInputCommand(
+            RuntimeInputCommandKind.MarkReturn,
+            [new RuntimeEventFact(
+                "recovery_window",
+                returnWindow.Value.ToString("c", System.Globalization.CultureInfo.InvariantCulture))]);
+    }
+
+    public static RuntimeInputCommand MarkTargetChange(string substituteTarget)
+    {
+        if (string.IsNullOrWhiteSpace(substituteTarget))
+        {
+            throw new ArgumentException(
+                "Focus hold substitute target is required.",
+                nameof(substituteTarget));
+        }
+
+        return new RuntimeInputCommand(
+            RuntimeInputCommandKind.MarkTargetChange,
+            [
+                new RuntimeEventFact("substitute_target", substituteTarget),
+                new RuntimeEventFact("error_kind", "target_substitution"),
+                new RuntimeEventFact("failed_constraint", "no_target_substitution"),
+                new RuntimeEventFact("target_substitution_detected", "true"),
+                new RuntimeEventFact("target_substitution_allowed", "false"),
+            ]);
     }
 
     public static RuntimeInputCommand RespondToCue(string cueId, string response)
@@ -330,10 +373,19 @@ public sealed class RuntimeInputCommandHandler
                 "Runtime session snapshot cannot be restored without corrupting the drill's honesty constraints.");
         }
 
+        var restoreOffset = clock.Now.ElapsedSince(snapshot.CapturedAt);
+        var restoredEvents = snapshot.RuntimeEvents.Select(runtimeEvent => new RuntimeEvent(
+            runtimeEvent.SessionId,
+            runtimeEvent.SequenceNumber,
+            runtimeEvent.Kind,
+            runtimeEvent.OccurredAt.Add(restoreOffset),
+            runtimeEvent.PhaseId,
+            runtimeEvent.PhaseKind,
+            runtimeEvent.Facts));
         var eventLog = RuntimeEventLog.Restore(
             snapshot.SessionId,
             snapshot.SessionDefinition,
-            snapshot.RuntimeEvents);
+            restoredEvents);
         var scheduler = RuntimePhaseScheduler.Restore(
             snapshot.SessionDefinition,
             snapshot.PhasePlan,
@@ -376,6 +428,74 @@ public sealed class RuntimeInputCommandHandler
             RuntimeInputCommandKind.FinishPhase => FinishPhase(),
             _ => CapturePhaseInput(command),
         };
+    }
+
+    public RuntimeInputCommandResult SuspendForLifecycle()
+    {
+        if (IsTerminal(LifecycleState.Status))
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.CommandAfterTerminalSession);
+        }
+
+        if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Paused)
+        {
+            return Accepted([]);
+        }
+
+        if (LifecycleState.Status != RuntimeSessionLifecycleStatus.Running)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.SessionNotRunning);
+        }
+
+        var schedulerPause = _scheduler.Pause();
+        if (!schedulerPause.IsValid)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.IllegalLifecycleTransition);
+        }
+
+        LifecycleState = LifecycleState with { Status = RuntimeSessionLifecycleStatus.Paused };
+        var appendedEvent = EventLog.Append(
+            RuntimeEventKind.SessionPaused,
+            _clock.Now,
+            CurrentPhase?.Id,
+            CurrentPhase?.Kind,
+            [new RuntimeEventFact("suspension_origin", "app_lifecycle")]);
+
+        return Accepted([appendedEvent]);
+    }
+
+    public RuntimeInputCommandResult ResumeFromLifecycleSuspension()
+    {
+        if (IsTerminal(LifecycleState.Status))
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.CommandAfterTerminalSession);
+        }
+
+        if (LifecycleState.Status == RuntimeSessionLifecycleStatus.Running)
+        {
+            return Accepted([]);
+        }
+
+        if (LifecycleState.Status != RuntimeSessionLifecycleStatus.Paused)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.SessionNotRunning);
+        }
+
+        var schedulerResume = _scheduler.Resume();
+        if (!schedulerResume.IsValid)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.IllegalLifecycleTransition);
+        }
+
+        LifecycleState = LifecycleState with { Status = RuntimeSessionLifecycleStatus.Running };
+        var appendedEvent = EventLog.Append(
+            RuntimeEventKind.SessionResumed,
+            _clock.Now,
+            CurrentPhase?.Id,
+            CurrentPhase?.Kind,
+            [new RuntimeEventFact("suspension_origin", "app_lifecycle")]);
+
+        return Accepted([appendedEvent]);
     }
 
     public RuntimeInputCommandResult AdvanceToCurrentTime()
@@ -441,6 +561,29 @@ public sealed class RuntimeInputCommandHandler
             return Rejected(RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase);
         }
 
+        if (RequiresFocusHoldSession(command.Kind) && !IsFocusHoldSession())
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.CommandNotSupportedByDrill);
+        }
+
+        if (command.Kind == RuntimeInputCommandKind.MarkDrift &&
+            IsFocusHoldSession() &&
+            FindOpenDrift() is not null)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn);
+        }
+
+        if (command.Kind == RuntimeInputCommandKind.MarkReturn)
+        {
+            return CaptureFocusReturn(command, phase);
+        }
+
+        if (command.Kind == RuntimeInputCommandKind.MarkTargetChange &&
+            FactValue(command.Facts, "substitute_target") is null)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.InvalidCommandPayload);
+        }
+
         if (command.Kind == RuntimeInputCommandKind.Correct)
         {
             var correctionValidation = ValidateCorrectionWindow();
@@ -486,6 +629,23 @@ public sealed class RuntimeInputCommandHandler
         if (!IsAllowedInPhase(command, phase.Kind))
         {
             return Availability(command, false, RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase);
+        }
+
+        if (RequiresFocusHoldSession(command) && !IsFocusHoldSession())
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.CommandNotSupportedByDrill);
+        }
+
+        if (command == RuntimeInputCommandKind.MarkReturn && FindOpenDrift() is null)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.NoOpenDrift);
+        }
+
+        if (command == RuntimeInputCommandKind.MarkDrift &&
+            IsFocusHoldSession() &&
+            FindOpenDrift() is not null)
+        {
+            return Availability(command, false, RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn);
         }
 
         if (command == RuntimeInputCommandKind.Correct)
@@ -771,12 +931,17 @@ public sealed class RuntimeInputCommandHandler
         {
             RuntimeInputCommandKind.MarkDrift =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or RuntimeSessionPhaseKind.Recovery,
+            RuntimeInputCommandKind.MarkReturn =>
+                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.Recovery,
+            RuntimeInputCommandKind.MarkTargetChange =>
+                phase == RuntimeSessionPhaseKind.ActiveWork,
             RuntimeInputCommandKind.RespondToCue =>
                 phase == RuntimeSessionPhaseKind.CueResponse,
             RuntimeInputCommandKind.SubmitAnswer =>
-                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput,
-            RuntimeInputCommandKind.MarkGuess =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
+            RuntimeInputCommandKind.MarkGuess =>
+                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or
+                    RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
             RuntimeInputCommandKind.MarkError =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or
                     RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit or RuntimeSessionPhaseKind.Recovery,
@@ -798,6 +963,7 @@ public sealed class RuntimeInputCommandHandler
         return command switch
         {
             RuntimeInputCommandKind.MarkDrift => RuntimeEventKind.DriftMarked,
+            RuntimeInputCommandKind.MarkTargetChange => RuntimeEventKind.ErrorRecorded,
             RuntimeInputCommandKind.RespondToCue => RuntimeEventKind.CueResponseSubmitted,
             RuntimeInputCommandKind.SubmitAnswer => RuntimeEventKind.AnswerSubmitted,
             RuntimeInputCommandKind.MarkGuess => RuntimeEventKind.GuessMarked,
@@ -823,6 +989,8 @@ public sealed class RuntimeInputCommandHandler
         return command switch
         {
             RuntimeInputCommandKind.MarkDrift => "mark_drift",
+            RuntimeInputCommandKind.MarkReturn => "mark_return",
+            RuntimeInputCommandKind.MarkTargetChange => "mark_target_change",
             RuntimeInputCommandKind.RespondToCue => "respond_to_cue",
             RuntimeInputCommandKind.SubmitAnswer => "submit_answer",
             RuntimeInputCommandKind.MarkGuess => "mark_guess",
@@ -851,6 +1019,95 @@ public sealed class RuntimeInputCommandHandler
         var phase = CurrentPhase;
         return phase is not null &&
             _options.PauseAllowedPhaseKinds.Contains(phase.Kind);
+    }
+
+    private RuntimeInputCommandResult CaptureFocusReturn(
+        RuntimeInputCommand command,
+        RuntimeSessionPhaseDefinition phase)
+    {
+        var openDrift = FindOpenDrift();
+        if (openDrift is null)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.NoOpenDrift);
+        }
+
+        var recoveryWindowValue = FactValue(command.Facts, "recovery_window");
+        if (recoveryWindowValue is null ||
+            !TimeSpan.TryParseExact(
+                recoveryWindowValue,
+                "c",
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var recoveryWindow) ||
+            recoveryWindow <= TimeSpan.Zero)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.InvalidCommandPayload);
+        }
+
+        var driftId = FactValue(openDrift.Facts, "drift_id");
+        if (driftId is null)
+        {
+            return Rejected(RuntimeInputCommandInvalidReason.InvalidCommandPayload);
+        }
+
+        var recoveryTime = _clock.Now.ElapsedSince(openDrift.OccurredAt);
+        var withinWindow = recoveryTime.Value <= recoveryWindow;
+        var facts = new List<RuntimeEventFact>(BuildCommandFacts(command))
+        {
+            new("drift_id", driftId),
+            new("recovery_time", recoveryTime.Value.ToString("c", System.Globalization.CultureInfo.InvariantCulture)),
+            new("return_within_window", withinWindow ? "true" : "false"),
+            new("return_timing_outcome", withinWindow ? "within_window" : "late"),
+            new("target_substitution_allowed", "false"),
+        };
+        var appendedEvent = EventLog.Append(
+            RuntimeEventKind.RecoveryCompleted,
+            _clock.Now,
+            phase.Id,
+            phase.Kind,
+            facts);
+
+        return Accepted([appendedEvent]);
+    }
+
+    private RuntimeEvent? FindOpenDrift()
+    {
+        var returnedDriftIds = EventLog.Events
+            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted)
+            .Select(runtimeEvent => FactValue(runtimeEvent.Facts, "drift_id"))
+            .Where(driftId => driftId is not null)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return EventLog.Events
+            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.DriftMarked)
+            .LastOrDefault(runtimeEvent =>
+                FactValue(runtimeEvent.Facts, "drift_id") is { } driftId &&
+                !returnedDriftIds.Contains(driftId));
+    }
+
+    private bool IsFocusHoldSession()
+    {
+        var definition = EventLog.SessionDefinition;
+        return definition.Branch == MentalGymnastics.Core.BranchCode.FH &&
+            definition.Drill is
+                MentalGymnastics.Core.DrillId.FH1TargetHold or
+                MentalGymnastics.Core.DrillId.FH2DistractorHold ||
+            definition.Branch == MentalGymnastics.Core.BranchCode.AI &&
+            definition.SourceDrill == MentalGymnastics.Core.DrillId.FH2DistractorHold;
+    }
+
+    private static bool RequiresFocusHoldSession(RuntimeInputCommandKind command)
+    {
+        return command is
+            RuntimeInputCommandKind.MarkReturn or
+            RuntimeInputCommandKind.MarkTargetChange;
+    }
+
+    private static string? FactValue(
+        IEnumerable<RuntimeEventFact> facts,
+        string name)
+    {
+        return facts.LastOrDefault(fact =>
+            string.Equals(fact.Name, name, StringComparison.Ordinal))?.Value;
     }
 
     private static bool CanRestoreForContinuation(RuntimeSessionSnapshot snapshot)

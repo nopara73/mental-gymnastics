@@ -57,12 +57,12 @@ public static class FocusShiftGeneratedContentGenerator
 
     private static readonly string[] InvalidCueValues =
     [
-        "lure: blue?",
-        "lure: green?",
-        "lure: switch-now",
-        "lure: wait",
-        "lure: almost",
-        "lure: wrong-tone",
+        "blue?",
+        "green?",
+        "switch-now",
+        "wait",
+        "almost",
+        "wrong-tone",
     ];
 
     public static FocusShiftGeneratedContent Generate(
@@ -157,6 +157,16 @@ public static class FocusShiftGeneratedContentGenerator
         }
 
         AddCueSequenceMaterials(materials, request, seedPlan, targets, responseWindow);
+
+        if (request.Level == GlobalLevelId.L5)
+        {
+            ObjectiveComponentTaskCatalog.AddMaterials(
+                materials,
+                [BranchCode.FS, BranchCode.TI],
+                seedPlan.PayloadSeed,
+                seedPlan.VariantIndex,
+                "integrated-shift");
+        }
 
         return Array.AsReadOnly(materials.ToArray());
     }
@@ -260,7 +270,7 @@ public static class FocusShiftGeneratedContentGenerator
 
             activeTargetIndex = (activeTargetIndex + 1) % targets.Count;
             var target = targets[activeTargetIndex];
-            var validCue = $"valid cue: {target.CueToken}";
+            var validCue = target.CueToken;
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.CueStep,
                 $"cue-step-{stepNumber}",

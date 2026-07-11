@@ -61,6 +61,7 @@ public sealed class LocalFormalTestAttemptStore
     private const string ResultValuePropertyName = "ResultValue";
     private const string FailureTypePropertyName = "FailureType";
     private const string PassStatePropertyName = "PassState";
+    private const string MainFailureModeAvoidedPropertyName = "MainFailureModeAvoided";
     private const string ArtifactPropertyName = "Artifact";
     private const string CategoryPropertyName = "Category";
     private const string ObservableEvidencePropertyName = "ObservableEvidence";
@@ -100,7 +101,7 @@ public sealed class LocalFormalTestAttemptStore
         }
         else
         {
-            attempts.Add(WriteRecord(record));
+            attempts.AddNode(WriteRecord(record));
         }
 
         document[FormalTestAttemptsPropertyName] = attempts;
@@ -158,10 +159,8 @@ public sealed class LocalFormalTestAttemptStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -205,7 +204,7 @@ public sealed class LocalFormalTestAttemptStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -278,6 +277,11 @@ public sealed class LocalFormalTestAttemptStore
             attemptObject[FailureTypePropertyName] = StableDomainIdentifiers.FailureTypes.ToPersistedId(failureType);
         }
 
+        if (attempt.MainFailureModeAvoided is { } mainFailureModeAvoided)
+        {
+            attemptObject[MainFailureModeAvoidedPropertyName] = mainFailureModeAvoided;
+        }
+
         return attemptObject;
     }
 
@@ -303,7 +307,7 @@ public sealed class LocalFormalTestAttemptStore
         var loadVariableArray = new JsonArray();
         foreach (var loadVariable in loadVariables)
         {
-            loadVariableArray.Add(new JsonObject
+            loadVariableArray.AddNode(new JsonObject
             {
                 [NamePropertyName] = loadVariable.Name,
                 [ValuePropertyName] = loadVariable.Value,
@@ -318,7 +322,7 @@ public sealed class LocalFormalTestAttemptStore
         var constraintArray = new JsonArray();
         foreach (var constraint in constraints)
         {
-            constraintArray.Add(new JsonObject
+            constraintArray.AddNode(new JsonObject
             {
                 [DescriptionPropertyName] = constraint.Description,
             });
@@ -341,7 +345,7 @@ public sealed class LocalFormalTestAttemptStore
         var evidence = new JsonArray();
         foreach (var item in artifact.ObservableEvidence)
         {
-            evidence.Add(new JsonObject
+            evidence.AddNode(new JsonObject
             {
                 [KindPropertyName] = StableDomainIdentifiers.ObservableEvidenceKinds.ToPersistedId(item.Kind),
                 [DescriptionPropertyName] = item.Description,
@@ -400,7 +404,8 @@ public sealed class LocalFormalTestAttemptStore
             ReadResultEvidence(ReadRequiredObject(attemptObject, ResultEvidencePropertyName)),
             ReadOptionalEnum(attemptObject, FailureTypePropertyName, StableDomainIdentifiers.FailureTypes),
             StableDomainIdentifiers.FormalTestPassStates.FromPersistedId(ReadRequiredString(attemptObject, PassStatePropertyName)),
-            ReadArtifact(ReadRequiredObject(attemptObject, ArtifactPropertyName)));
+            ReadArtifact(ReadRequiredObject(attemptObject, ArtifactPropertyName)),
+            ReadOptionalString(attemptObject, MainFailureModeAvoidedPropertyName));
     }
 
     private static TestTask ReadTask(JsonObject taskObject)

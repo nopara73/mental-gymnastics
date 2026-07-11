@@ -175,7 +175,7 @@ public sealed class LocalEvidenceArtifactStore
         }
         else
         {
-            artifacts.Add(WriteRecord(record));
+            artifacts.AddNode(WriteRecord(record));
         }
 
         document[EvidenceArtifactsPropertyName] = artifacts;
@@ -265,10 +265,8 @@ public sealed class LocalEvidenceArtifactStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -312,7 +310,7 @@ public sealed class LocalEvidenceArtifactStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -389,7 +387,7 @@ public sealed class LocalEvidenceArtifactStore
         var evidence = new JsonArray();
         foreach (var item in artifact.ObservableEvidence)
         {
-            evidence.Add(new JsonObject
+            evidence.AddNode(new JsonObject
             {
                 [KindPropertyName] = StableDomainIdentifiers.ObservableEvidenceKinds.ToPersistedId(item.Kind),
                 [DescriptionPropertyName] = item.Description,

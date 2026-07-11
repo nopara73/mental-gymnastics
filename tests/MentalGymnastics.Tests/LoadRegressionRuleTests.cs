@@ -42,6 +42,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.OperationSteps,
                 LoadVariableKind.Delay,
                 LoadVariableKind.Interference,
+                LoadVariableKind.TaskLength,
             ],
             LoadRuleFor(BranchCode.WM).PrimaryLoadVariables);
         Assert.Equal(
@@ -54,6 +55,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.ResponseSpeed,
                 LoadVariableKind.ExceptionCount,
                 LoadVariableKind.Pressure,
+                LoadVariableKind.TaskLength,
             ],
             LoadRuleFor(BranchCode.IR).PrimaryLoadVariables);
         Assert.Equal(
@@ -66,6 +68,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.Quantity,
                 LoadVariableKind.ErrorSubtlety,
                 LoadVariableKind.AuditDelay,
+                LoadVariableKind.TaskLength,
             ],
             LoadRuleFor(BranchCode.DE).PrimaryLoadVariables);
         Assert.Equal(
@@ -78,6 +81,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.ExampleCount,
                 LoadVariableKind.ExceptionHandling,
                 LoadVariableKind.TransferDistance,
+                LoadVariableKind.TaskLength,
             ],
             LoadRuleFor(BranchCode.CO).PrimaryLoadVariables);
         Assert.Equal(
@@ -90,6 +94,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.EvaluativePressure,
                 LoadVariableKind.Frustration,
                 LoadVariableKind.Uncertainty,
+                LoadVariableKind.BranchCount,
             ],
             LoadRuleFor(BranchCode.AI).PrimaryLoadVariables);
         Assert.Equal(
@@ -102,6 +107,7 @@ public sealed class LoadRegressionRuleTests
                 LoadVariableKind.TaskLength,
                 LoadVariableKind.DomainDistance,
                 LoadVariableKind.Interference,
+                LoadVariableKind.Delay,
             ],
             LoadRuleFor(BranchCode.TI).PrimaryLoadVariables);
         Assert.Equal(

@@ -172,8 +172,12 @@ public static class InhibitionGeneratedContentGenerator
             GeneratedContentMaterialKind.ResponseWindow,
             "response-window",
             responseWindow));
+        materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.RuleStatement,
+            "rule-statement",
+            "Rule before set: respond only to go cues and withhold every no-go cue; the rule cannot be changed after the cue stream starts."));
 
-        AddGoNoGoCueStream(materials, seedPlan, noGoInterval, responseWindow, cuePace);
+        AddGoNoGoCueStream(materials, seedPlan, noGoInterval, responseWindow);
 
         return Array.AsReadOnly(materials.ToArray());
     }
@@ -197,6 +201,7 @@ public static class InhibitionGeneratedContentGenerator
         var responseWindow = LoadValueOrDefault(request, "response speed", DefaultResponseWindow);
         var cuePace = CuePaceFor(responseWindow);
         var similarity = LoadValueOrDefault(request, "similarity", DefaultSimilarity);
+        var cueConflict = LoadValueOrDefault(request, "cue conflict", DefaultCueConflict);
         var exceptions = SelectExceptions(seedPlan, ExceptionCountFor(request));
 
         materials.Add(new GeneratedContentMaterial(
@@ -212,9 +217,26 @@ public static class InhibitionGeneratedContentGenerator
             "response-window",
             responseWindow));
         materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.CueConflict,
+            "cue-conflict",
+            cueConflict));
+        materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.Similarity,
             "similarity",
             similarity));
+
+        AddOptionalLoadMaterial(
+            materials,
+            request,
+            "pressure",
+            GeneratedContentMaterialKind.PressureSource,
+            "pressure-source");
+        AddOptionalLoadMaterial(
+            materials,
+            request,
+            "task length",
+            GeneratedContentMaterialKind.TaskLength,
+            "task-length");
 
         for (var i = 0; i < exceptions.Count; i++)
         {
@@ -225,9 +247,34 @@ public static class InhibitionGeneratedContentGenerator
                 $"exception {exceptionNumber}: {exceptions[i].Symbol} -> {exceptions[i].ExpectedAction} instead; {exceptions[i].Reason}"));
         }
 
-        AddExceptionRuleCueStream(materials, seedPlan, exceptions, responseWindow, cuePace);
+        AddExceptionRuleCueStream(materials, seedPlan, exceptions, responseWindow);
+
+        if (request.Level == GlobalLevelId.L5)
+        {
+            ObjectiveComponentTaskCatalog.AddMaterials(
+                materials,
+                [BranchCode.IR, BranchCode.TI],
+                seedPlan.PayloadSeed,
+                seedPlan.VariantIndex,
+                "integrated-inhibition");
+        }
 
         return Array.AsReadOnly(materials.ToArray());
+    }
+
+    private static void AddOptionalLoadMaterial(
+        ICollection<GeneratedContentMaterial> materials,
+        GeneratedDrillContentRequest request,
+        string loadName,
+        GeneratedContentMaterialKind materialKind,
+        string materialName)
+    {
+        var load = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, loadName, StringComparison.OrdinalIgnoreCase));
+        if (load is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(materialKind, materialName, load.Value));
+        }
     }
 
     private static void AddHonestyConstraints(
@@ -284,8 +331,7 @@ public static class InhibitionGeneratedContentGenerator
         ICollection<GeneratedContentMaterial> materials,
         GeneratedContentSeedPlan seedPlan,
         int noGoInterval,
-        string responseWindow,
-        string cuePace)
+        string responseWindow)
     {
         var goStart = SelectIndex(seedPlan.PayloadSeed, "go-cue", seedPlan.VariantIndex, GoCues.Length);
         var noGoStart = SelectIndex(seedPlan.PayloadSeed, "no-go-cue", seedPlan.VariantIndex, NoGoCues.Length);
@@ -302,7 +348,7 @@ public static class InhibitionGeneratedContentGenerator
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.GoNoGoCue,
                     $"cue-{cueName}",
-                    $"no-go: {cue.Symbol}; cue id ir1-{cueName}; pace {cuePace}"));
+                    $"no-go: {cue.Symbol}"));
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.ExpectedAction,
                     $"expected-action-{cueName}",
@@ -314,7 +360,7 @@ public static class InhibitionGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.GoNoGoCue,
                 $"cue-{cueName}",
-                $"go: {goCue.Symbol}; cue id ir1-{cueName}; pace {cuePace}"));
+                $"go: {goCue.Symbol}"));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedAction,
                 $"expected-action-{cueName}",
@@ -326,8 +372,7 @@ public static class InhibitionGeneratedContentGenerator
         ICollection<GeneratedContentMaterial> materials,
         GeneratedContentSeedPlan seedPlan,
         IReadOnlyList<ExceptionTemplate> exceptions,
-        string responseWindow,
-        string cuePace)
+        string responseWindow)
     {
         var baseStart = SelectIndex(seedPlan.PayloadSeed, "base-rule-item", seedPlan.VariantIndex, BaseRuleItems.Length);
         var exceptionIndex = 0;
@@ -345,7 +390,7 @@ public static class InhibitionGeneratedContentGenerator
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.CueStep,
                     $"cue-step-{cueName}",
-                    $"exception: {exception.Symbol}; cue id ir2-{cueName}; pace {cuePace}; use pre-stated exception key"));
+                    $"exception: {exception.Symbol}"));
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.ExpectedAction,
                     $"expected-action-{cueName}",
@@ -357,7 +402,7 @@ public static class InhibitionGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.CueStep,
                 $"cue-step-{cueName}",
-                $"base rule item: {item.Symbol}; {item.Shape}; cue id ir2-{cueName}; pace {cuePace}"));
+                $"base rule: {item.Symbol} ({item.Shape})"));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedAction,
                 $"expected-action-{cueName}",

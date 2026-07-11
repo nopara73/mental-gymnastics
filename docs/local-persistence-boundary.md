@@ -140,7 +140,7 @@ Integrity validation is used directly as a diagnostic tool and is enforced befor
 
 ## Consumption From Android Or Session Runtime
 
-Future Android UI and session runtime code should consume persistence in this order:
+Android UI and session runtime code consume persistence in this order:
 
 1. Use `LocalDatabaseOptions.ForAppOwnedPath(...)` for the app-owned local file path.
 2. Initialize storage with `LocalDatabaseInitializer` at app startup or first use.

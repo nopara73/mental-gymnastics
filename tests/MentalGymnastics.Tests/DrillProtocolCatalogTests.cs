@@ -88,7 +88,7 @@ public sealed class DrillProtocolCatalogTests
             ["Task length", "pressure", "ambiguity", "delay."],
             protocol.LoadApplied.Select(load => load.Description));
         Assert.Equal(
-            ["Audit and delayed reconstruction are required."],
+            ["Audit and delayed reconstruction are required", "no rereading after encode window."],
             protocol.HonestyConstraints.Select(constraint => constraint.Description));
         Assert.Equal(
             "Composite, audit, and delayed reconstruction all pass.",

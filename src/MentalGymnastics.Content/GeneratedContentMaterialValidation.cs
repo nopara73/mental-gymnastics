@@ -36,6 +36,7 @@ public enum GeneratedContentMaterialKind
     ExpectedReconstruction,
     SourceItem,
     SourceTask,
+    SourceDrill,
     TransformRule,
     OperationStep,
     FinalExpectedOutput,
@@ -300,9 +301,12 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialKind.MappingLimit),
             [DrillId.AI1PressureRepeat] = Required(
                 GeneratedContentMaterialKind.SourceBranchStandard,
+                GeneratedContentMaterialKind.SourceDrill,
+                GeneratedContentMaterialKind.SourceTask,
                 GeneratedContentMaterialKind.PressureSource,
                 GeneratedContentMaterialKind.NoStandardLoweringMarker),
             [DrillId.AI2DisruptionRecovery] = Required(
+                GeneratedContentMaterialKind.SourceDrill,
                 GeneratedContentMaterialKind.SourceTask,
                 GeneratedContentMaterialKind.DisruptionEvent,
                 GeneratedContentMaterialKind.DisruptionTiming,
@@ -650,8 +654,12 @@ public sealed class ValidatedGeneratedDrillContent
         var loadValidation = GeneratedContentLoadConstraintValidator.Validate(result, materialArray);
         if (!materialValidation.IsValid || !loadValidation.IsValid)
         {
+            var details = materialValidation.Failures.Select(failure => failure.Detail)
+                .Concat(loadValidation.Failures.Select(failure => failure.Detail))
+                .Distinct(StringComparer.Ordinal);
             throw new InvalidOperationException(
-                "Generated content cannot be consumed by the runtime until material validation passes.");
+                "Generated content cannot be consumed by the runtime until material validation passes: " +
+                string.Join("; ", details));
         }
 
         return new ValidatedGeneratedDrillContent(result, Array.AsReadOnly(materialArray));

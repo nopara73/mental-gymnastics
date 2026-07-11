@@ -39,10 +39,11 @@ public sealed class RuntimeInputCommandHandlerTests
         var reconstruction = handler.Handle(RuntimeInputCommand.SubmitAnswer("answer-2", "reconstruction"));
         var reconstructFinished = handler.Handle(RuntimeInputCommand.FinishPhase());
         var auditStarted = handler.Handle(RuntimeInputCommand.StartAudit("audit-1"));
+        var auditAnswer = handler.Handle(RuntimeInputCommand.SubmitAnswer("audit-answer-1", "supported finding"));
         var auditGuess = handler.Handle(RuntimeInputCommand.MarkGuess("audit-guess-1"));
 
         Assert.All(
-            [drift, answer, guess, error, correction, activeFinished, cueResponse, cueFinished, reconstruction, reconstructFinished, auditStarted, auditGuess],
+            [drift, answer, guess, error, correction, activeFinished, cueResponse, cueFinished, reconstruction, reconstructFinished, auditStarted, auditAnswer, auditGuess],
             result => Assert.True(result.IsAccepted));
         Assert.Equal(RuntimeSessionLifecycleStatus.Running, handler.LifecycleState.Status);
         Assert.Equal("audit", handler.CurrentPhase?.Id);
@@ -65,6 +66,7 @@ public sealed class RuntimeInputCommandHandlerTests
             kind => Assert.Equal(RuntimeEventKind.PhaseEnded, kind),
             kind => Assert.Equal(RuntimeEventKind.PhaseStarted, kind),
             kind => Assert.Equal(RuntimeEventKind.AuditStarted, kind),
+            kind => Assert.Equal(RuntimeEventKind.AnswerSubmitted, kind),
             kind => Assert.Equal(RuntimeEventKind.GuessMarked, kind));
         Assert.Contains(handler.Events[2].Facts, fact => fact.Name == "command_kind" && fact.Value == "mark_drift");
         Assert.Contains(handler.Events[5].Facts, fact => fact.Name == "error_kind" && fact.Value == "incorrect_response");
@@ -107,6 +109,127 @@ public sealed class RuntimeInputCommandHandlerTests
         Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.RespondToCue).IsAvailable);
         Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkError).IsAvailable);
         Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+    }
+
+    [Fact]
+    public void CuePhaseAcceptsAnExplicitUncertaintyMark()
+    {
+        var handler = StartHandler(
+            new ManualRuntimeClock(RuntimeInstant.Zero),
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("cue", RuntimeSessionPhaseKind.CueResponse),
+            ]),
+            RuntimeInputCommandOptions.Default);
+
+        var marked = handler.Handle(RuntimeInputCommand.MarkGuess("uncertainty-1"));
+
+        Assert.True(marked.IsAccepted);
+        Assert.Contains(marked.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.GuessMarked);
+    }
+
+    [Fact]
+    public void FocusHoldReturnClosesOpenDriftAndRecordsRuntimeOwnedTiming()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+            ]));
+
+        var unavailableReturn = handler.AvailabilityFor(RuntimeInputCommandKind.MarkReturn);
+        var drift = handler.Handle(RuntimeInputCommand.MarkDrift("drift-1"));
+        var driftWhileReturning = handler.AvailabilityFor(RuntimeInputCommandKind.MarkDrift);
+        var availableReturn = handler.AvailabilityFor(RuntimeInputCommandKind.MarkReturn);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(7));
+        var returned = handler.Handle(
+            RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(10)));
+
+        Assert.False(unavailableReturn.IsAvailable);
+        Assert.Equal(RuntimeInputCommandInvalidReason.NoOpenDrift, unavailableReturn.InvalidReason);
+        Assert.True(drift.IsAccepted);
+        Assert.False(driftWhileReturning.IsAvailable);
+        Assert.Equal(
+            RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn,
+            driftWhileReturning.InvalidReason);
+        Assert.True(availableReturn.IsAvailable);
+        Assert.True(returned.IsAccepted);
+        Assert.Equal(RuntimeEventKind.RecoveryCompleted, returned.Events.Single().Kind);
+        Assert.Contains(returned.Events.Single().Facts, fact =>
+            fact.Name == "drift_id" && fact.Value == "drift-1");
+        Assert.Contains(returned.Events.Single().Facts, fact =>
+            fact.Name == "recovery_time" && fact.Value == "00:00:07");
+        Assert.Contains(returned.Events.Single().Facts, fact =>
+            fact.Name == "return_within_window" && fact.Value == "true");
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkDrift).IsAvailable);
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.MarkReturn).IsAvailable);
+    }
+
+    [Fact]
+    public void FocusHoldReturnAndTargetChangePreserveDecisiveFailureEvidence()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+            ]));
+
+        Assert.True(handler.Handle(RuntimeInputCommand.MarkDrift("drift-late")).IsAccepted);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(11));
+        var lateReturn = handler.Handle(
+            RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(10)));
+        var targetChange = handler.Handle(RuntimeInputCommand.MarkTargetChange("red circle"));
+
+        Assert.True(lateReturn.IsAccepted);
+        Assert.Contains(lateReturn.Events.Single().Facts, fact =>
+            fact.Name == "return_timing_outcome" && fact.Value == "late");
+        Assert.True(targetChange.IsAccepted);
+        Assert.Equal(RuntimeEventKind.ErrorRecorded, targetChange.Events.Single().Kind);
+        Assert.Contains(targetChange.Events.Single().Facts, fact =>
+            fact.Name == "error_kind" && fact.Value == "target_substitution");
+        Assert.Contains(targetChange.Events.Single().Facts, fact =>
+            fact.Name == "failed_constraint" && fact.Value == "no_target_substitution");
+        Assert.Contains(targetChange.Events.Single().Facts, fact =>
+            fact.Name == "substitute_target" && fact.Value == "red circle");
+    }
+
+    [Fact]
+    public void FocusHoldOpenDriftIsRecoveredFromRestoredEventLog()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+            ]),
+            new RuntimeInputCommandOptions(
+                PauseAllowed: true,
+                CorrectionWindow: RuntimeDuration.FromSeconds(10),
+                PauseAllowedPhaseKinds: [RuntimeSessionPhaseKind.ActiveWork]));
+
+        Assert.True(handler.Handle(RuntimeInputCommand.MarkDrift("drift-restored")).IsAccepted);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(3));
+        Assert.True(handler.Handle(RuntimeInputCommand.Pause()).IsAccepted);
+        var snapshot = handler.CaptureSnapshot();
+        var restoredClock = new ManualRuntimeClock(snapshot.CapturedAt);
+        var restored = RuntimeInputCommandHandler.Restore(snapshot, restoredClock);
+
+        Assert.True(restored.Handle(RuntimeInputCommand.Resume()).IsAccepted);
+        Assert.True(restored.AvailabilityFor(RuntimeInputCommandKind.MarkReturn).IsAvailable);
+        restoredClock.AdvanceBy(RuntimeDuration.FromSeconds(4));
+        var returned = restored.Handle(
+            RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(10)));
+
+        Assert.True(returned.IsAccepted);
+        Assert.Contains(returned.Events.Single().Facts, fact =>
+            fact.Name == "drift_id" && fact.Value == "drift-restored");
+        Assert.Contains(returned.Events.Single().Facts, fact =>
+            fact.Name == "recovery_time" && fact.Value == "00:00:07");
     }
 
     [Fact]

@@ -14,6 +14,7 @@ public enum LocalCompletedSessionType
     Transfer,
     Recovery,
     Maintenance,
+    Review,
 }
 
 public enum LocalSessionIntensity
@@ -207,6 +208,7 @@ public sealed class LocalSessionHistoryStore
             [LocalCompletedSessionType.Transfer] = "Transfer",
             [LocalCompletedSessionType.Recovery] = "Recovery",
             [LocalCompletedSessionType.Maintenance] = "Maintenance",
+            [LocalCompletedSessionType.Review] = "Review",
         });
 
     private static readonly IStableDomainIdentifierMap<LocalSessionIntensity> SessionIntensities =
@@ -244,7 +246,7 @@ public sealed class LocalSessionHistoryStore
         }
         else
         {
-            sessions.Add(WriteRecord(record));
+            sessions.AddNode(WriteRecord(record));
         }
 
         document[CompletedSessionsPropertyName] = sessions;
@@ -317,10 +319,8 @@ public sealed class LocalSessionHistoryStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -364,7 +364,7 @@ public sealed class LocalSessionHistoryStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -435,7 +435,7 @@ public sealed class LocalSessionHistoryStore
         var branchLevelArray = new JsonArray();
         foreach (var branchLevel in branchLevels)
         {
-            branchLevelArray.Add(new JsonObject
+            branchLevelArray.AddNode(new JsonObject
             {
                 [BranchPropertyName] = StableDomainIdentifiers.Branches.ToPersistedId(branchLevel.Branch),
                 [LevelPropertyName] = StableDomainIdentifiers.Levels.ToPersistedId(branchLevel.Level),
@@ -450,7 +450,7 @@ public sealed class LocalSessionHistoryStore
         var loadVariableArray = new JsonArray();
         foreach (var loadVariable in loadVariables)
         {
-            loadVariableArray.Add(new JsonObject
+            loadVariableArray.AddNode(new JsonObject
             {
                 [NamePropertyName] = loadVariable.Name,
                 [ValuePropertyName] = loadVariable.Value,
@@ -465,7 +465,7 @@ public sealed class LocalSessionHistoryStore
         var artifactIdArray = new JsonArray();
         foreach (var artifactId in evidenceArtifactIds)
         {
-            artifactIdArray.Add(artifactId);
+            artifactIdArray.AddString(artifactId);
         }
 
         return artifactIdArray;

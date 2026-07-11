@@ -455,7 +455,8 @@ public sealed class PreUiActiveSessionResumeLatestRequest
 public sealed record PreUiActiveSessionResumeResult(
     PreUiActiveSessionResumeState State,
     RuntimeInputCommandHandler? CommandHandler,
-    RuntimeCueScheduler? CueScheduler)
+    RuntimeCueScheduler? CueScheduler,
+    IReadOnlyList<GeneratedContentMaterial> InputMaterials)
 {
     public bool CanResume => State.CanResume && CommandHandler is not null;
 
@@ -490,6 +491,47 @@ public sealed class PreUiActiveSessionInvalidationRequest
 public sealed record PreUiActiveSessionInvalidationResult(
     string SessionId,
     bool Cleared,
+    string Reason)
+{
+    public bool GrantsAdvancementInApp => false;
+}
+
+public sealed class PreUiPreparedSessionCancellationRequest
+{
+    public PreUiPreparedSessionCancellationRequest(
+        string sessionId,
+        string? generatedDrillInstanceId,
+        string reason)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new ArgumentException("Runtime session id is required.", nameof(sessionId));
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("Prepared session cancellation requires a reason.", nameof(reason));
+        }
+
+        SessionId = sessionId;
+        GeneratedDrillInstanceId = string.IsNullOrWhiteSpace(generatedDrillInstanceId)
+            ? null
+            : generatedDrillInstanceId;
+        Reason = reason;
+    }
+
+    public string SessionId { get; }
+
+    public string? GeneratedDrillInstanceId { get; }
+
+    public string Reason { get; }
+}
+
+public sealed record PreUiPreparedSessionCancellationResult(
+    string SessionId,
+    string? GeneratedDrillInstanceId,
+    bool ActiveSnapshotCleared,
+    bool GeneratedDrillInstanceRetired,
     string Reason)
 {
     public bool GrantsAdvancementInApp => false;
@@ -829,6 +871,16 @@ public sealed class PreUiTrainingWorkflowService
             request.PreparationSource,
             request.SelectionQuery.AsOf,
             selectedWork);
+        var transferCapacity = selectedWork.SessionType == AppTrainingSessionType.Transfer
+            ? ProgramCatalog.Drills.Single(drill => drill.Id == selectedWork.Drill)
+                .CapacityTrained.First()
+            : (CapacityId?)null;
+        var transferDistance = selectedWork.SessionType == AppTrainingSessionType.Transfer
+            ? selectedWork.LoadVariables.FirstOrDefault(load =>
+                    string.Equals(load.Name, "transfer distance", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(load.Name, "domain distance", StringComparison.OrdinalIgnoreCase))
+                ?.Value ?? (selectedWork.Level >= GlobalLevelId.L4 ? "far transfer" : "near transfer")
+            : null;
 
         return await PrepareSelectedSessionAsync(
             selection,
@@ -842,8 +894,8 @@ public sealed class PreUiTrainingWorkflowService
             additionalCriticalConstraints: [],
             loadChangeMode: LoadChangeMode.Acquisition,
             increasedVariablesStableSeparately: false,
-            transferCapacity: null,
-            transferDistance: null,
+            transferCapacity,
+            transferDistance,
             inputOptions: request.InputOptions,
             cancellationToken).ConfigureAwait(false);
     }
@@ -1198,6 +1250,21 @@ public sealed class PreUiTrainingWorkflowService
                 request.Clock,
                 request.CueSchedule),
             cancellationToken).ConfigureAwait(false);
+        var generatedContext = await LoadRestoredGeneratedContextAsync(
+            restored.SnapshotRecord,
+            cancellationToken).ConfigureAwait(false);
+        if (restored.Status == ActiveRuntimeSessionSnapshotRestoreStatus.Unsafe &&
+            request.CueSchedule is null &&
+            restored.SnapshotRecord?.CueScheduler is not null &&
+            generatedContext.CueSchedule is not null)
+        {
+            restored = await activeSnapshotService.RestoreAsync(
+                new ActiveRuntimeSessionSnapshotRestoreRequest(
+                    request.SessionId,
+                    request.Clock,
+                    generatedContext.CueSchedule),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         var state = restored.Status switch
         {
@@ -1213,7 +1280,10 @@ public sealed class PreUiTrainingWorkflowService
         return new PreUiActiveSessionResumeResult(
             state,
             restored.CommandHandler,
-            restored.CueScheduler);
+            restored.CueScheduler,
+            restored.Status == ActiveRuntimeSessionSnapshotRestoreStatus.Restored
+                ? generatedContext.InputMaterials
+                : Array.Empty<GeneratedContentMaterial>());
     }
 
     public async ValueTask<PreUiActiveSessionResumeResult> TryResumeLatestActiveSessionAsync(
@@ -1228,6 +1298,20 @@ public sealed class PreUiTrainingWorkflowService
                 request.Clock,
                 request.CueSchedule),
             cancellationToken).ConfigureAwait(false);
+        var generatedContext = await LoadRestoredGeneratedContextAsync(
+            restored.SnapshotRecord,
+            cancellationToken).ConfigureAwait(false);
+        if (restored.Status == ActiveRuntimeSessionSnapshotRestoreStatus.Unsafe &&
+            request.CueSchedule is null &&
+            restored.SnapshotRecord?.CueScheduler is not null &&
+            generatedContext.CueSchedule is not null)
+        {
+            restored = await activeSnapshotService.RestoreLatestAsync(
+                new ActiveRuntimeSessionSnapshotRestoreLatestRequest(
+                    request.Clock,
+                    generatedContext.CueSchedule),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         var state = restored.Status switch
         {
@@ -1248,7 +1332,82 @@ public sealed class PreUiTrainingWorkflowService
         return new PreUiActiveSessionResumeResult(
             state,
             restored.CommandHandler,
-            restored.CueScheduler);
+            restored.CueScheduler,
+            restored.Status == ActiveRuntimeSessionSnapshotRestoreStatus.Restored
+                ? generatedContext.InputMaterials
+                : Array.Empty<GeneratedContentMaterial>());
+    }
+
+    private async ValueTask<RestoredGeneratedRuntimeContext> LoadRestoredGeneratedContextAsync(
+        LocalActiveRuntimeSessionSnapshotRecord? snapshot,
+        CancellationToken cancellationToken)
+    {
+        if (snapshot?.SessionDefinition.GeneratedDrillInstance is not { } generatedIdentity)
+        {
+            return RestoredGeneratedRuntimeContext.Empty;
+        }
+
+        var generated = await generatedDrillInstanceStore.LoadAsync(
+            generatedIdentity.InstanceId,
+            cancellationToken).ConfigureAwait(false);
+        var definition = snapshot.SessionDefinition;
+        if (generated is null ||
+            generated.Branch != definition.Branch ||
+            generated.Level != definition.Level ||
+            generated.Drill != definition.Drill ||
+            !string.Equals(generated.ActiveSessionId, snapshot.SessionId, StringComparison.Ordinal) ||
+            !string.Equals(generated.ContentIdentity.ContentId, generatedIdentity.ContentIdentity.ContentId, StringComparison.Ordinal))
+        {
+            return RestoredGeneratedRuntimeContext.Empty;
+        }
+
+        var materials = generated.AuditMaterials
+            .Select(material => new GeneratedContentMaterial(
+                Enum.Parse<GeneratedContentMaterialKind>(material.Kind, ignoreCase: false),
+                material.Name,
+                material.Value))
+            .ToArray();
+        var freshnessPolicy = generated.FreshnessPolicy ?? PromptFreshnessPolicy.FreshEquivalentRequired;
+        var request = new GeneratedDrillContentRequest(
+            definition.Branch,
+            definition.Level,
+            definition.Drill,
+            definition.SessionType,
+            generated.ContentIdentity.Kind,
+            generated.ContentIdentity.EquivalenceClass,
+            freshnessPolicy,
+            definition.LoadVariables,
+            definition.CriticalConstraints);
+        var descriptor = new GeneratedDrillInstanceDescriptor(
+            generated.InstanceId,
+            generated.ContentIdentity.ToPromptContentIdentity(),
+            generated.ContentIdentity.Version,
+            freshnessPolicy,
+            definition.LoadVariables,
+            definition.CriticalConstraints);
+        var result = new GeneratedDrillContentResult(
+            request,
+            descriptor,
+            materials.Select(material => new GeneratedContentPayloadFact(
+                $"{material.Kind}:{material.Name}",
+                material.Value)));
+        var package = GeneratedContentRuntimePackager.Package(
+            result,
+            materials,
+            definition.Standard);
+
+        return new RestoredGeneratedRuntimeContext(
+            Array.AsReadOnly(materials),
+            SelectedWorkRuntimeSessionPreparer.CreateCueSchedule(package));
+    }
+
+    private sealed record RestoredGeneratedRuntimeContext(
+        IReadOnlyList<GeneratedContentMaterial> InputMaterials,
+        RuntimeCueSchedule? CueSchedule)
+    {
+        public static RestoredGeneratedRuntimeContext Empty { get; } = new(
+            Array.Empty<GeneratedContentMaterial>(),
+            CueSchedule: null);
     }
 
     public async ValueTask<PreUiActiveSessionInvalidationResult> InvalidateActiveSessionSnapshotAsync(
@@ -1272,6 +1431,52 @@ public sealed class PreUiTrainingWorkflowService
         return new PreUiActiveSessionInvalidationResult(
             request.SessionId,
             Cleared: true,
+            request.Reason);
+    }
+
+    public async ValueTask<PreUiPreparedSessionCancellationResult> CancelPreparedSessionAsync(
+        PreUiPreparedSessionCancellationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var retiredGeneratedInstance = false;
+        if (request.GeneratedDrillInstanceId is { } instanceId)
+        {
+            var generated = await generatedDrillInstanceStore.LoadAsync(instanceId, cancellationToken)
+                .ConfigureAwait(false);
+            if (generated is { State: LocalGeneratedDrillInstanceState.InSession } &&
+                string.Equals(generated.ActiveSessionId, request.SessionId, StringComparison.Ordinal))
+            {
+                await generatedDrillInstanceStore.SaveAsync(
+                    new LocalGeneratedDrillInstanceRecord(
+                        generated.InstanceId,
+                        generated.GeneratedOn,
+                        generated.Branch,
+                        generated.Level,
+                        generated.Drill,
+                        generated.LoadVariables,
+                        generated.ContentIdentity,
+                        LocalGeneratedDrillInstanceState.Abandoned,
+                        activeSessionId: null,
+                        resultEvidenceArtifactId: null,
+                        generated.ContentSummary,
+                        generated.FreshnessPolicy,
+                        generated.AuditMaterials),
+                    cancellationToken).ConfigureAwait(false);
+                retiredGeneratedInstance = true;
+            }
+        }
+
+        await activeSnapshotService.DeleteAsync(request.SessionId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new PreUiPreparedSessionCancellationResult(
+            request.SessionId,
+            request.GeneratedDrillInstanceId,
+            ActiveSnapshotCleared: true,
+            GeneratedDrillInstanceRetired: retiredGeneratedInstance,
             request.Reason);
     }
 

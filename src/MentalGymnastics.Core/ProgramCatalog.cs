@@ -441,7 +441,7 @@ public static class ProgramCatalog
             "Test integrated performance over review cycle.",
             [CapacityId.IntegratedTaskControl, CapacityId.ErrorAudit, CapacityId.EncodingFidelity],
             "Task length, pressure, ambiguity, delay.",
-            "Audit and delayed reconstruction are required.",
+            "Audit and delayed reconstruction are required; no rereading after encode window.",
             "Composite, audit, and delayed reconstruction all pass.",
             "Good product with failed audit, memory gap, rule drift under pressure.",
             "Shorter composite with same audit and delay requirements."),

@@ -1,0 +1,214 @@
+{
+  "generatedAtUtc": "2026-07-09T14:28:11.684189+00:00",
+  "package": "com.nopara73.mentalgymnastics",
+  "serial": "emulator-5554",
+  "adbPath": "C:\\Users\\user\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe",
+  "packagePaths": [
+    "package:/data/app/~~-yr2DxF7dxO8sN9aFSg9Ag==/com.nopara73.mentalgymnastics-VJeR213IUuBZyFtmyBE3bA==/base.apk"
+  ],
+  "debuggablePackageVerified": true,
+  "clearAppData": true,
+  "keptAppData": false,
+  "adbTimeoutSeconds": 45.0,
+  "uiWaitTimeoutSeconds": 30.0,
+  "stepCooldownSeconds": 0.5,
+  "hostProcessSafety": {
+    "skipHostProcessCheck": false,
+    "blockingProcessNames": [
+      "dotnet",
+      "msbuild",
+      "vbcscompiler",
+      "testhost",
+      "vstest.console"
+    ],
+    "observedProcessNames": [
+      "dotnet",
+      "msbuild",
+      "vbcscompiler",
+      "testhost",
+      "vstest.console",
+      "adb",
+      "emulator",
+      "gradle",
+      "java",
+      "qemu-system-x86_64"
+    ],
+    "before": {
+      "adb": 1,
+      "dotnet": 0,
+      "emulator": 1,
+      "gradle": 0,
+      "java": 0,
+      "msbuild": 0,
+      "qemu-system-x86_64": 0,
+      "testhost": 0,
+      "vbcscompiler": 0,
+      "vstest.console": 0
+    },
+    "after": {
+      "adb": 1,
+      "dotnet": 0,
+      "emulator": 1,
+      "gradle": 0,
+      "java": 0,
+      "msbuild": 0,
+      "qemu-system-x86_64": 0,
+      "testhost": 0,
+      "vbcscompiler": 0,
+      "vstest.console": 0
+    }
+  },
+  "steps": [
+    {
+      "file": "01-first-opened-today.png",
+      "screenshotStep": "today",
+      "waitFor": [
+        "Start Target Hold"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nToday\nWhat should I do now?\nStart icon\nStart\nTarget Hold\nLevel 1\nHold one simple target for 3 minutes. If your mind wanders, tap the button and come back.\n3 minutes\nSame target\nTap if you wander\nTarget icon\nWhy this matters\nStart the Focus Hold foundation: notice when attention moved and bring it back on purpose. Repeats train: notice wandering sooner and return cleaner.\nNext icon\nWhere this goes\nNext: Focus Shift (switch focus), Working Memory (hold information), Inhibition (stop automatic responses), Discrimination (spot differences).\nLater: longer time, more items, distraction, delay, rule conflict, ambiguity, combined tasks.\nFinal direction: transfer tests outside this drill under interruption and pressure. No promise this makes you smarter.\nStart Target Hold\nStart Target Hold",
+      "artifact": {
+        "file": "01-first-opened-today.png",
+        "bytes": 235051,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "e08ca1c292825136a0dbfa37f9b27e8e137b9a06945acc2c0d688fc5eead270e"
+      }
+    },
+    {
+      "file": "02-before-start-top.png",
+      "screenshotStep": "before-start",
+      "waitFor": [
+        "Before you start",
+        "What counts"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nBefore start\nRead icon\nBefore you start\nRead\nHold icon\nTarget Hold\nHold\nLevel 1\nRead icon\nHow to do it\nRead the target.\nSay it once in your head.\nWhen the timer starts, hold only that target.\nTarget: red circle\nCheck icon\nWhat counts\nCounts:\n3 minutes finished\n5 or fewer taps\nReturn within 10 seconds\nSame target\n\nTry again:\nTarget changed\nWander not tapped\nMore than 5 taps\nSlow return\n\nHonesty:\nTap I wandered every time\nKeep the same target\nRecord icon",
+      "artifact": {
+        "file": "02-before-start-top.png",
+        "bytes": 209993,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "e4fd74eb0e31d921c0fb06c975c87d532282a7b022a77858bfc4e8b48f7992a0"
+      }
+    },
+    {
+      "file": "03-before-start-action.png",
+      "screenshotStep": "before-start",
+      "waitFor": [
+        "Start 3-minute hold",
+        "What is tracked"
+      ],
+      "scrollBeforeCapture": true,
+      "preScrollWaitFor": [
+        "Before you start"
+      ],
+      "maxScrollAttempts": 3,
+      "scrollAttempts": 1,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nBefore start\nHold icon\nLevel 1\nRead icon\nHow to do it\nRead the target.\nSay it once in your head.\nWhen the timer starts, hold only that target.\nTarget: red circle\nCheck icon\nWhat counts\nCounts:\n3 minutes finished\n5 or fewer taps\nReturn within 10 seconds\nSame target\n\nTry again:\nTarget changed\nWander not tapped\nMore than 5 taps\nSlow return\n\nHonesty:\nTap I wandered every time\nKeep the same target\nRecord icon\nWhat is tracked\nTracked: wander taps, return time, target changes, finish/stop.\nStart 3-minute hold\nStart 3-minute hold",
+      "artifact": {
+        "file": "03-before-start-action.png",
+        "bytes": 212735,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "a899034f5b96cdb347840b50623d1a3b7bdcae94db001bd46d5e540d4a28e352"
+      }
+    },
+    {
+      "file": "04-live-get-ready.png",
+      "screenshotStep": "live-get-ready",
+      "waitFor": [
+        "Start holding",
+        "Not now"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nExercise\nTimer, 00:01 elapsed\nGet ready: say the target once before the timer starts.\nTarget Hold \u00b7 Level 1\nTarget icon\nYour target\nred circle\nStart holding\nStart holding\nNot now\nNot now\n0\nWanders\n0/1\nSaved",
+      "artifact": {
+        "file": "04-live-get-ready.png",
+        "bytes": 121119,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "91dc863e0c829e416d24a5ba912476eaa239953cd8143aa23eadf5262ebab5cd"
+      }
+    },
+    {
+      "file": "05-live-hold.png",
+      "screenshotStep": "live-hold",
+      "waitFor": [
+        "I wandered",
+        "Stop early"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nExercise\nTimer, 03:00 remaining\nHold the target now. If your mind wanders, tap I wandered and return.\nTarget Hold \u00b7 Level 1\nTarget icon\nYour target\nred circle\nI wandered\nI wandered\nStop early\nStop early\n0\nWanders\n1/1\nSaved",
+      "artifact": {
+        "file": "05-live-hold.png",
+        "bytes": 125479,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "679ec8049db95454858615d643de813957c1b51a053a2b21893e00ea9daffdcb"
+      }
+    },
+    {
+      "file": "06-result-stopped-early.png",
+      "screenshotStep": "stopped-result",
+      "waitFor": [
+        "Stopped early",
+        "Stopped attempt saved",
+        "Back to Today",
+        "You stay on this exercise",
+        "try it again",
+        "Start Target Hold"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nResult\nStop icon\nStopped early\nTarget Hold \u00b7 Level 1\nHold one simple target for 3 minutes.\nYou stopped before finishing. No successful set counted.\nTarget icon\nSaved\nStopped attempt saved. No success counted.\nTarget icon\nYour place\nYou stay on this exercise; try it again when ready.\nStart icon\nStart\nNext step\nStart Target Hold when ready.\nBack to Today\nBack to Today",
+      "artifact": {
+        "file": "06-result-stopped-early.png",
+        "bytes": 160145,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "5ecc637c490a1bdac531eeafb3fd2f321d62b9a662fa66b68fe1576b41bc7111"
+      }
+    },
+    {
+      "file": "07-return-next-action.png",
+      "screenshotStep": "return-today",
+      "waitFor": [
+        "Start Target Hold"
+      ],
+      "scrollBeforeCapture": false,
+      "preScrollWaitFor": [],
+      "maxScrollAttempts": 1,
+      "scrollAttempts": 0,
+      "visibleText": "Mental Gymnastics\nMental Gymnastics\nToday\nWhat should I do now?\nStart icon\nStart\nTarget Hold\nLevel 1\nHold one simple target for 3 minutes. If your mind wanders, tap the button and come back.\n3 minutes\nSame target\nTap if you wander\nTarget icon\nWhy this matters\nStart the Focus Hold foundation: notice when attention moved and bring it back on purpose. Repeats train: notice wandering sooner and return cleaner.\nNext icon\nWhere this goes\nNext: Focus Shift (switch focus), Working Memory (hold information), Inhibition (stop automatic responses), Discrimination (spot differences).\nLater: longer time, more items, distraction, delay, rule conflict, ambiguity, combined tasks.\nFinal direction: transfer tests outside this drill under interruption and pressure. No promise this makes you smarter.\nStart Target Hold\nStart Target Hold",
+      "artifact": {
+        "file": "07-return-next-action.png",
+        "bytes": 235474,
+        "width": 1080,
+        "height": 1920,
+        "sha256": "49e20c4dd3832f0bc0be8d2a3105f7251bb018299c58a7e69d61195df79d424a"
+      }
+    }
+  ],
+  "contactSheet": {
+    "file": "firsttimeuser-workflow-contact-sheet.png",
+    "bytes": 429109,
+    "width": 756,
+    "height": 3412,
+    "sha256": "25bbf560fdd35608cd9cc76aa4fd8ca4f78de411e094006ad2fa28870f5a3cbf"
+  }
+}

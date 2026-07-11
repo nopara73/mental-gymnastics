@@ -269,6 +269,35 @@ public sealed class RuntimeCueSchedulerTests
             "left"));
     }
 
+    [Fact]
+    public void CueScheduleAcceptsExecutableAffectiveInterferenceWrapper()
+    {
+        var identity = new RuntimeGeneratedDrillInstanceIdentity(
+            "ai-wrapper-instance",
+            new PromptContentIdentity(
+                "ai-wrapper-content",
+                BranchCode.AI,
+                GlobalLevelId.L3,
+                DrillId.AI2DisruptionRecovery,
+                PromptContentKind.EquivalentPrompt,
+                "ai-l3-disruption-recovery-fs-l3"),
+            "v1");
+
+        var schedule = new RuntimeCueSchedule(
+            identity,
+            [new RuntimeScheduledCue(
+                "disruption",
+                RuntimeCueKind.Interruption,
+                "Resume from the last stable step.",
+                new RuntimeInstant(TimeSpan.FromSeconds(10)),
+                RuntimeDuration.FromSeconds(30),
+                RuntimeCueResponseExpectation.ResponseRequired,
+                "resume")]);
+
+        Assert.Equal(identity, schedule.GeneratedDrillInstance);
+        Assert.Single(schedule.Cues);
+    }
+
     private static Action<RuntimeEvent> EventHasCue(
         string expectedCueId,
         RuntimeCueKind expectedKind,

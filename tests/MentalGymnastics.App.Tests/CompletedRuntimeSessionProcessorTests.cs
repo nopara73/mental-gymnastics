@@ -37,7 +37,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
             new CompletedRuntimeSessionProcessingRequest(
                 result,
-                Metadata(LocalSessionIntensity.High, cleanPerformance: true, "Formal FH L1 test passed with observable evidence."),
+                Metadata(LocalSessionIntensity.High, cleanPerformance: false, "Formal FH L1 test passed with observable evidence."),
                 EvaluatedStandard("drifts", maxAllowed: 5),
                 standardEvaluation: new RuntimeStandardEvaluationHandoffInput(
                     [new NumericMeasurement("drifts", 4)],
@@ -47,7 +47,8 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 formalGate: new RuntimeFormalGateHandoffInput(
                     SessionDate,
                     new TestResultEvidence(TestResultEvidenceKind.Score, "drifts=4; max_return=8s"),
-                    FormalTestPassState.PassOnce)));
+                    FormalTestPassState.PassOnce,
+                    mainFailureModeAvoided: "Target substitution avoided.")));
 
         var state = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
         var sessionRecord = await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions)
@@ -66,8 +67,10 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.Equal(BranchLevelState.PassedOnce, state.GetBranchLevelState(BranchCode.FH, GlobalLevelId.L1));
         Assert.NotNull(sessionRecord);
         Assert.Equal(LocalCompletedSessionType.Test, sessionRecord.SessionType);
+        Assert.True(sessionRecord.CleanPerformance);
         Assert.NotNull(attempt);
         Assert.Equal(FormalTestPassState.PassOnce, attempt.Attempt.PassState);
+        Assert.Equal("Target substitution avoided.", attempt.Attempt.MainFailureModeAvoided);
         Assert.NotNull(generated);
         Assert.Equal(LocalGeneratedDrillInstanceState.Completed, generated.State);
         Assert.Equal("session-formal-pass-artifact-1", generated.ResultEvidenceArtifactId);
@@ -78,6 +81,56 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.Contains(summary.SourceReferences, reference =>
             reference.Kind == LocalProgressSummarySourceKind.FormalTestAttempt &&
             reference.SourceId == "session-formal-pass-formal-attempt");
+    }
+
+    [Fact]
+    public async Task PassedUniversalStartProjectsAllEarnedFoundationalOpenings()
+    {
+        var configuration = Configuration();
+        var state = new PractitionerState(
+            ProgramCatalog.Branches.SelectMany(branch => ProgramCatalog.GlobalLevels.Select(level =>
+                new BranchLevelStatus(
+                    branch.Code,
+                    level.Id,
+                    branch.Code == BranchCode.FH && level.Id == GlobalLevelId.L1
+                        ? BranchLevelState.TestReady
+                        : BranchLevelState.Unopened))));
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(state);
+        var session = CreateSessionDefinition(
+            SessionType.Test,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold);
+        var result = CompleteWithEvidence(
+            "session-universal-start-pass",
+            session,
+            RuntimeEvidenceCaptureKind.FormalAttempt,
+            [new RuntimeEventFact("score", "drifts=4; max_return=8s")]);
+
+        var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
+            new CompletedRuntimeSessionProcessingRequest(
+                result,
+                Metadata(LocalSessionIntensity.High, cleanPerformance: true, "Universal start standard passed."),
+                EvaluatedStandard("drifts", maxAllowed: 5),
+                standardEvaluation: new RuntimeStandardEvaluationHandoffInput(
+                    [new NumericMeasurement("drifts", 4)],
+                    [new CriticalConstraintCheck("catalog-constraint", true)],
+                    outputComplete: true,
+                    rubricOutcome: null),
+                formalGate: new RuntimeFormalGateHandoffInput(
+                    SessionDate,
+                    new TestResultEvidence(TestResultEvidenceKind.Score, "Universal start passed."),
+                    FormalTestPassState.PassOnce,
+                    mainFailureModeAvoided: "Target substitution avoided.")));
+
+        var stored = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
+
+        Assert.Equal(4, processed.ProgressionProjection?.OpenedForTraining.Count);
+        Assert.Equal(BranchLevelState.PassedOnce, stored?.GetBranchLevelState(BranchCode.FH, GlobalLevelId.L1));
+        Assert.Equal(BranchLevelState.Training, stored?.GetBranchLevelState(BranchCode.FS, GlobalLevelId.L1));
+        Assert.Equal(BranchLevelState.Training, stored?.GetBranchLevelState(BranchCode.WM, GlobalLevelId.L1));
+        Assert.Equal(BranchLevelState.Training, stored?.GetBranchLevelState(BranchCode.IR, GlobalLevelId.L1));
+        Assert.Equal(BranchLevelState.Training, stored?.GetBranchLevelState(BranchCode.DE, GlobalLevelId.L1));
     }
 
     [Fact]
@@ -104,7 +157,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
             new CompletedRuntimeSessionProcessingRequest(
                 result,
-                Metadata(LocalSessionIntensity.High, cleanPerformance: false, "Formal FH L1 test failed because drift marking broke."),
+                Metadata(LocalSessionIntensity.High, cleanPerformance: true, "Formal FH L1 test failed because drift marking broke."),
                 EvaluatedStandard("drifts", maxAllowed: 5),
                 standardEvaluation: new RuntimeStandardEvaluationHandoffInput(
                     [new NumericMeasurement("drifts", 8)],
@@ -125,6 +178,8 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         var state = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
         var attempt = await new LocalFormalTestAttemptStore(configuration.LocalDatabaseOptions)
             .LoadAsync("session-formal-fail-formal-attempt");
+        var sessionRecord = await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions)
+            .LoadAsync("session-formal-fail");
 
         Assert.False(processed.StandardEvaluationResult!.Passed);
         Assert.Equal(GateOutcome.Fail, processed.FormalGateDecision!.Outcome);
@@ -135,6 +190,8 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.NotNull(attempt);
         Assert.Equal(FormalTestPassState.Fail, attempt.Attempt.PassState);
         Assert.Equal(FailureType.EffortFailure, attempt.Attempt.FailureType);
+        Assert.NotNull(sessionRecord);
+        Assert.False(sessionRecord.CleanPerformance);
     }
 
     [Fact]
@@ -214,6 +271,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.NotNull(state);
         Assert.Equal(BranchLevelState.Owned, state.GetBranchLevelState(BranchCode.FH, GlobalLevelId.L2));
         Assert.NotNull(maintenance);
+        Assert.Equal(LocalCompletedSessionType.Maintenance, processed.SessionHistory.SessionType);
         Assert.True(maintenance.Evidence.StandardEvaluationResult.Passed);
         Assert.Equal("session-maintenance-pass", maintenance.CompletedSessionId);
     }
@@ -223,13 +281,11 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
     {
         var configuration = Configuration();
         await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Stabilizing));
-        await SaveExistingStabilizationAsync(
+        await SaveExistingFormalPassAsync(
             configuration,
-            "stabilization-pass-once",
-            "artifact-stabilization-pass-once",
-            TrainingDate.From(2026, 6, 28),
-            FormalTestPassState.PassOnce,
-            afterAdjacent: false);
+            "formal-pass-once",
+            "artifact-formal-pass-once",
+            TrainingDate.From(2026, 6, 28));
         await SaveExistingStabilizationAsync(
             configuration,
             "stabilization-repeat-one",
@@ -340,6 +396,73 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.Null(attempt);
     }
 
+    [Fact]
+    public async Task FailedDailyBlockAndCompletedSessionCommitAsOneProgrammingEvent()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training));
+        await new LocalDailyTrainingPrescriptionStore(configuration.LocalDatabaseOptions).SaveAsync(
+            DailyPrescription("session-daily-failed"));
+        var session = CreateSessionDefinition(
+            SessionType.Practice,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold);
+        var result = CompleteWithEvidence(
+            "session-daily-failed",
+            session,
+            RuntimeEvidenceCaptureKind.BestSet,
+            [new RuntimeEventFact("score", "drifts=8")]);
+
+        var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
+            new CompletedRuntimeSessionProcessingRequest(
+                result,
+                Metadata(LocalSessionIntensity.Moderate, cleanPerformance: true, "Daily block completed below its standard."),
+                EvaluatedStandard("drifts", maxAllowed: 5),
+                standardEvaluation: new RuntimeStandardEvaluationHandoffInput(
+                    [new NumericMeasurement("drifts", 8)],
+                    [new CriticalConstraintCheck("catalog-constraint", true)],
+                    outputComplete: true,
+                    rubricOutcome: null)));
+
+        var stored = await new LocalDailyTrainingPrescriptionStore(configuration.LocalDatabaseOptions)
+            .LoadByDateAsync(SessionDate);
+
+        Assert.Equal(DailyTrainingWorkflowStatus.BetweenBlocks, processed.DailyTraining?.Status);
+        Assert.Equal(DailyTrainingDoseState.Active, stored?.State);
+        Assert.Equal(LocalDailyTrainingBlockState.Failed, stored?.Blocks[0].State);
+        Assert.Equal(LocalDailyTrainingBlockState.Planned, stored?.Blocks[1].State);
+        Assert.NotNull(await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions)
+            .LoadAsync("session-daily-failed"));
+    }
+
+    [Fact]
+    public async Task AbandoningActiveDailyWorkStopsAndConsumesRemainingBlocks()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training));
+        await new LocalDailyTrainingPrescriptionStore(configuration.LocalDatabaseOptions).SaveAsync(
+            DailyPrescription("session-daily-abandoned"));
+        var session = CreateSessionDefinition(
+            SessionType.Practice,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold);
+
+        var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
+            new CompletedRuntimeSessionProcessingRequest(
+                AbandonedResult("session-daily-abandoned", session),
+                Metadata(LocalSessionIntensity.Moderate, cleanPerformance: true, "Active daily work was explicitly stopped.")));
+
+        var stored = await new LocalDailyTrainingPrescriptionStore(configuration.LocalDatabaseOptions)
+            .LoadByDateAsync(SessionDate);
+
+        Assert.Equal(DailyTrainingWorkflowStatus.Stopped, processed.DailyTraining?.Status);
+        Assert.Equal(DailyTrainingDoseState.Stopped, stored?.State);
+        Assert.Equal(LocalDailyTrainingBlockState.Abandoned, stored?.Blocks[0].State);
+        Assert.Equal(LocalDailyTrainingBlockState.Skipped, stored?.Blocks[1].State);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(tempDirectory))
@@ -411,6 +534,44 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
 
         await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(artifact);
         await new LocalStabilizationPassStore(configuration.LocalDatabaseOptions).SaveAsync(record);
+    }
+
+    private static async ValueTask SaveExistingFormalPassAsync(
+        AppStartupConfiguration configuration,
+        string attemptId,
+        string artifactId,
+        TrainingDate date)
+    {
+        var artifact = new LocalEvidenceArtifactRecord(
+            artifactId,
+            new LocalProgrammingEventReference(
+                attemptId,
+                LocalProgrammingEventKind.FormalTest,
+                BranchCode.FH,
+                GlobalLevelId.L1,
+                DrillId.FH1TargetHold),
+            Artifact(
+                EvidenceArtifactCategory.Test,
+                date,
+                ObservableEvidenceKind.Score,
+                $"{attemptId} clean formal-pass evidence."));
+        var attempt = new FormalTestAttempt(
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            date,
+            TestTask.ForDrill(DrillId.FH1TargetHold),
+            [new LoadVariable("duration", "3 minutes")],
+            StandardFor(BranchCode.FH, GlobalLevelId.L1),
+            [new CriticalConstraint(HonestyConstraintFor(DrillId.FH1TargetHold))],
+            new TestResultEvidence(TestResultEvidenceKind.Score, "Formal standard passed."),
+            failureType: null,
+            FormalTestPassState.PassOnce,
+            artifact.Artifact,
+            "Target substitution avoided.");
+
+        await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(artifact);
+        await new LocalFormalTestAttemptStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new LocalFormalTestAttemptRecord(attemptId, artifactId, attempt));
     }
 
     private static RuntimePersistenceHandoffMetadata Metadata(
@@ -557,6 +718,38 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 PromptContentKind.EquivalentPrompt,
                 $"{branch.ToString().ToLowerInvariant()}-{level.ToString().ToLowerInvariant()}-equivalent"),
             "v1");
+    }
+
+    private static LocalDailyTrainingPrescriptionRecord DailyPrescription(string sessionId)
+    {
+        return new LocalDailyTrainingPrescriptionRecord(
+            "daily-20260705",
+            SessionDate,
+            SessionDate,
+            cycleDay: 1,
+            WeeklySessionKind.Practice,
+            DailyTrainingDoseState.Active,
+            [
+                new LocalDailyTrainingBlockRecord(
+                    "daily-20260705-block-01",
+                    1,
+                    BranchCode.FH,
+                    GlobalLevelId.L1,
+                    DrillId.FH1TargetHold,
+                    LocalDailyTrainingBlockRole.Practice,
+                    [new LoadVariable("catalog-demand", "standard fixture")],
+                    LocalDailyTrainingBlockState.Active,
+                    sessionId),
+                new LocalDailyTrainingBlockRecord(
+                    "daily-20260705-block-02",
+                    2,
+                    BranchCode.FS,
+                    GlobalLevelId.L1,
+                    DrillId.FS1CueSwitch,
+                    LocalDailyTrainingBlockRole.Practice,
+                    [new LoadVariable("switch count", "3")],
+                    LocalDailyTrainingBlockState.Planned),
+            ]);
     }
 
     private static EvidenceArtifact Artifact(

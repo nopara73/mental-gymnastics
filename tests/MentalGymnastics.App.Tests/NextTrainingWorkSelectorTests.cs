@@ -31,6 +31,33 @@ public sealed class NextTrainingWorkSelectorTests : IDisposable
     }
 
     [Fact]
+    public async Task SelectsActiveTrainingBeforeAnEarlierOwnedBranch()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            [
+                Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Owned),
+                Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training),
+            ]);
+        await SavePassingMaintenanceAsync(
+            configuration,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            TrainingDate.From(2026, 7, 5));
+
+        var selection = await new NextTrainingWorkSelector(configuration).SelectAsync(
+            new NextTrainingWorkSelectionQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.Equal(NextTrainingWorkSelectionKind.Allowed, selection.Kind);
+        Assert.NotNull(selection.SelectedWork);
+        Assert.Equal(BranchCode.FS, selection.SelectedWork.Branch);
+        Assert.Equal(GlobalLevelId.L1, selection.SelectedWork.Level);
+        Assert.Equal(DrillId.FS1CueSwitch, selection.SelectedWork.Drill);
+        Assert.Equal(AppTrainingSessionType.Practice, selection.SelectedWork.SessionType);
+    }
+
+    [Fact]
     public async Task BlocksRequestedAdvancedWorkWhenPrerequisitesAndReadinessFail()
     {
         var configuration = Configuration();
@@ -86,6 +113,61 @@ public sealed class NextTrainingWorkSelectorTests : IDisposable
             selection.Blockers,
             blocker => blocker.Source == NextTrainingWorkBlockerSource.MaintenanceCurrency &&
                 blocker.MaintenanceCurrencyState == MaintenanceCurrencyState.Due);
+    }
+
+    [Fact]
+    public async Task KeepsFormalMaintenanceForTheExecutableFocusHoldStandard()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            [Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Owned)]);
+
+        var selection = await new NextTrainingWorkSelector(configuration).SelectAsync(
+            new NextTrainingWorkSelectionQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.Equal(NextTrainingWorkSelectionKind.MaintenanceNeeded, selection.Kind);
+        Assert.NotNull(selection.SelectedWork);
+        Assert.Equal(DrillId.FH1TargetHold, selection.SelectedWork.Drill);
+        Assert.Equal(AppTrainingSessionType.Maintenance, selection.SelectedWork.SessionType);
+    }
+
+    [Theory]
+    [InlineData(BranchCode.FH, GlobalLevelId.L3, DrillId.FH2DistractorHold)]
+    [InlineData(BranchCode.FS, GlobalLevelId.L3, DrillId.FS2InvalidCueFilter)]
+    [InlineData(BranchCode.WM, GlobalLevelId.L3, DrillId.WM2MentalTransform)]
+    [InlineData(BranchCode.IR, GlobalLevelId.L2, DrillId.IR2ExceptionRule)]
+    [InlineData(BranchCode.DE, GlobalLevelId.L3, DrillId.DE2SeededAudit)]
+    [InlineData(BranchCode.CO, GlobalLevelId.L3, DrillId.CO2StructureMapping)]
+    [InlineData(BranchCode.AI, GlobalLevelId.L3, DrillId.AI2DisruptionRecovery)]
+    [InlineData(BranchCode.TI, GlobalLevelId.L5, DrillId.TI2GlobalReviewTask)]
+    public async Task SelectsSecondProtocolWhenLevelDemandRequiresIt(
+        BranchCode branch,
+        GlobalLevelId level,
+        DrillId expectedDrill)
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            [Status(branch, level, BranchLevelState.Maintenance)]);
+
+        var selection = await new NextTrainingWorkSelector(configuration).SelectAsync(
+            new NextTrainingWorkSelectionQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.Equal(NextTrainingWorkSelectionKind.MaintenanceNeeded, selection.Kind);
+        Assert.NotNull(selection.SelectedWork);
+        Assert.Equal(expectedDrill, selection.SelectedWork!.Drill);
+
+        var prepared = await new PreUiTrainingWorkflowService(configuration)
+            .PrepareNextSessionWithDefaultsAsync(
+                new PreUiTrainingWorkflowDefaultPreparationRequest(
+                    new NextTrainingWorkSelectionQuery(TrainingDate.From(2026, 7, 5))));
+
+        Assert.True(
+            prepared.Status == PreUiTrainingWorkflowPreparationStatus.Prepared,
+            $"{prepared.Status}: {string.Join(" | ", prepared.Rejections.Select(rejection => rejection.Detail))}");
+        Assert.True(prepared.CanStartRuntimeSession);
+        Assert.Equal(expectedDrill, prepared.RuntimeSession!.SessionDefinition!.Drill);
     }
 
     [Fact]
@@ -236,6 +318,27 @@ public sealed class NextTrainingWorkSelectorTests : IDisposable
         BranchLevelState state)
     {
         return new BranchLevelStatus(branch, level, state);
+    }
+
+    private static ValueTask SavePassingMaintenanceAsync(
+        AppStartupConfiguration configuration,
+        BranchCode branch,
+        GlobalLevelId level,
+        TrainingDate date)
+    {
+        return new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions).SaveMaintenanceAsync(
+            new LocalMaintenanceCheckRecord(
+                $"maintenance-{branch}-{level}",
+                $"artifact-{branch}-{level}",
+                completedSessionId: null,
+                DrillId.FH1TargetHold,
+                "The stated standard remained visible before the check.",
+                new MaintenanceCheckEvidence(
+                    branch,
+                    level,
+                    date,
+                    MaintenanceCheckKind.StandardOrTransfer,
+                    new StandardEvaluationResult(Passed: true, Failures: []))));
     }
 
     private static RecoveryDecisionRequest RecoveryRequest()

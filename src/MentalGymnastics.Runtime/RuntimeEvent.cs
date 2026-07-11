@@ -292,6 +292,7 @@ public sealed class RuntimeEventLog
             SessionDefinition.Branch == sessionDefinition.Branch &&
             SessionDefinition.Level == sessionDefinition.Level &&
             SessionDefinition.Drill == sessionDefinition.Drill &&
+            SessionDefinition.SourceDrill == sessionDefinition.SourceDrill &&
             SessionDefinition.GeneratedDrillInstance?.InstanceId == sessionDefinition.GeneratedDrillInstance?.InstanceId;
     }
 

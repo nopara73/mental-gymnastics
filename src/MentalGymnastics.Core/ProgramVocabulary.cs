@@ -512,6 +512,7 @@ public enum RecoveryTriggerKind
 public enum DeloadTriggerKind
 {
     TwoOrMoreBranchesShowOverloadOrDecayInSameWeek,
+    ActiveDeloadWeekIncomplete,
 }
 
 public enum PromptContentKind

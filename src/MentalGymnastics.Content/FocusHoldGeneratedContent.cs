@@ -45,12 +45,12 @@ public static class FocusHoldGeneratedContentGenerator
 
     private static readonly TargetTemplate[] Targets =
     [
-        new("phrase", "Hold target phrase: blue square."),
-        new("phrase", "Hold target phrase: quiet line."),
-        new("phrase", "Hold target phrase: steady point."),
-        new("phrase", "Hold target phrase: clear center."),
-        new("word", "Hold target word: anchor."),
-        new("word", "Hold target word: lantern."),
+        new("visual phrase", "Hold target phrase: red dot"),
+        new("visual phrase", "Hold target phrase: blue dot"),
+        new("visual phrase", "Hold target phrase: green dot"),
+        new("visual phrase", "Hold target phrase: black line"),
+        new("visual phrase", "Hold target phrase: blue square"),
+        new("visual phrase", "Hold target phrase: red circle"),
     ];
 
     private static readonly string[] DistractorPrompts =
@@ -163,6 +163,16 @@ public static class FocusHoldGeneratedContentGenerator
         if (request.Drill == DrillId.FH2DistractorHold)
         {
             AddDistractorMaterials(materials, request, seedPlan, target);
+        }
+
+        if (request.Level == GlobalLevelId.L5)
+        {
+            ObjectiveComponentTaskCatalog.AddMaterials(
+                materials,
+                [BranchCode.FH, BranchCode.TI],
+                seedPlan.PayloadSeed,
+                seedPlan.VariantIndex,
+                "integrated-hold");
         }
 
         return Array.AsReadOnly(materials.ToArray());

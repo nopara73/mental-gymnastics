@@ -280,7 +280,8 @@ public sealed class ActiveRuntimeSessionSnapshotPersistenceService
             definition.LoadVariables.ToArray(),
             definition.Standard,
             definition.CriticalConstraints.ToArray(),
-            definition.GeneratedDrillInstance is null ? null : ToLocalRecord(definition.GeneratedDrillInstance));
+            definition.GeneratedDrillInstance is null ? null : ToLocalRecord(definition.GeneratedDrillInstance),
+            definition.SourceDrill);
     }
 
     private static LocalRuntimeGeneratedDrillInstanceIdentityRecord ToLocalRecord(
@@ -403,7 +404,8 @@ public sealed class ActiveRuntimeSessionSnapshotPersistenceService
             definition.CriticalConstraints,
             definition.GeneratedDrillInstance is null
                 ? null
-                : ToRuntimeGeneratedDrillInstanceIdentity(definition.GeneratedDrillInstance));
+                : ToRuntimeGeneratedDrillInstanceIdentity(definition.GeneratedDrillInstance),
+            definition.SourceDrill);
     }
 
     private static RuntimeGeneratedDrillInstanceIdentity ToRuntimeGeneratedDrillInstanceIdentity(

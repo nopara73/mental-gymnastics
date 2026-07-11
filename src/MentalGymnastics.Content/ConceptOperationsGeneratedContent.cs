@@ -128,6 +128,11 @@ public static class ConceptOperationsGeneratedContentGenerator
                     "rejected reports retain reason codes",
                     "rejected hypotheses retain disconfirmation notes",
                     "rejection keeps the reason so the decision can be audited"),
+                new(
+                    "acceptance-before-escalation",
+                    "only accepted reports proceed to escalation",
+                    "only accepted hypotheses proceed to experiment",
+                    "the acceptance decision gates the next costly stage"),
             ],
             [
                 "surface lure: both contexts mention boards and tags; matching the board label alone does not count.",
@@ -159,6 +164,11 @@ public static class ConceptOperationsGeneratedContentGenerator
                     "the upper gate opens only when pressure is safe",
                     "deployment opens only when policy pressure is safe",
                     "release depends on a safety threshold, not on impatience"),
+                new(
+                    "cycle-completes-before-next-batch",
+                    "the current boat group exits before another group enters",
+                    "the current request group deploys before another group enters",
+                    "one constrained transition completes before the next batch begins"),
             ],
             [
                 "surface lure: both contexts use gates; naming a gate without the sequence relation does not count.",
@@ -190,6 +200,11 @@ public static class ConceptOperationsGeneratedContentGenerator
                     "plates release only after final inspection",
                     "merges release only after final inspection",
                     "final release requires an independent check"),
+                new(
+                    "block-resolved-before-inspection",
+                    "a blocked dish must be cleared before final inspection",
+                    "a blocked change must be cleared before final inspection",
+                    "visible blockage prevents release review until resolved"),
             ],
             [
                 "surface lure: both contexts mention a pass or review; copying the word review without relations does not count.",
@@ -351,6 +366,15 @@ public static class ConceptOperationsGeneratedContentGenerator
             GeneratedContentMaterialKind.RuleAmbiguity,
             "rule-ambiguity",
             plan.RuleAmbiguity));
+        var exceptionHandling = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, "exception handling", StringComparison.OrdinalIgnoreCase));
+        if (exceptionHandling is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.ExceptionHandling,
+                "exception-handling",
+                exceptionHandling.Value));
+        }
 
         for (var i = 0; i < plan.PositiveExamples.Count; i++)
         {
@@ -413,6 +437,15 @@ public static class ConceptOperationsGeneratedContentGenerator
             GeneratedContentMaterialKind.DomainDistance,
             "domain-distance",
             plan.DomainDistance));
+        var taskLength = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, "task length", StringComparison.OrdinalIgnoreCase));
+        if (taskLength is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.TaskLength,
+                "task-length",
+                taskLength.Value));
+        }
 
         var transferDistance = request.LoadVariables.FirstOrDefault(loadVariable =>
             string.Equals(loadVariable.Name, "transfer distance", StringComparison.OrdinalIgnoreCase));
@@ -450,6 +483,18 @@ public static class ConceptOperationsGeneratedContentGenerator
             GeneratedContentMaterialKind.MappingLimit,
             "mapping-limit",
             plan.MappingLimit));
+
+        if (request.Level == GlobalLevelId.L5)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.AuditPayload,
+                "model-audit",
+                $"Audit the submitted mapping against this declared limit: {plan.MappingLimit} Name one critical assumption, test one prediction, and submit LIMIT=SUPPORTED or LIMIT=EXCEEDED plus PREDICTION=PASSED or PREDICTION=FAILED."));
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.ExpectedFinding,
+                "model-audit-key",
+                "LIMIT=SUPPORTED; PREDICTION=PASSED"));
+        }
 
         return Array.AsReadOnly(materials.ToArray());
     }

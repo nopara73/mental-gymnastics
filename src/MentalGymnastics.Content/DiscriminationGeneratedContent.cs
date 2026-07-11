@@ -342,7 +342,7 @@ public static class DiscriminationGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.DiscriminationPair,
                 $"pair-{pairNumber}",
-                $"pair-{pairNumber}: left '{pair.LeftItem}' vs right '{pair.RightItem}'; relevant feature '{pair.RelevantFeature}'; irrelevant difference '{pair.IrrelevantDifference}'; expected {truth}"));
+                $"pair-{pairNumber}: left '{pair.LeftItem}' vs right '{pair.RightItem}'; relevant feature '{pair.RelevantFeature}'; irrelevant difference '{pair.IrrelevantDifference}'"));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.MatchTruth,
                 $"pair-{pairNumber}-truth",
@@ -360,10 +360,38 @@ public static class DiscriminationGeneratedContentGenerator
         var lineCount = Math.Clamp(
             ParseLoadCount(request, "output length") ?? 6,
             3,
-            8);
+            16);
         var seededErrorCount = SeededErrorCountFor(request);
-        var template = SelectSeededAuditTemplate(seedPlan);
-        var availableErrors = template.Errors
+        var sectionCount = Math.Max(
+            (int)Math.Ceiling(lineCount / 8m),
+            (int)Math.Ceiling(seededErrorCount / 4m));
+        var templateStart = (
+            SelectIndex(
+                seedPlan.PayloadSeed,
+                "seeded-audit-template",
+                seedPlan.VariantIndex,
+                SeededAuditTemplates.Length) +
+            seedPlan.VariantIndex) % SeededAuditTemplates.Length;
+        var lines = new List<string>();
+        var errors = new List<SeededAuditErrorTemplate>();
+        var distractors = new List<string>();
+        var templateIds = new List<string>();
+        for (var section = 0; section < sectionCount; section++)
+        {
+            var template = SeededAuditTemplates[(templateStart + section) % SeededAuditTemplates.Length];
+            var lineOffset = lines.Count;
+            templateIds.Add(template.TemplateId);
+            lines.AddRange(template.Lines);
+            errors.AddRange(template.Errors.Select(error => error with
+            {
+                ErrorId = $"{template.TemplateId}-{error.ErrorId}",
+                LineNumber = lineOffset + error.LineNumber,
+            }));
+            distractors.AddRange(template.NonErrorDistractors.Select(item =>
+                $"section {section + 1}: {item}"));
+        }
+
+        var availableErrors = errors
             .Where(error => error.LineNumber <= lineCount)
             .ToArray();
         var errorStart = SelectIndex(seedPlan.PayloadSeed, "seeded-error", seedPlan.VariantIndex, availableErrors.Length);
@@ -375,10 +403,10 @@ public static class DiscriminationGeneratedContentGenerator
         }
 
         return new SeededAuditPlan(
-            template.TemplateId,
-            template.Lines.Take(lineCount).ToArray(),
+            string.Join("+", templateIds),
+            lines.Take(lineCount).ToArray(),
             selectedErrors,
-            template.NonErrorDistractors,
+            distractors,
             LoadValueOrDefault(request, "error subtlety", DefaultErrorSubtlety),
             outputLength,
             LoadValueOrDefault(request, "audit delay", DefaultAuditDelay));
@@ -419,6 +447,15 @@ public static class DiscriminationGeneratedContentGenerator
             GeneratedContentMaterialKind.AuditDelay,
             "audit-delay",
             plan.AuditDelay));
+        var taskLength = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, "task length", StringComparison.OrdinalIgnoreCase));
+        if (taskLength is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.TaskLength,
+                "task-length",
+                taskLength.Value));
+        }
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.AuditInstruction,
             "audit-instruction",
@@ -602,7 +639,15 @@ public static class DiscriminationGeneratedContentGenerator
 
         for (var i = 0; i < pairCount; i++)
         {
-            pairs.Add(PairTemplates[(firstIndex + i) % PairTemplates.Length]);
+            var template = PairTemplates[(firstIndex + i) % PairTemplates.Length];
+            var cycle = i / PairTemplates.Length;
+            pairs.Add(cycle % 2 == 0
+                ? template
+                : template with
+                {
+                    LeftItem = template.RightItem,
+                    RightItem = template.LeftItem,
+                });
         }
 
         return Array.AsReadOnly(pairs.ToArray());
@@ -621,12 +666,11 @@ public static class DiscriminationGeneratedContentGenerator
 
     private static int PairCountFor(GeneratedDrillContentRequest request)
     {
-        return Math.Clamp(
+        return Math.Max(
             ParseLoadCount(request, "item quantity") ??
             ParseLoadCount(request, "quantity") ??
             DefaultPairCount,
-            1,
-            PairTemplates.Length);
+            1);
     }
 
     private static int SeededErrorCountFor(GeneratedDrillContentRequest request)
@@ -635,7 +679,7 @@ public static class DiscriminationGeneratedContentGenerator
             ParseLoadCount(request, "quantity") ??
             DefaultSeededErrorCount,
             1,
-            4);
+            8);
     }
 
     private static int SelectIndex(

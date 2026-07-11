@@ -115,10 +115,14 @@ public sealed class RuntimeCueSchedule
         ArgumentNullException.ThrowIfNull(generatedDrillInstance);
         ArgumentNullException.ThrowIfNull(cues);
 
-        if (generatedDrillInstance.ContentIdentity.Kind != PromptContentKind.CueSequence)
+        var identity = generatedDrillInstance.ContentIdentity;
+        var isExecutableAffectiveWrapper = identity.Branch == BranchCode.AI &&
+            identity.Kind == PromptContentKind.EquivalentPrompt &&
+            identity.Drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery;
+        if (identity.Kind != PromptContentKind.CueSequence && !isExecutableAffectiveWrapper)
         {
             throw new ArgumentException(
-                "Runtime cue schedules must be tied to a generated cue sequence instance.",
+                "Runtime cue schedules must be tied to a generated cue sequence or executable Affective Interference wrapper.",
                 nameof(generatedDrillInstance));
         }
 
@@ -298,7 +302,7 @@ public sealed class RuntimeCueScheduler
                     nameof(snapshot));
             }
 
-            state.PresentedAt = cueStateSnapshot.PresentedAt;
+            state.PresentedAt = cueStateSnapshot.PresentedAt?.Add(interruptionDuration);
             state.PhaseId = cueStateSnapshot.PhaseId;
             state.PhaseKind = cueStateSnapshot.PhaseKind;
 

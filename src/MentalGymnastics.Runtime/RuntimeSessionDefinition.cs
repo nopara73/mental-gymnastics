@@ -42,12 +42,17 @@ public sealed class RuntimeSessionDefinition
         IEnumerable<LoadVariable> loadVariables,
         BranchLevelStandard standard,
         IEnumerable<CriticalConstraint> criticalConstraints,
-        RuntimeGeneratedDrillInstanceIdentity? generatedDrillInstance = null)
+        RuntimeGeneratedDrillInstanceIdentity? generatedDrillInstance = null,
+        DrillId? sourceDrill = null)
     {
         EnsureDefined(sessionType, nameof(sessionType));
         EnsureDefined(branch, nameof(branch));
         EnsureDefined(level, nameof(level));
         EnsureDefined(drill, nameof(drill));
+        if (sourceDrill.HasValue)
+        {
+            EnsureDefined(sourceDrill.Value, nameof(sourceDrill));
+        }
         ArgumentNullException.ThrowIfNull(loadVariables);
         ArgumentNullException.ThrowIfNull(standard);
         ArgumentNullException.ThrowIfNull(criticalConstraints);
@@ -106,6 +111,16 @@ public sealed class RuntimeSessionDefinition
                 nameof(generatedDrillInstance));
         }
 
+        if (sourceDrill.HasValue &&
+            (branch != BranchCode.AI ||
+                sourceDrill.Value is not
+                    (DrillId.FH2DistractorHold or DrillId.FS2InvalidCueFilter or DrillId.IR2ExceptionRule)))
+        {
+            throw new ArgumentException(
+                "Only Affective Interference sessions may identify an executable foundational source drill.",
+                nameof(sourceDrill));
+        }
+
         SessionType = sessionType;
         Branch = branch;
         Level = level;
@@ -114,6 +129,7 @@ public sealed class RuntimeSessionDefinition
         Standard = standard;
         CriticalConstraints = Array.AsReadOnly(criticalConstraintArray);
         GeneratedDrillInstance = generatedDrillInstance;
+        SourceDrill = sourceDrill;
     }
 
     public SessionType SessionType { get; }
@@ -131,6 +147,8 @@ public sealed class RuntimeSessionDefinition
     public IReadOnlyList<CriticalConstraint> CriticalConstraints { get; }
 
     public RuntimeGeneratedDrillInstanceIdentity? GeneratedDrillInstance { get; }
+
+    public DrillId? SourceDrill { get; }
 
     private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum

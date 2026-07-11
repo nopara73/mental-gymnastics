@@ -47,7 +47,9 @@ public sealed class LocalPersistenceIntegrityValidator
     private const string DecayHistorySection = "DecayHistory";
     private const string RestorationHistorySection = "RestorationHistory";
     private const string GeneratedDrillInstancesSection = "GeneratedDrillInstances";
+    private const string ActiveRuntimeSessionSnapshotsSection = "ActiveRuntimeSessionSnapshots";
     private const string ProgressSummariesSection = "ProgressSummaries";
+    private const string DailyTrainingPrescriptionsSection = "DailyTrainingPrescriptions";
 
     private const string ArtifactIdPropertyName = "ArtifactId";
     private const string SessionIdPropertyName = "SessionId";
@@ -58,6 +60,7 @@ public sealed class LocalPersistenceIntegrityValidator
     private const string RestorationIdPropertyName = "RestorationId";
     private const string InstanceIdPropertyName = "InstanceId";
     private const string SummaryIdPropertyName = "SummaryId";
+    private const string PrescriptionIdPropertyName = "PrescriptionId";
 
     private const string EvidenceArtifactIdPropertyName = "EvidenceArtifactId";
     private const string EvidenceArtifactIdsPropertyName = "EvidenceArtifactIds";
@@ -165,7 +168,17 @@ public sealed class LocalPersistenceIntegrityValidator
         var decayRecords = ReadRecordArray(document, DecayHistorySection, DecayIdPropertyName, issues);
         var restorationRecords = ReadRecordArray(document, RestorationHistorySection, RestorationIdPropertyName, issues);
         var generatedInstanceRecords = ReadRecordArray(document, GeneratedDrillInstancesSection, InstanceIdPropertyName, issues);
+        var activeSnapshotRecords = ReadRecordArray(
+            document,
+            ActiveRuntimeSessionSnapshotsSection,
+            SessionIdPropertyName,
+            issues);
         var progressSummaryRecords = ReadRecordArray(document, ProgressSummariesSection, SummaryIdPropertyName, issues);
+        var dailyPrescriptionRecords = ReadRecordArray(
+            document,
+            DailyTrainingPrescriptionsSection,
+            PrescriptionIdPropertyName,
+            issues);
 
         var evidenceIds = IndexRecords(evidenceRecords, issues);
         var sessionIds = IndexRecords(sessionRecords, issues);
@@ -176,7 +189,9 @@ public sealed class LocalPersistenceIntegrityValidator
         var decayIds = IndexRecords(decayRecords, issues);
         var restorationIds = IndexRecords(restorationRecords, issues);
         var generatedInstanceIds = IndexRecords(generatedInstanceRecords, issues);
+        var activeSnapshotIds = IndexRecords(activeSnapshotRecords, issues);
         var progressSummaryIds = IndexRecords(progressSummaryRecords, issues);
+        _ = IndexRecords(dailyPrescriptionRecords, issues);
 
         var referencedEvidenceIds = new HashSet<string>(StringComparer.Ordinal);
         var programmingEventIds = new HashSet<string>(StringComparer.Ordinal);
@@ -213,10 +228,28 @@ public sealed class LocalPersistenceIntegrityValidator
             issues);
         ValidateDecayReferences(decayRecords, maintenanceIds, issues);
         ValidateRestorationHistoryReferences(restorationRecords, restorationCheckIds, issues);
+        var inProgressSessionIds = new HashSet<string>(activeSnapshotIds.Keys, StringComparer.Ordinal);
+        try
+        {
+            foreach (var sessionId in LocalDailyTrainingPrescriptionStore.ReadFrom(document)
+                .SelectMany(record => record.Blocks)
+                .Where(block => block.State is
+                    LocalDailyTrainingBlockState.Prepared or LocalDailyTrainingBlockState.Active)
+                .Select(block => block.SessionId)
+                .OfType<string>())
+            {
+                inProgressSessionIds.Add(sessionId);
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            // Daily prescription validation reports the malformed section separately.
+        }
+
         ValidateGeneratedInstanceReferences(
             generatedInstanceRecords,
             evidenceIds,
-            sessionIds,
+            inProgressSessionIds,
             referencedEvidenceIds,
             issues);
         ValidateProgressSummaryReferences(
@@ -234,6 +267,7 @@ public sealed class LocalPersistenceIntegrityValidator
             decayIds,
             restorationIds,
             issues);
+        ValidateDailyTrainingPrescriptions(document, sessionIds, issues);
         ValidateStateHistoryTransitions(decayRecords, issues);
         ValidateStateHistoryTransitions(restorationRecords, issues);
         ValidateOrphanedEvidence(
@@ -243,6 +277,58 @@ public sealed class LocalPersistenceIntegrityValidator
             issues);
 
         return new LocalPersistenceIntegrityReport(issues);
+    }
+
+    private static void ValidateDailyTrainingPrescriptions(
+        JsonObject document,
+        IReadOnlyDictionary<string, JsonRecord> completedSessions,
+        ICollection<LocalPersistenceIntegrityIssue> issues)
+    {
+        IReadOnlyList<LocalDailyTrainingPrescriptionRecord> prescriptions;
+        try
+        {
+            prescriptions = LocalDailyTrainingPrescriptionStore.ReadFrom(document);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            AddIssue(
+                issues,
+                LocalPersistenceIntegrityIssueKind.ImpossiblePersistedState,
+                DailyTrainingPrescriptionsSection,
+                null,
+                exception.Message);
+            return;
+        }
+
+        foreach (var duplicateDate in prescriptions
+            .GroupBy(record => record.Date)
+            .Where(group => group.Count() > 1))
+        {
+            AddIssue(
+                issues,
+                LocalPersistenceIntegrityIssueKind.ImpossiblePersistedState,
+                DailyTrainingPrescriptionsSection,
+                null,
+                $"More than one prescription owns {duplicateDate.Key.Year:D4}-{duplicateDate.Key.Month:D2}-{duplicateDate.Key.Day:D2}.");
+        }
+
+        foreach (var prescription in prescriptions)
+        {
+            foreach (var block in prescription.Blocks.Where(block => block.IsTerminal))
+            {
+                if (block.SessionId is null || completedSessions.ContainsKey(block.SessionId))
+                {
+                    continue;
+                }
+
+                AddIssue(
+                    issues,
+                    LocalPersistenceIntegrityIssueKind.InvalidReference,
+                    DailyTrainingPrescriptionsSection,
+                    prescription.PrescriptionId,
+                    $"Terminal block {block.BlockId} references missing completed session {block.SessionId}.");
+            }
+        }
     }
 
     internal static void ThrowIfInvalid(JsonObject document, string operation)
@@ -276,10 +362,8 @@ public sealed class LocalPersistenceIntegrityValidator
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -671,7 +755,7 @@ public sealed class LocalPersistenceIntegrityValidator
     private static void ValidateGeneratedInstanceReferences(
         IEnumerable<JsonRecord> records,
         IReadOnlyDictionary<string, JsonRecord> evidenceIds,
-        IReadOnlyDictionary<string, JsonRecord> sessionIds,
+        IReadOnlySet<string> inProgressSessionIds,
         ISet<string> referencedEvidenceIds,
         ICollection<LocalPersistenceIntegrityIssue> issues)
     {
@@ -697,14 +781,24 @@ public sealed class LocalPersistenceIntegrityValidator
 
             if (state == LocalGeneratedDrillInstanceState.InSession)
             {
-                ValidateRequiredReference(
-                    record,
-                    ActiveSessionIdPropertyName,
-                    activeSessionId,
-                    CompletedSessionsSection,
-                    sessionIds,
-                    null,
-                    issues);
+                if (activeSessionId is null)
+                {
+                    AddIssue(
+                        issues,
+                        LocalPersistenceIntegrityIssueKind.MissingRequiredRecord,
+                        record.Section,
+                        record.Id,
+                        "An in-session generated drill instance must reference its prepared or active runtime session.");
+                }
+                else if (!inProgressSessionIds.Contains(activeSessionId))
+                {
+                    AddIssue(
+                        issues,
+                        LocalPersistenceIntegrityIssueKind.InvalidReference,
+                        record.Section,
+                        record.Id,
+                        $"ActiveSessionId references missing prepared or active session {activeSessionId}.");
+                }
             }
             else if (activeSessionId is not null)
             {

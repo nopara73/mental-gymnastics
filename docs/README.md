@@ -2,17 +2,18 @@
 
 This section contains the product and engineering foundation for Mental Gymnastics.
 
-## Current Non-UI Stack
+## Implemented Product Stack
 
-The repository now contains a completed pre-UI stack for the training program:
+The repository contains the complete offline training stack and native Android product:
 
-- `MentalGymnastics.Core` owns progression rules and static program vocabulary.
+- `MentalGymnastics.Core` owns the 40 executable standards, progression rules, daily programming, and program vocabulary.
 - `MentalGymnastics.Persistence` owns offline, userless, app-owned local JSON storage. SQLite is intentionally not required at this stage.
 - `MentalGymnastics.Runtime` owns headless live drill execution.
 - `MentalGymnastics.Content` owns local deterministic generated drill content and runtime/persistence handoffs.
-- `MentalGymnastics.App` composes those layers into non-visual workflows for future Android UI.
+- `MentalGymnastics.App` composes those layers into non-visual daily, session, completion, review, recovery, and progress workflows.
+- `MentalGymnastics.Android` renders those workflows as the native Train, Map, Record, Review, live drill, result, evidence, and local-data experience.
 
-Future Android screens should consume `MentalGymnastics.App` workflow/read-model services, render their output, and forward user actions into app/runtime commands. Android UI should not bypass the app integration layer to reimplement progression decisions, local storage paths, timers, cue schedules, prompt generation, evidence logs, completion processing, or progress refresh.
+Android screens consume `MentalGymnastics.App` workflow/read-model services, render their output, and forward user actions into app/runtime commands. Android UI does not bypass the app integration layer to reimplement progression decisions, local storage paths, timers, cue schedules, prompt generation, evidence logs, completion processing, or progress refresh.
 
 ## Foundation Documents
 
@@ -54,7 +55,7 @@ The generated content documentation explains how the implemented local determini
 
 ## App Integration
 
-- [MentalGymnastics Pre-UI App Integration Boundary](app-integration-boundary.md)
+- [MentalGymnastics App Integration Boundary](app-integration-boundary.md)
 
 The app integration documentation defines the pure C# layer that composes Core, Persistence, Runtime, and Generated Content into app-facing workflows while keeping Android UI and external-service concerns out of scope. Use it for startup configuration, first-run state initialization, current-state loading, work selection, generated content preparation, runtime session preparation, completed-session processing, active session snapshot handling, and progress refresh.
 

@@ -35,6 +35,7 @@ public static class TransferIntegrationGeneratedContentGenerator
 {
     private const string SeparateEvidenceConstraint = "Each branch must leave separate evidence.";
     private const string AuditAndDelayedReconstructionConstraint = "Audit and delayed reconstruction are required.";
+    private const string NoRereadingConstraint = "No rereading after encode window.";
     private const string DefaultTaskLength = "10 minutes";
     private const string DefaultTransferDistance = "near transfer";
     private const string DefaultGlobalReviewTaskLength = "15 minutes";
@@ -79,6 +80,20 @@ public static class TransferIntegrationGeneratedContentGenerator
             "audit component output without editing the original artifact",
             "seeded findings, false corrections, uncertainty marks, and original-output lock",
             "DE score uses audit findings and false-correction evidence; it cannot be replaced by composite total"),
+        new(
+            BranchCode.CO,
+            GlobalLevelId.L3,
+            DrillId.CO2StructureMapping,
+            "preserve a named structural relation rather than a surface match",
+            "named relation, mapping response, surface-lure rejection, and mapping limit",
+            "CO score uses relation preservation; it cannot be replaced by composite total"),
+        new(
+            BranchCode.AI,
+            GlobalLevelId.L3,
+            DrillId.AI2DisruptionRecovery,
+            "resume the same demand after a controlled interruption without lowering it",
+            "recovery time, source-standard result, restart record, and no-standard-lowering marker",
+            "AI score uses recovery and source-standard preservation; it cannot be replaced by composite total"),
     ];
 
     private static readonly ComponentTemplate[] GlobalReviewComponentTemplates =
@@ -162,8 +177,8 @@ public static class TransferIntegrationGeneratedContentGenerator
             : SelectComponents(request, seedPlan);
         var taskFrame = SelectTaskFrame(seedPlan);
         var materials = request.Drill == DrillId.TI2GlobalReviewTask
-            ? BuildGlobalReviewMaterials(request, components, taskFrame)
-            : BuildMaterials(request, components, taskFrame);
+            ? BuildGlobalReviewMaterials(request, components, taskFrame, seedPlan)
+            : BuildMaterials(request, components, taskFrame, seedPlan);
         var payloadFacts = request.Drill == DrillId.TI2GlobalReviewTask
             ? BuildGlobalReviewPayloadFacts(components, materials)
             : BuildPayloadFacts(components, materials);
@@ -202,7 +217,8 @@ public static class TransferIntegrationGeneratedContentGenerator
     private static IReadOnlyList<GeneratedContentMaterial> BuildMaterials(
         GeneratedDrillContentRequest request,
         IReadOnlyList<ComponentTemplate> components,
-        CompositeTaskFrame taskFrame)
+        CompositeTaskFrame taskFrame,
+        GeneratedContentSeedPlan seedPlan)
     {
         var materials = new List<GeneratedContentMaterial>();
 
@@ -242,10 +258,14 @@ public static class TransferIntegrationGeneratedContentGenerator
 
         foreach (var component in components)
         {
+            var task = ObjectiveComponentTaskCatalog.Select(
+                component.Branch,
+                seedPlan.PayloadSeed,
+                seedPlan.VariantIndex);
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentPayload,
                 ComponentMaterialName("component", component.Branch),
-                BuildComponentPayloadValue(component)));
+                BuildComponentPayloadValue(component, task)));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentEvidenceRequirement,
                 ComponentMaterialName("component-evidence", component.Branch),
@@ -253,7 +273,7 @@ public static class TransferIntegrationGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.BranchScoringKey,
                 ComponentMaterialName("branch-scoring", component.Branch),
-                $"branch {component.Branch} scoring key: {component.ScoringKey}; strong branch cannot hide missing or failing {component.Branch} evidence."));
+                ObjectiveComponentTaskCatalog.ScoringKeyValue(task, component.ScoringKey)));
         }
 
         materials.Add(new GeneratedContentMaterial(
@@ -261,13 +281,28 @@ public static class TransferIntegrationGeneratedContentGenerator
             "composite-task-prompt",
             BuildCompositeTaskPrompt(taskFrame, components, taskLength, transferDistance)));
 
+        var delay = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, "delay", StringComparison.OrdinalIgnoreCase));
+        if (delay is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.DelayLength,
+                "composite-delay",
+                delay.Value));
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.DelayedReconstructionPayload,
+                "composite-delayed-reconstruction",
+                $"After {delay.Value}, reconstruct the component order and the separate evidence required for {string.Join(", ", components.Select(component => component.Branch))}."));
+        }
+
         return Array.AsReadOnly(materials.ToArray());
     }
 
     private static IReadOnlyList<GeneratedContentMaterial> BuildGlobalReviewMaterials(
         GeneratedDrillContentRequest request,
         IReadOnlyList<ComponentTemplate> components,
-        CompositeTaskFrame taskFrame)
+        CompositeTaskFrame taskFrame,
+        GeneratedContentSeedPlan seedPlan)
     {
         var materials = new List<GeneratedContentMaterial>();
 
@@ -284,6 +319,15 @@ public static class TransferIntegrationGeneratedContentGenerator
             request,
             "audit-delayed-reconstruction-required",
             AuditAndDelayedReconstructionConstraint);
+        if (!materials.Any(material =>
+                material.Kind == GeneratedContentMaterialKind.HonestyConstraint &&
+                string.Equals(material.Value, NoRereadingConstraint, StringComparison.OrdinalIgnoreCase)))
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.HonestyConstraint,
+                "no-rereading-after-encode",
+                NoRereadingConstraint));
+        }
 
         var taskLength = LoadValueOrDefault(request, "task length", DefaultGlobalReviewTaskLength);
         var pressure = LoadValueOrDefault(
@@ -313,12 +357,29 @@ public static class TransferIntegrationGeneratedContentGenerator
             "review-delay",
             delay));
 
+        AddOptionalExactLoadMaterial(
+            materials,
+            request,
+            "domain distance",
+            GeneratedContentMaterialKind.DomainDistance,
+            "domain-distance");
+        AddOptionalExactLoadMaterial(
+            materials,
+            request,
+            "interference",
+            GeneratedContentMaterialKind.Interference,
+            "interference");
+
         foreach (var component in components)
         {
+            var task = ObjectiveComponentTaskCatalog.Select(
+                component.Branch,
+                seedPlan.PayloadSeed,
+                seedPlan.VariantIndex);
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentPayload,
                 ComponentMaterialName("global-review-component", component.Branch),
-                BuildComponentPayloadValue(component)));
+                BuildComponentPayloadValue(component, task)));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentEvidenceRequirement,
                 ComponentMaterialName("global-review-evidence", component.Branch),
@@ -326,7 +387,7 @@ public static class TransferIntegrationGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.BranchScoringKey,
                 ComponentMaterialName("global-review-scoring", component.Branch),
-                $"branch {component.Branch} scoring key: {component.ScoringKey}; strong branch cannot hide missing or failing {component.Branch} evidence."));
+                ObjectiveComponentTaskCatalog.ScoringKeyValue(task, component.ScoringKey)));
         }
 
         materials.Add(new GeneratedContentMaterial(
@@ -399,14 +460,23 @@ public static class TransferIntegrationGeneratedContentGenerator
         materials.Add(new GeneratedContentMaterial(materialKind, materialName, value));
     }
 
-    private static string BuildComponentPayloadValue(ComponentTemplate component)
+    private static string BuildComponentPayloadValue(
+        ComponentTemplate component,
+        ObjectiveComponentTask task)
     {
         var standard = ProgramCatalog.Standards.Single(item =>
             item.Branch == component.Branch &&
             item.Level == component.Level);
         var drill = ProgramCatalog.Drills.Single(item => item.Id == component.Drill);
 
-        return $"component branch {component.Branch}: level {component.Level}; drill {component.Drill}; task role {component.TaskRole}; source demand {standard.Demand}; source standard {standard.Standard}; component honesty constraint {drill.HonestyConstraint}; component boundary and evidence remain separate.";
+        return ObjectiveComponentTaskCatalog.PayloadValue(
+            task,
+            component.Level,
+            component.Drill,
+            component.TaskRole,
+            standard.Demand,
+            standard.Standard,
+            drill.HonestyConstraint);
     }
 
     private static string BuildCompositeTaskPrompt(
@@ -532,12 +602,21 @@ public static class TransferIntegrationGeneratedContentGenerator
                 2,
             2,
             ComponentTemplates.Length);
-        return SelectComponentsFromTemplates(
+        var selected = SelectComponentsFromTemplates(
             request,
             seedPlan,
             ComponentTemplates,
             componentCount,
-            "component");
+            "component").ToList();
+
+        if ((int)request.Level >= (int)GlobalLevelId.L3 && selected.All(component => component.Branch is not BranchCode.CO and not BranchCode.AI))
+        {
+            var advanced = ComponentTemplates.First(component => component.Branch ==
+                (seedPlan.VariantIndex % 2 == 0 ? BranchCode.CO : BranchCode.AI));
+            selected[^1] = advanced;
+        }
+
+        return Array.AsReadOnly(selected.ToArray());
     }
 
     private static IReadOnlyList<ComponentTemplate> SelectGlobalReviewComponents(

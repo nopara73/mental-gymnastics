@@ -189,7 +189,7 @@ public sealed class LocalMaintenanceCheckStore
         }
         else
         {
-            checks.Add(WriteMaintenanceRecord(record));
+            checks.AddNode(WriteMaintenanceRecord(record));
         }
 
         document[MaintenanceChecksPropertyName] = checks;
@@ -258,7 +258,7 @@ public sealed class LocalMaintenanceCheckStore
         }
         else
         {
-            checks.Add(WriteRestorationRecord(record));
+            checks.AddNode(WriteRestorationRecord(record));
         }
 
         document[RestorationChecksPropertyName] = checks;
@@ -345,10 +345,8 @@ public sealed class LocalMaintenanceCheckStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -392,7 +390,7 @@ public sealed class LocalMaintenanceCheckStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -528,7 +526,7 @@ public sealed class LocalMaintenanceCheckStore
         var failureArray = new JsonArray();
         foreach (var failure in failures)
         {
-            failureArray.Add(new JsonObject
+            failureArray.AddNode(new JsonObject
             {
                 [FailureKindPropertyName] = StandardFailureKinds.ToPersistedId(failure.Kind),
                 [DetailPropertyName] = failure.Detail,

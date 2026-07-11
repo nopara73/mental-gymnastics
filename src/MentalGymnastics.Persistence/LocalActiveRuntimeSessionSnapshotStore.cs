@@ -60,7 +60,8 @@ public sealed class LocalRuntimeSessionDefinitionRecord
         IReadOnlyList<LoadVariable> loadVariables,
         BranchLevelStandard standard,
         IReadOnlyList<CriticalConstraint> criticalConstraints,
-        LocalRuntimeGeneratedDrillInstanceIdentityRecord? generatedDrillInstance = null)
+        LocalRuntimeGeneratedDrillInstanceIdentityRecord? generatedDrillInstance = null,
+        DrillId? sourceDrill = null)
     {
         ArgumentNullException.ThrowIfNull(loadVariables);
         ArgumentNullException.ThrowIfNull(standard);
@@ -115,6 +116,16 @@ public sealed class LocalRuntimeSessionDefinitionRecord
                 nameof(generatedDrillInstance));
         }
 
+        if (sourceDrill.HasValue &&
+            (branch != BranchCode.AI ||
+                sourceDrill.Value is not
+                    (DrillId.FH2DistractorHold or DrillId.FS2InvalidCueFilter or DrillId.IR2ExceptionRule)))
+        {
+            throw new ArgumentException(
+                "Only Affective Interference snapshots may identify an executable foundational source drill.",
+                nameof(sourceDrill));
+        }
+
         SessionType = sessionType;
         Branch = branch;
         Level = level;
@@ -123,6 +134,7 @@ public sealed class LocalRuntimeSessionDefinitionRecord
         Standard = standard;
         CriticalConstraints = Array.AsReadOnly(criticalConstraintArray);
         GeneratedDrillInstance = generatedDrillInstance;
+        SourceDrill = sourceDrill;
     }
 
     public SessionType SessionType { get; }
@@ -140,6 +152,8 @@ public sealed class LocalRuntimeSessionDefinitionRecord
     public IReadOnlyList<CriticalConstraint> CriticalConstraints { get; }
 
     public LocalRuntimeGeneratedDrillInstanceIdentityRecord? GeneratedDrillInstance { get; }
+
+    public DrillId? SourceDrill { get; }
 }
 
 public sealed class LocalRuntimeLifecycleStateRecord
@@ -796,7 +810,9 @@ public sealed class LocalActiveRuntimeSessionSnapshotStore
         var document = await ReadInitializedDocumentAsync(cancellationToken).ConfigureAwait(false);
         var snapshots = ReadSnapshotArray(document);
         var replacementIndex = FindSnapshotIndex(snapshots, record.SessionId);
-        var recordNode = JsonSerializer.SerializeToNode(record, JsonOptions) ??
+        var recordNode = JsonSerializer.SerializeToNode(
+            record,
+            LocalPersistenceJsonContext.Default.LocalActiveRuntimeSessionSnapshotRecord) ??
             throw new InvalidOperationException("Active runtime snapshot serialization produced no data.");
 
         if (replacementIndex >= 0)
@@ -805,7 +821,7 @@ public sealed class LocalActiveRuntimeSessionSnapshotStore
         }
         else
         {
-            snapshots.Add(recordNode);
+            snapshots.AddNode(recordNode);
         }
 
         document[ActiveRuntimeSessionSnapshotsPropertyName] = snapshots;
@@ -891,10 +907,8 @@ public sealed class LocalActiveRuntimeSessionSnapshotStore
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -938,7 +952,7 @@ public sealed class LocalActiveRuntimeSessionSnapshotStore
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -968,7 +982,8 @@ public sealed class LocalActiveRuntimeSessionSnapshotStore
 
         try
         {
-            return node.Deserialize<LocalActiveRuntimeSessionSnapshotRecord>(JsonOptions) ??
+            return node.Deserialize(
+                    LocalPersistenceJsonContext.Default.LocalActiveRuntimeSessionSnapshotRecord) ??
                 throw new InvalidOperationException("The stored active runtime session snapshot is empty.");
         }
         catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException)

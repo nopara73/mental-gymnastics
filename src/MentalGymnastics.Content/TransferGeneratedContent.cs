@@ -269,14 +269,118 @@ public static class TransferGeneratedContentGenerator
                 "Transfer generated content must satisfy core transfer eligibility before it can be emitted.");
         }
 
-        var materials = BuildMaterials(request, transferDefinition, sourceStandard);
+        var executableSource = GenerateExecutableSource(request, seedPlan);
+        var materials = Array.AsReadOnly(BuildMaterials(request, transferDefinition, sourceStandard)
+            .Concat(executableSource.Materials.Where(material => material.Kind is not
+                GeneratedContentMaterialKind.LoadVariable and not
+                GeneratedContentMaterialKind.HonestyConstraint and not
+                GeneratedContentMaterialKind.SourceBranchStandard))
+            .ToArray());
         var result = new GeneratedDrillContentResult(
             request.ContentRequest,
             seedPlan.Instance,
-            seedPlan.PayloadFacts.Concat(BuildPayloadFacts(candidate, materials)));
+            seedPlan.PayloadFacts
+                .Concat(BuildPayloadFacts(candidate, materials))
+                .Concat(executableSource.Result.PayloadFacts.Select(fact =>
+                    new GeneratedContentPayloadFact($"transfer-source-{fact.Name}", fact.Value))));
 
         return new TransferGeneratedContent(result, materials, candidate, validation);
     }
+
+    private static ExecutableTransferSource GenerateExecutableSource(
+        TransferContentGenerationRequest request,
+        GeneratedContentSeedPlan seedPlan)
+    {
+        var sourceLoads = request.ContentRequest.LoadVariables.Where(loadVariable =>
+                !string.Equals(loadVariable.Name, "transfer distance", StringComparison.OrdinalIgnoreCase) ||
+                request.SourceBranch is BranchCode.CO or BranchCode.TI)
+            .ToArray();
+        if (sourceLoads.Length == 0)
+        {
+            sourceLoads = TrainingLoadProfileCatalog.Profiles
+                .Where(profile =>
+                    profile.Branch == request.SourceBranch &&
+                    profile.Drill == request.ContentRequest.Drill)
+                .OrderBy(profile => profile.Level)
+                .First()
+                .Stages[0]
+                .LoadVariables
+                .ToArray();
+        }
+
+        var sourceRequest = new GeneratedDrillContentRequest(
+            request.SourceBranch,
+            request.SourceLevel,
+            request.ContentRequest.Drill,
+            SessionType.Test,
+            ContentKindFor(request.ContentRequest.Drill),
+            $"{request.ContentRequest.EquivalenceClass}-executable-transfer-source",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            sourceLoads,
+            request.ContentRequest.CriticalConstraints);
+        var sourceSeed = new GeneratedContentSeed(
+            $"{seedPlan.PayloadSeed}|executable-transfer-source|{request.TransferDistance}");
+
+        return request.SourceBranch switch
+        {
+            BranchCode.FH => From(FocusHoldGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.FS => From(FocusShiftGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.WM => From(WorkingMemoryGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.IR => From(InhibitionGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.DE => From(DiscriminationGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.CO => From(ConceptOperationsGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.AI => From(AffectiveInterferenceGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            BranchCode.TI => From(TransferIntegrationGeneratedContentGenerator.Generate(sourceRequest, sourceSeed)),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.SourceBranch,
+                "Unsupported transfer source branch."),
+        };
+    }
+
+    private static PromptContentKind ContentKindFor(DrillId drill)
+    {
+        return drill switch
+        {
+            DrillId.FH1TargetHold or DrillId.AI1PressureRepeat or
+                DrillId.AI2DisruptionRecovery or DrillId.TI1CompositeTask or
+                DrillId.TI2GlobalReviewTask => PromptContentKind.EquivalentPrompt,
+            DrillId.FH2DistractorHold or DrillId.FS1CueSwitch or
+                DrillId.FS2InvalidCueFilter or DrillId.IR1GoNoGoRule or
+                DrillId.IR2ExceptionRule => PromptContentKind.CueSequence,
+            DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform =>
+                PromptContentKind.DelayedReconstructionTask,
+            DrillId.DE1PairDiscrimination or DrillId.DE2SeededAudit =>
+                PromptContentKind.DiscriminationItemSet,
+            DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping =>
+                PromptContentKind.RuleExampleSet,
+            _ => throw new ArgumentOutOfRangeException(nameof(drill), drill, "Unknown drill."),
+        };
+    }
+
+    private static ExecutableTransferSource From(FocusHoldGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(FocusShiftGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(WorkingMemoryGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(InhibitionGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(DiscriminationGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(ConceptOperationsGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(AffectiveInterferenceGeneratedContent content) =>
+        new(content.Result, content.Materials);
+
+    private static ExecutableTransferSource From(TransferIntegrationGeneratedContent content) =>
+        new(content.Result, content.Materials);
 
     private static IReadOnlyList<GeneratedContentMaterial> BuildMaterials(
         TransferContentGenerationRequest request,
@@ -332,6 +436,17 @@ public static class TransferGeneratedContentGenerator
             "retest-requirement",
             BuildRetestRequirementMaterial(transferDefinition.RetestRequirement)));
 
+        if (request.SourceLevel == GlobalLevelId.L4 && request.SourceBranch is BranchCode.FH or BranchCode.FS)
+        {
+            var partner = request.SourceBranch == BranchCode.FH ? BranchCode.WM : BranchCode.IR;
+            ObjectiveComponentTaskCatalog.AddMaterials(
+                materials,
+                [request.SourceBranch, partner],
+                request.ContentRequest.EquivalenceClass,
+                (int)request.SourceLevel,
+                "transfer-integration");
+        }
+
         return Array.AsReadOnly(materials.ToArray());
     }
 
@@ -374,4 +489,8 @@ public static class TransferGeneratedContentGenerator
             "novelty-policy",
             "novelty alone is not transfer; the generated content preserves source demand, changes context, and exposes the source standard.");
     }
+
+    private sealed record ExecutableTransferSource(
+        GeneratedDrillContentResult Result,
+        IReadOnlyList<GeneratedContentMaterial> Materials);
 }

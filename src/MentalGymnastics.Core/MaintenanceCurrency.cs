@@ -75,7 +75,7 @@ public static class MaintenanceCurrencyEvaluator
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var cadence = DetermineCadence(request.Branch, request.OwnedLevel);
+        var cadence = CadenceFor(request.Branch, request.OwnedLevel);
         var relevantChecks = request.Checks
             .Where(check =>
                 check.Branch == request.Branch &&
@@ -98,7 +98,7 @@ public static class MaintenanceCurrencyEvaluator
             consecutiveFailures);
     }
 
-    private static MaintenanceCadence DetermineCadence(BranchCode branch, GlobalLevelId ownedLevel)
+    public static MaintenanceCadence CadenceFor(BranchCode branch, GlobalLevelId ownedLevel)
     {
         if (branch == BranchCode.TI && ownedLevel >= GlobalLevelId.L3)
         {

@@ -21,6 +21,7 @@ internal sealed class LevelCellView : LinearLayout
         Orientation = Orientation.Vertical;
         SetGravity(GravityFlags.Center);
         ContentDescription = BuildContentDescription(status, blocked, dueMaintenance, nextWork);
+        ImportantForAccessibility = ImportantForAccessibility.Yes;
         SetPadding(
             MgSpacing.Dp(context, MgSpacing.Xs),
             MgSpacing.Dp(context, MgSpacing.Xs),
@@ -32,6 +33,7 @@ internal sealed class LevelCellView : LinearLayout
         {
             Text = status.Level.ToString(),
             Gravity = GravityFlags.Center,
+            ImportantForAccessibility = ImportantForAccessibility.No,
         };
         MgTypography.ApplyMicro(label);
 
@@ -40,6 +42,7 @@ internal sealed class LevelCellView : LinearLayout
             Text = MarkerTextFor(status.State),
             Gravity = GravityFlags.Center,
             Background = DotBackground(context, status.State),
+            ImportantForAccessibility = ImportantForAccessibility.No,
         };
         MgTypography.ApplyMicro(marker);
         marker.SetTextColor(TextColorFor(status.State));
@@ -55,6 +58,7 @@ internal sealed class LevelCellView : LinearLayout
         var overlayRow = new LinearLayout(context)
         {
             Orientation = Orientation.Horizontal,
+            ImportantForAccessibility = ImportantForAccessibility.NoHideDescendants,
         };
         overlayRow.SetGravity(GravityFlags.Center);
         overlayRow.SetMinimumHeight(MgSpacing.Dp(context, 8));

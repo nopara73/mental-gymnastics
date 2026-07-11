@@ -109,6 +109,10 @@ public sealed class FocusShiftGeneratedContentTests
             .Select(material => material.Value)
             .ToArray();
 
+        Assert.All(validCueValues, validCue =>
+            Assert.DoesNotContain("valid cue", validCue, StringComparison.OrdinalIgnoreCase));
+        Assert.All(invalidCueValues, invalidCue =>
+            Assert.DoesNotContain("lure", invalidCue, StringComparison.OrdinalIgnoreCase));
         Assert.All(invalidCueValues, invalidCue =>
             Assert.DoesNotContain(invalidCue, validCueValues));
         Assert.Contains(generated.Result.PayloadFacts, fact =>

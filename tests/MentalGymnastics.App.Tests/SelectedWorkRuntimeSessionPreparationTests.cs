@@ -150,6 +150,50 @@ public sealed class SelectedWorkRuntimeSessionPreparationTests
         Assert.False(prepared.GrantsAdvancement);
     }
 
+    [Fact]
+    public void PreparesAffectiveInterferenceWithExecutableSourceTaskAndDisruptionCue()
+    {
+        var selectedWork = SelectedWork(
+            BranchCode.AI,
+            GlobalLevelId.L3,
+            DrillId.AI2DisruptionRecovery,
+            AppTrainingSessionType.Practice,
+            [
+                new LoadVariable("interruption timing", "mid-task after first checkpoint"),
+                new LoadVariable("restart delay", "10 seconds"),
+                new LoadVariable("task complexity", "two-target cue sequence"),
+                new LoadVariable("recovery window", "30 seconds"),
+            ]);
+        var generatedContent = PrepareGeneratedContent(
+            selectedWork,
+            PromptContentKind.EquivalentPrompt,
+            "ai-l3-disruption-recovery-fs-l3",
+            "runtime-prep-ai2");
+
+        var prepared = new SelectedWorkRuntimeSessionPreparer().Prepare(
+            new SelectedWorkRuntimeSessionPreparationRequest(
+                "session-ai-l3-disruption",
+                generatedContent));
+
+        Assert.True(prepared.IsPrepared);
+        Assert.Equal(DrillId.FS2InvalidCueFilter, prepared.GeneratedContent.RuntimePackage!.SourceDrill);
+        Assert.Equal(DrillId.FS2InvalidCueFilter, prepared.SessionDefinition!.SourceDrill);
+        Assert.Contains(prepared.InputMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.TargetSet);
+        Assert.Contains(prepared.InputMaterials, material =>
+            material.Kind is GeneratedContentMaterialKind.ValidCue or GeneratedContentMaterialKind.InvalidCue);
+        Assert.NotNull(prepared.CueSchedule);
+        Assert.Contains(prepared.CueSchedule.Cues, cue =>
+            cue.Id == "controlled-disruption" &&
+            cue.Kind == RuntimeCueKind.Interruption &&
+            cue.ExpectedResponse == "resume");
+        Assert.Collection(
+            prepared.PhasePlan!.Phases,
+            phase => Assert.Equal(RuntimeSessionPhaseKind.InstructionPrep, phase.Kind),
+            phase => Assert.Equal(RuntimeSessionPhaseKind.CueResponse, phase.Kind),
+            phase => Assert.Equal(RuntimeSessionPhaseKind.Review, phase.Kind));
+    }
+
     private static SelectedWorkGeneratedContentPreparationResult PrepareGeneratedContent(
         SelectedTrainingWork selectedWork,
         PromptContentKind contentKind,

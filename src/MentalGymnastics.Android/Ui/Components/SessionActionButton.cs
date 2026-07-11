@@ -1,5 +1,6 @@
 using Android.Content;
 using Android.Graphics;
+using Android.Util;
 using Android.Widget;
 
 namespace MentalGymnastics.Android;
@@ -12,15 +13,18 @@ internal sealed class SessionActionButton : Button
         Text = text;
         Enabled = enabled;
         SetAllCaps(false);
-        SetMinHeight(0);
-        SetMinimumHeight(0);
+        SetMinHeight(MgSpacing.Dp(context, 56));
+        SetMinimumHeight(MgSpacing.Dp(context, 56));
         SetMinWidth(0);
         SetMinimumWidth(0);
         ContentDescription = enabled ? text : $"{text} unavailable";
         SetTextColor(enabled ? Color.White : MgColors.InkMuted);
+        SetTextSize(ComplexUnitType.Sp, 15);
+        SetTypeface(Typeface.Create("sans-serif-medium", TypefaceStyle.Normal), TypefaceStyle.Normal);
         Background = enabled
-            ? MgTheme.Filled(context, MgColors.Training)
+            ? MgTheme.ActionGradient(context)
             : MgTheme.MutedSurface(context);
+        Elevation = enabled ? MgSpacing.Dp(context, 2) : 0;
         SetPadding(
             MgSpacing.Dp(context, MgSpacing.Lg),
             MgSpacing.Dp(context, MgSpacing.Md),

@@ -99,7 +99,9 @@ public sealed record CompletedRuntimeSessionProcessingResult(
     TransferEligibilityResult? TransferEligibilityResult,
     FailureResponse? FailureResponse,
     BranchLevelStatusTransitionResult? StateTransition,
-    LocalProgressSummaryRecord? ProgressSummary)
+    LocalProgressSummaryRecord? ProgressSummary,
+    DailyTrainingWorkflowReadModel? DailyTraining = null,
+    PractitionerProgressionProjectionResult? ProgressionProjection = null)
 {
     public bool GrantsAdvancementInApp => false;
 }
@@ -108,8 +110,11 @@ public sealed class CompletedRuntimeSessionProcessor
 {
     private readonly LocalDatabaseOptions options;
     private readonly LocalPractitionerStateStore practitionerStateStore;
+    private readonly LocalSessionHistoryStore sessionHistoryStore;
+    private readonly LocalFormalTestAttemptStore formalTestAttemptStore;
     private readonly LocalStabilizationPassStore stabilizationPassStore;
-    private readonly LocalMaintenanceCheckStore maintenanceCheckStore;
+    private readonly LocalProgramRepository repository;
+    private readonly LocalDailyTrainingPrescriptionStore dailyTrainingStore;
     private readonly LocalProgrammingEventTransaction transaction;
     private readonly LocalProgressSummaryStore progressSummaryStore;
 
@@ -119,8 +124,11 @@ public sealed class CompletedRuntimeSessionProcessor
 
         options = configuration.LocalDatabaseOptions;
         practitionerStateStore = new LocalPractitionerStateStore(options);
+        sessionHistoryStore = new LocalSessionHistoryStore(options);
+        formalTestAttemptStore = new LocalFormalTestAttemptStore(options);
         stabilizationPassStore = new LocalStabilizationPassStore(options);
-        maintenanceCheckStore = new LocalMaintenanceCheckStore(options);
+        repository = new LocalProgramRepository(options);
+        dailyTrainingStore = new LocalDailyTrainingPrescriptionStore(options);
         transaction = new LocalProgrammingEventTransaction(options);
         progressSummaryStore = new LocalProgressSummaryStore(options);
     }
@@ -137,15 +145,50 @@ public sealed class CompletedRuntimeSessionProcessor
         var coreHandoff = BuildCoreHandoff(request);
         var coreEvaluation = await EvaluateCoreAsync(request, coreHandoff, currentState, cancellationToken)
             .ConfigureAwait(false);
-        var persistenceRecords = BuildPersistenceRecords(request);
+        var persistenceRecords = BuildPersistenceRecords(
+            request,
+            coreEvaluation.StandardEvaluationResult);
         var stateTransition = DetermineStateTransition(
             request.Result,
             currentState,
             coreEvaluation.FormalGateDecision,
             coreEvaluation.StabilizationOwnershipResult,
             coreEvaluation.MaintenanceCurrencyResult,
-            coreEvaluation.DecayResult);
+            coreEvaluation.DecayResult,
+            coreEvaluation.TestReadinessResult);
         var nextState = ApplyTransition(currentState, stateTransition);
+        PractitionerProgressionProjectionResult? progressionProjection = null;
+        if (nextState is not null)
+        {
+            var projectionMaintenance = await LoadProjectionMaintenanceAsync(
+                nextState,
+                request.PersistenceMetadata.Date,
+                coreEvaluation.MaintenanceCurrencyResult,
+                cancellationToken).ConfigureAwait(false);
+            var reviewFacts = await repository.LoadReviewCadenceFactsAsync(
+                request.PersistenceMetadata.Date,
+                cancellationToken).ConfigureAwait(false);
+            progressionProjection = PractitionerProgressionProjector.Project(
+                new PractitionerProgressionProjectionRequest(
+                    nextState,
+                    projectionMaintenance,
+                    PersistedGlobalReviewResultFactory.From(reviewFacts)));
+        }
+        nextState = progressionProjection?.PractitionerState ?? nextState;
+        var dailyTrainingRecord = await dailyTrainingStore.LoadByDateAsync(
+            request.PersistenceMetadata.Date,
+            cancellationToken).ConfigureAwait(false);
+        var updatedDailyTraining = dailyTrainingRecord is not null &&
+            dailyTrainingRecord.Blocks.Any(block => string.Equals(
+                block.SessionId,
+                request.Result.SessionId,
+                StringComparison.Ordinal))
+                ? DailyTrainingWorkflowService.ApplyTerminalResult(
+                    dailyTrainingRecord,
+                    request.Result.SessionId,
+                    request.Result.CompletionStatus,
+                    coreEvaluation.StandardEvaluationResult)
+                : null;
 
         await transaction.CommitAsync(context =>
         {
@@ -181,6 +224,11 @@ public sealed class CompletedRuntimeSessionProcessor
                 context.SaveGeneratedDrillInstance(persistenceRecords.GeneratedDrillInstance);
             }
 
+            if (updatedDailyTraining is not null)
+            {
+                context.SaveDailyTrainingPrescription(updatedDailyTraining);
+            }
+
             return ValueTask.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
 
@@ -208,7 +256,11 @@ public sealed class CompletedRuntimeSessionProcessor
             coreEvaluation.TransferEligibilityResult,
             coreEvaluation.FailureResponse,
             stateTransition,
-            summary);
+            summary,
+            updatedDailyTraining is null
+                ? null
+                : DailyTrainingWorkflowService.From(updatedDailyTraining),
+            progressionProjection);
     }
 
     private static RuntimeCoreEvaluationHandoff? BuildCoreHandoff(
@@ -280,6 +332,15 @@ public sealed class CompletedRuntimeSessionProcessor
             ? FailureResponseRouter.Route(handoff.FailureResponseRequest)
             : null;
 
+        var testReadiness = handoff.ReadinessPracticeSession is { } readinessPractice &&
+            currentState is not null
+                ? await EvaluateTestReadinessAsync(
+                    currentState,
+                    readinessPractice,
+                    request.PersistenceMetadata.Date,
+                    cancellationToken).ConfigureAwait(false)
+                : null;
+
         return new CoreEvaluationResults(
             standardResult,
             gateDecision,
@@ -287,7 +348,37 @@ public sealed class CompletedRuntimeSessionProcessor
             maintenanceCurrency,
             decayResult,
             transferEligibility,
-            failureResponse);
+            failureResponse,
+            testReadiness);
+    }
+
+    private async ValueTask<TestReadinessResult> EvaluateTestReadinessAsync(
+        PractitionerState currentState,
+        TestReadinessPracticeSession currentPractice,
+        TrainingDate asOf,
+        CancellationToken cancellationToken)
+    {
+        var recentSessions = await sessionHistoryStore.ListAsync(cancellationToken).ConfigureAwait(false);
+        var existingPractice = TestReadinessRequestFactory.FromSessionHistory(
+            recentSessions.TakeLast(9));
+        var maintenanceCurrency = new List<MaintenanceCurrencyResult>();
+        foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
+        {
+            var currency = await repository.LoadMaintenanceCurrencyAsync(
+                status.Branch,
+                status.Level,
+                asOf,
+                cancellationToken).ConfigureAwait(false);
+            maintenanceCurrency.Add(currency);
+        }
+
+        return TestReadinessEvaluator.Evaluate(TestReadinessRequestFactory.Create(
+            currentState,
+            currentPractice.Branch,
+            currentPractice.Level,
+            currentPractice.Drill,
+            existingPractice.Append(currentPractice),
+            maintenanceCurrency));
     }
 
     private async ValueTask<StabilizationOwnershipResult> EvaluateStabilizationOwnershipAsync(
@@ -297,8 +388,30 @@ public sealed class CompletedRuntimeSessionProcessor
         var existing = await stabilizationPassStore
             .ListByBranchLevelAsync(currentPass.Branch, currentPass.Level, cancellationToken)
             .ConfigureAwait(false);
+        var formalPasses = await formalTestAttemptStore
+            .ListByBranchLevelAsync(currentPass.Branch, currentPass.Level, cancellationToken)
+            .ConfigureAwait(false);
+        var firstFormalPass = formalPasses
+            .Where(record => record.Attempt.PassState == FormalTestPassState.PassOnce)
+            .OrderBy(record => record.Attempt.Date.Year)
+            .ThenBy(record => record.Attempt.Date.Month)
+            .ThenBy(record => record.Attempt.Date.Day)
+            .Select(record => record.Attempt)
+            .FirstOrDefault();
         var passes = existing
             .Select(record => record.Evidence)
+            .Prepend(firstFormalPass is null
+                ? null
+                : new StabilizationPassEvidence(
+                    firstFormalPass.Branch,
+                    firstFormalPass.Level,
+                    firstFormalPass.Date,
+                    firstFormalPass.Standard,
+                    firstFormalPass.PassState,
+                    new StandardEvaluationResult(Passed: true, Failures: []),
+                    afterAdjacentWorkOrControlledDistractor: false,
+                    firstFormalPass.MainFailureModeAvoided ?? string.Empty))
+            .OfType<StabilizationPassEvidence>()
             .Append(currentPass)
             .ToArray();
 
@@ -310,23 +423,22 @@ public sealed class CompletedRuntimeSessionProcessor
         MaintenanceCheckEvidence currentCheck,
         CancellationToken cancellationToken)
     {
-        var existing = await maintenanceCheckStore
-            .ListMaintenanceByBranchLevelAsync(currentCheck.Branch, currentCheck.OwnedLevel, cancellationToken)
-            .ConfigureAwait(false);
-        var checks = existing
-            .Select(record => record.Evidence)
-            .Append(currentCheck)
-            .ToArray();
+        var existing = await repository.LoadMaintenanceCurrencyRequestAsync(
+            currentCheck.Branch,
+            currentCheck.OwnedLevel,
+            currentCheck.Date,
+            cancellationToken).ConfigureAwait(false);
 
         return MaintenanceCurrencyEvaluator.Evaluate(new MaintenanceCurrencyRequest(
             currentCheck.Branch,
             currentCheck.OwnedLevel,
             currentCheck.Date,
-            checks));
+            existing.Checks.Append(currentCheck)));
     }
 
     private static PersistenceRecords BuildPersistenceRecords(
-        CompletedRuntimeSessionProcessingRequest request)
+        CompletedRuntimeSessionProcessingRequest request,
+        StandardEvaluationResult? standardEvaluationResult)
     {
         if (request.Result.CompletionStatus == RuntimeSessionCompletionStatus.Abandoned)
         {
@@ -335,7 +447,7 @@ public sealed class CompletedRuntimeSessionProcessor
 
         var handoff = RuntimePersistenceHandoffMapper.Map(new RuntimePersistenceHandoffRequest(
             request.Result,
-            request.PersistenceMetadata,
+            PersistenceMetadataFor(request, standardEvaluationResult),
             request.FormalAttemptPersistence ?? BuildFormalAttemptPersistenceInput(request.FormalGate),
             request.StabilizationPersistence ?? BuildStabilizationPersistenceInput(request.Stabilization),
             request.MaintenancePersistence ?? BuildMaintenancePersistenceInput(request.Maintenance)));
@@ -350,6 +462,29 @@ public sealed class CompletedRuntimeSessionProcessor
             handoff.GeneratedDrillInstance);
     }
 
+    private static RuntimePersistenceHandoffMetadata PersistenceMetadataFor(
+        CompletedRuntimeSessionProcessingRequest request,
+        StandardEvaluationResult? standardEvaluationResult)
+    {
+        if (standardEvaluationResult is null)
+        {
+            return request.PersistenceMetadata;
+        }
+
+        var metadata = request.PersistenceMetadata;
+        return new RuntimePersistenceHandoffMetadata(
+            metadata.Date,
+            metadata.Intensity,
+            cleanPerformance:
+                request.Result.CompletionStatus == RuntimeSessionCompletionStatus.Completed &&
+                standardEvaluationResult.Passed,
+            metadata.Notes,
+            metadata.TransferTask,
+            metadata.RecoveryMarked,
+            metadata.DeloadMarked,
+            metadata.GeneratedInstanceDate);
+    }
+
     private static RuntimeFormalAttemptPersistenceInput? BuildFormalAttemptPersistenceInput(
         RuntimeFormalGateHandoffInput? formalGate)
     {
@@ -359,7 +494,8 @@ public sealed class CompletedRuntimeSessionProcessor
                 formalGate.ResultEvidence,
                 formalGate.PassState,
                 formalGate.FailureType,
-                task: formalGate.Task);
+                task: formalGate.Task,
+                mainFailureModeAvoided: formalGate.MainFailureModeAvoided);
     }
 
     private static RuntimeStabilizationPersistenceInput? BuildStabilizationPersistenceInput(
@@ -458,7 +594,8 @@ public sealed class CompletedRuntimeSessionProcessor
         FormalGateDecision? gateDecision,
         StabilizationOwnershipResult? ownership,
         MaintenanceCurrencyResult? maintenanceCurrency,
-        DecayRestorationResult? decayResult)
+        DecayRestorationResult? decayResult,
+        TestReadinessResult? testReadiness)
     {
         if (currentState is null)
         {
@@ -507,7 +644,47 @@ public sealed class CompletedRuntimeSessionProcessor
             return ValidTransitionOrNull(maintenanceStatus, BranchLevelTransition.PassMaintenance);
         }
 
+        if (testReadiness?.MayTest == true &&
+            TryCurrentStatus(currentState, result.Branch, result.Level, out var trainingStatus))
+        {
+            return ValidTransitionOrNull(trainingStatus, BranchLevelTransition.MarkTestReady);
+        }
+
         return null;
+    }
+
+    private static bool IsMaintenanceRelevant(BranchLevelStatus status)
+    {
+        return status.State is
+            BranchLevelState.Owned or
+            BranchLevelState.Maintenance or
+            BranchLevelState.Decayed;
+    }
+
+    private async ValueTask<IReadOnlyList<MaintenanceCurrencyResult>> LoadProjectionMaintenanceAsync(
+        PractitionerState state,
+        TrainingDate asOf,
+        MaintenanceCurrencyResult? justEvaluated,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<MaintenanceCurrencyResult>();
+        foreach (var status in state.BranchLevels
+            .Where(IsMaintenanceRelevant)
+            .DistinctBy(item => (item.Branch, item.Level)))
+        {
+            var result = justEvaluated is not null &&
+                justEvaluated.Branch == status.Branch &&
+                justEvaluated.OwnedLevel == status.Level
+                    ? justEvaluated
+                    : await repository.LoadMaintenanceCurrencyAsync(
+                        status.Branch,
+                        status.Level,
+                        asOf,
+                        cancellationToken).ConfigureAwait(false);
+            results.Add(result);
+        }
+
+        return results;
     }
 
     private static BranchLevelStatusTransitionResult? ValidTransitionOrNull(
@@ -628,9 +805,10 @@ public sealed class CompletedRuntimeSessionProcessor
         MaintenanceCurrencyResult? MaintenanceCurrencyResult,
         DecayRestorationResult? DecayResult,
         TransferEligibilityResult? TransferEligibilityResult,
-        FailureResponse? FailureResponse)
+        FailureResponse? FailureResponse,
+        TestReadinessResult? TestReadinessResult)
     {
-        public static CoreEvaluationResults Empty { get; } = new(null, null, null, null, null, null, null);
+        public static CoreEvaluationResults Empty { get; } = new(null, null, null, null, null, null, null, null);
     }
 
     private sealed record PersistenceRecords(

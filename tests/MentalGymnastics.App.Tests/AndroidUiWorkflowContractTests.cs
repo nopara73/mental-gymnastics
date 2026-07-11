@@ -304,6 +304,8 @@ public sealed class AndroidUiWorkflowContractTests : IDisposable
             prepared.RuntimeSession!,
             started);
 
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         var abandoned = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(
                 RuntimeInputCommandKind.Abandon,

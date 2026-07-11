@@ -5,7 +5,7 @@ namespace MentalGymnastics.Persistence;
 
 public static class LocalDatabaseSchema
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     internal const string MetadataKind = "MentalGymnastics.LocalDatabase";
 }
@@ -283,10 +283,8 @@ public sealed class LocalDatabaseInitializer
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -336,14 +334,14 @@ public sealed class LocalDatabaseInitializer
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ILocalDatabaseMigration> DefaultMigrations()
     {
-        return [new LocalDatabaseMigration0To1()];
+        return [new LocalDatabaseMigration0To1(), new LocalDatabaseMigration1To2()];
     }
 
     private sealed class LocalDatabaseMigration0To1 : ILocalDatabaseMigration
@@ -351,6 +349,21 @@ public sealed class LocalDatabaseInitializer
         public int FromVersion => 0;
 
         public int ToVersion => 1;
+
+        public ValueTask ApplyAsync(
+            LocalDatabaseMigrationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class LocalDatabaseMigration1To2 : ILocalDatabaseMigration
+    {
+        public int FromVersion => 1;
+
+        public int ToVersion => 2;
 
         public ValueTask ApplyAsync(
             LocalDatabaseMigrationContext context,

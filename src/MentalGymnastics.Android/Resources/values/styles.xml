@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowActionModeOverlay">true</item>
+    <item name="android:windowBackground">@color/launch_surface</item>
+    <item name="android:navigationBarColor">@color/launch_surface</item>
+    <item name="android:statusBarColor">@color/launch_status</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:colorAccent">@color/brand_teal</item>
+  </style>
+
+  <style name="AppTheme.Starting" parent="AppTheme">
+    <item name="android:windowBackground">@drawable/launch_screen</item>
+  </style>
+</resources>

@@ -41,6 +41,9 @@ public sealed class FocusHoldGeneratedContentTests
         var targetStatement = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement);
         Assert.Contains("hold", targetStatement.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.False(
+            targetStatement.Value.EndsWith(".", StringComparison.Ordinal),
+            "Target material should name the target without sentence punctuation.");
 
         var evidenceShape = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.DriftMarkingEvidenceShape);
@@ -86,6 +89,9 @@ public sealed class FocusHoldGeneratedContentTests
 
         var targetStatement = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement);
+        Assert.False(
+            targetStatement.Value.EndsWith(".", StringComparison.Ordinal),
+            "Target material should name the target without sentence punctuation.");
         var distractors = generated.Materials
             .Where(material => material.Kind == GeneratedContentMaterialKind.DistractorPrompt)
             .ToArray();
@@ -132,6 +138,37 @@ public sealed class FocusHoldGeneratedContentTests
     }
 
     [Fact]
+    public void FocusHoldTargetsUseSimpleVisualVocabulary()
+    {
+        var allowedTargets = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "red dot",
+            "blue dot",
+            "green dot",
+            "black line",
+            "blue square",
+            "red circle",
+        };
+        string[] forbiddenTerms = ["anchor", "lantern", "quiet", "steady", "clear"];
+        var usedContentIds = new List<string>();
+
+        for (var index = 0; index < 12; index++)
+        {
+            var generated = FocusHoldGeneratedContentGenerator.Generate(
+                CreateTargetHoldRequest(previouslyUsedContentIds: usedContentIds),
+                new GeneratedContentSeed("fh-simple-targets"));
+            usedContentIds.Add(generated.Result.ContentId);
+
+            var target = DisplayTargetValue(Assert.Single(generated.Materials, material =>
+                material.Kind == GeneratedContentMaterialKind.TargetStatement).Value);
+
+            Assert.Contains(target, allowedTargets);
+            Assert.All(forbiddenTerms, term =>
+                Assert.DoesNotContain(term, target, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
     public void FocusHoldGenerationRejectsNonFocusHoldDrills()
     {
         var request = new GeneratedDrillContentRequest(
@@ -156,7 +193,8 @@ public sealed class FocusHoldGeneratedContentTests
 
     private const string NoDistractorResponseConstraint = "Do not respond to distractor unless drill says so.";
 
-    private static GeneratedDrillContentRequest CreateTargetHoldRequest()
+    private static GeneratedDrillContentRequest CreateTargetHoldRequest(
+        IEnumerable<string>? previouslyUsedContentIds = null)
     {
         return new GeneratedDrillContentRequest(
             BranchCode.FH,
@@ -174,7 +212,8 @@ public sealed class FocusHoldGeneratedContentTests
             [
                 new CriticalConstraint(TargetAndDriftConstraint),
                 new CriticalConstraint(NoSubstitutionConstraint),
-            ]);
+            ],
+            previouslyUsedContentIds);
     }
 
     private static GeneratedDrillContentRequest CreateDistractorHoldRequest(
@@ -219,5 +258,19 @@ public sealed class FocusHoldGeneratedContentTests
         return materials
             .Select(material => (material.Kind, material.Name, material.Value))
             .ToArray();
+    }
+
+    private static string DisplayTargetValue(string value)
+    {
+        return StripPrefix(value, "Hold target phrase:")
+            ?? StripPrefix(value, "Hold target word:")
+            ?? value;
+    }
+
+    private static string? StripPrefix(string value, string prefix)
+    {
+        return value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? value[prefix.Length..].Trim()
+            : null;
     }
 }

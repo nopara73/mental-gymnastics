@@ -66,6 +66,7 @@ public sealed record CurrentTrainingStateNextWork(
     bool IsAdvancementWork);
 
 public sealed record CurrentGlobalReviewReadModel(
+    GlobalReviewCadenceResult Cadence,
     GlobalReviewInput Input,
     GlobalReviewEvaluationResult Evaluation);
 
@@ -82,7 +83,10 @@ public sealed class CurrentTrainingStateReadModel
         WeeklyPlan weeklyPlan,
         IEnumerable<CurrentTrainingStateBlocker> blockedAdvancement,
         IEnumerable<CurrentTrainingStateNextWork> availableNextWork,
-        CurrentGlobalReviewReadModel globalReview)
+        CurrentGlobalReviewReadModel globalReview,
+        RecoveryDecisionResult? recoveryDecision,
+        DeloadDecisionResult deloadDecision,
+        GlobalReviewResult? lastCompletedGlobalReview)
     {
         ArgumentNullException.ThrowIfNull(currentPractitionerState);
         ArgumentNullException.ThrowIfNull(branchLevelStates);
@@ -95,6 +99,7 @@ public sealed class CurrentTrainingStateReadModel
         ArgumentNullException.ThrowIfNull(blockedAdvancement);
         ArgumentNullException.ThrowIfNull(availableNextWork);
         ArgumentNullException.ThrowIfNull(globalReview);
+        ArgumentNullException.ThrowIfNull(deloadDecision);
 
         CurrentPractitionerState = currentPractitionerState;
         BranchLevelStates = branchLevelStates.ToArray();
@@ -107,6 +112,9 @@ public sealed class CurrentTrainingStateReadModel
         BlockedAdvancement = blockedAdvancement.ToArray();
         AvailableNextWork = availableNextWork.ToArray();
         GlobalReview = globalReview;
+        RecoveryDecision = recoveryDecision;
+        DeloadDecision = deloadDecision;
+        LastCompletedGlobalReview = lastCompletedGlobalReview;
     }
 
     public PractitionerState CurrentPractitionerState { get; }
@@ -130,6 +138,15 @@ public sealed class CurrentTrainingStateReadModel
     public IReadOnlyList<CurrentTrainingStateNextWork> AvailableNextWork { get; }
 
     public CurrentGlobalReviewReadModel GlobalReview { get; }
+
+    public RecoveryDecisionResult? RecoveryDecision { get; }
+
+    public DeloadDecisionResult DeloadDecision { get; }
+
+    public GlobalReviewResult? LastCompletedGlobalReview { get; }
+
+    public bool RecoveryRequired =>
+        RecoveryDecision?.ShouldRecover == true || DeloadDecision.ShouldDeload;
 }
 
 public sealed class CurrentTrainingStateLoader
@@ -148,7 +165,6 @@ public sealed class CurrentTrainingStateLoader
 
     private readonly MentalGymnasticsAppStartup startup;
     private readonly LocalProgramRepository repository;
-    private readonly LocalMaintenanceCheckStore maintenanceCheckStore;
 
     public CurrentTrainingStateLoader(AppStartupConfiguration configuration)
     {
@@ -156,7 +172,6 @@ public sealed class CurrentTrainingStateLoader
 
         startup = new MentalGymnasticsAppStartup(configuration);
         repository = new LocalProgramRepository(configuration.LocalDatabaseOptions);
-        maintenanceCheckStore = new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions);
     }
 
     public async ValueTask<CurrentTrainingStateReadModel> LoadAsync(
@@ -185,22 +200,59 @@ public sealed class CurrentTrainingStateLoader
         var progressRecords = await repository.LoadProgressRecordsAsync(
             new LocalProgressRecordsQuery(query.AsOf, query.ProgressRecordLimit),
             cancellationToken).ConfigureAwait(false);
+        var reviewCadenceFacts = await repository.LoadReviewCadenceFactsAsync(
+            query.AsOf,
+            cancellationToken).ConfigureAwait(false);
 
+        var lastCompletedGlobalReview = PersistedGlobalReviewResultFactory.From(reviewCadenceFacts);
         var categoryClassification = PractitionerCategoryClassifier.Classify(
             new PractitionerCategoryClassificationRequest(
                 currentState,
-                maintenanceCurrency));
+                maintenanceCurrency,
+                lastCompletedGlobalReview));
+        var pressure = PersistedProgrammingPressureEvaluator.Evaluate(
+            query.AsOf,
+            currentState,
+            recentSessions,
+            progressRecords);
+        var reviewCadence = GlobalReviewCadenceEvaluator.Evaluate(new GlobalReviewCadenceRequest(
+            query.AsOf,
+            categoryClassification.Category,
+            reviewCadenceFacts.ProgramStartedOn,
+            reviewCadenceFacts.LastCompletedReviewOn));
+        var provisionalWeeklyPlan = WeeklyProgrammingPlanner.Generate(
+            BuildWeeklyProgrammingRequest(
+                currentState,
+                maintenanceCurrency,
+                categoryClassification,
+                progressRecords,
+                globalReviewDecisions: [],
+                recoveryRequired: pressure.RecoveryRequired));
+        var provisionalGlobalReview = BuildGlobalReviewReadModel(
+            query.AsOf,
+            currentState,
+            maintenanceCurrency,
+            recentSessions,
+            evidenceSummaries,
+            progressRecords,
+            categoryClassification,
+            provisionalWeeklyPlan,
+            reviewCadence,
+            pauseTestsForDeload: pressure.DeloadDecision.ShouldDeload);
         var weeklyPlan = WeeklyProgrammingPlanner.Generate(
             BuildWeeklyProgrammingRequest(
                 currentState,
                 maintenanceCurrency,
                 categoryClassification,
-                progressRecords));
+                progressRecords,
+                reviewCadence.IsDue ? provisionalGlobalReview.Evaluation.Decisions : [],
+                pressure.RecoveryRequired));
         var blockedAdvancement = BuildBlockedAdvancement(
             currentState,
             maintenanceCurrency,
             categoryClassification,
-            weeklyPlan);
+            weeklyPlan,
+            lastCompletedGlobalReview);
         var availableNextWork = weeklyPlan.Days
             .Where(day => day.Session is not WeeklySessionKind.Off and not WeeklySessionKind.OffOrRecovery)
             .Select(day => new CurrentTrainingStateNextWork(
@@ -217,7 +269,9 @@ public sealed class CurrentTrainingStateLoader
             evidenceSummaries,
             progressRecords,
             categoryClassification,
-            weeklyPlan);
+            weeklyPlan,
+            reviewCadence,
+            pauseTestsForDeload: pressure.DeloadDecision.ShouldDeload);
 
         return new CurrentTrainingStateReadModel(
             currentState,
@@ -230,7 +284,10 @@ public sealed class CurrentTrainingStateLoader
             weeklyPlan,
             blockedAdvancement,
             availableNextWork,
-            globalReview);
+            globalReview,
+            pressure.RecoveryDecision,
+            pressure.DeloadDecision,
+            lastCompletedGlobalReview);
     }
 
     private async ValueTask<IReadOnlyList<MaintenanceCurrencyResult>> LoadMaintenanceCurrencyAsync(
@@ -241,13 +298,12 @@ public sealed class CurrentTrainingStateLoader
         var results = new List<MaintenanceCurrencyResult>();
         foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
         {
-            var request = await maintenanceCheckStore.LoadMaintenanceCurrencyRequestAsync(
+            var currency = await repository.LoadMaintenanceCurrencyAsync(
                 status.Branch,
                 status.Level,
                 asOf,
                 cancellationToken).ConfigureAwait(false);
-
-            results.Add(MaintenanceCurrencyEvaluator.Evaluate(request));
+            results.Add(currency);
         }
 
         return results
@@ -260,7 +316,9 @@ public sealed class CurrentTrainingStateLoader
         PractitionerState currentState,
         IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
         PractitionerCategoryClassificationResult categoryClassification,
-        LocalProgressRecords progressRecords)
+        LocalProgressRecords progressRecords,
+        IReadOnlyList<GlobalReviewDecision> globalReviewDecisions,
+        bool recoveryRequired)
     {
         var weakestFoundationalBranch = SelectWeakestFoundationalBranch(currentState);
         var selectedFoundationalLoadBranch = SelectSelectedFoundationalLoadBranch(
@@ -271,8 +329,8 @@ public sealed class CurrentTrainingStateLoader
         return new WeeklyProgrammingRequest(
             categoryClassification,
             maintenanceCurrency,
-            globalReviewDecisions: [],
-            recoveryRequired: false,
+            globalReviewDecisions,
+            recoveryRequired,
             selectedFoundationalLoadBranch,
             weakestFoundationalBranch,
             selectedAdvancedBranch,
@@ -287,7 +345,8 @@ public sealed class CurrentTrainingStateLoader
         PractitionerState currentState,
         IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
         PractitionerCategoryClassificationResult categoryClassification,
-        WeeklyPlan weeklyPlan)
+        WeeklyPlan weeklyPlan,
+        GlobalReviewResult? lastCompletedGlobalReview)
     {
         return
         [
@@ -316,7 +375,8 @@ public sealed class CurrentTrainingStateLoader
                         branch.Code,
                         SelectTargetLevelForBalance(currentState, branch.Code),
                         currentState,
-                        maintenanceCurrency)))
+                        maintenanceCurrency,
+                        lastCompletedGlobalReview)))
                 .SelectMany(result => result.Issues)
                 .Select(issue => new CurrentTrainingStateBlocker(
                     CurrentTrainingStateBlockerSource.GlobalBalance,
@@ -335,7 +395,9 @@ public sealed class CurrentTrainingStateLoader
         IReadOnlyList<LocalEvidenceArtifactRecord> evidenceSummaries,
         LocalProgressRecords progressRecords,
         PractitionerCategoryClassificationResult categoryClassification,
-        WeeklyPlan weeklyPlan)
+        WeeklyPlan weeklyPlan,
+        GlobalReviewCadenceResult cadence,
+        bool pauseTestsForDeload)
     {
         var input = new GlobalReviewInput(
             asOf,
@@ -349,12 +411,11 @@ public sealed class CurrentTrainingStateLoader
             BuildGlobalReviewVolumeIntensityHistory(recentSessions),
             BuildGlobalReviewRecoveryHistory(recentSessions),
             BuildGlobalReviewAdvancements(progressRecords),
-            pauseTestsForDeload: weeklyPlan.Constraints.Any(
-                constraint => constraint.Kind == WeeklyProgrammingConstraintKind.AdvancementTestingSuspended),
+            pauseTestsForDeload,
             openAdvancedBranch: false,
             attemptTransferIntegrationTransfer: false);
 
-        return new CurrentGlobalReviewReadModel(input, GlobalReviewEvaluator.Evaluate(input));
+        return new CurrentGlobalReviewReadModel(cadence, input, GlobalReviewEvaluator.Evaluate(input));
     }
 
     private static IReadOnlyList<GlobalReviewOwnedLevel> BuildGlobalReviewOwnedLevels(

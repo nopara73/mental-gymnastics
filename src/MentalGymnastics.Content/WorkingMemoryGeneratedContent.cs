@@ -239,6 +239,15 @@ public static class WorkingMemoryGeneratedContentGenerator
             GeneratedContentMaterialKind.Interference,
             "interference",
             transformPlan.Interference));
+        var taskLength = request.LoadVariables.FirstOrDefault(loadVariable =>
+            string.Equals(loadVariable.Name, "task length", StringComparison.OrdinalIgnoreCase));
+        if (taskLength is not null)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.TaskLength,
+                "task-length",
+                taskLength.Value));
+        }
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.TransformRule,
             "transform-rule",
@@ -272,6 +281,16 @@ public static class WorkingMemoryGeneratedContentGenerator
             GeneratedContentMaterialKind.FinalExpectedOutput,
             "final-expected-output",
             transformPlan.FinalExpectedOutput));
+
+        if (request.Level == GlobalLevelId.L5)
+        {
+            ObjectiveComponentTaskCatalog.AddMaterials(
+                materials,
+                [BranchCode.WM, BranchCode.TI],
+                request.EquivalenceClass,
+                (int)request.Level,
+                "integrated-memory");
+        }
 
         return Array.AsReadOnly(materials.ToArray());
     }

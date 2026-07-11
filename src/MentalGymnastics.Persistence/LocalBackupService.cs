@@ -89,10 +89,8 @@ public sealed class LocalBackupService
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null)
         {
@@ -125,8 +123,8 @@ public sealed class LocalBackupService
                 bufferSize: 4096,
                 useAsync: true))
             {
-                await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
-                    .ConfigureAwait(false);
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 

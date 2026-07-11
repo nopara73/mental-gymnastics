@@ -75,7 +75,7 @@ internal static class InitialPractitionerStateFactory
             status => status.Branch == BranchCode.FH && status.Level == GlobalLevelId.L1);
         if (universalStartIndex < 0)
         {
-            throw new InvalidOperationException("The core program catalog does not define the FH L1 universal start.");
+            throw new InvalidOperationException("The core program catalog does not define the required universal start work.");
         }
 
         var opened = BranchLevelStateMachine.TryApply(

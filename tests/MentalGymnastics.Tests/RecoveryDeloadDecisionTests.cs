@@ -131,6 +131,28 @@ public sealed class RecoveryDeloadDecisionTests
         Assert.Null(result.Prescription);
     }
 
+    [Fact]
+    public void ActiveDeloadRemainsRequiredForSevenDaysThenEndsWithoutNewEvidence()
+    {
+        var started = TrainingDate.From(2026, 7, 6);
+        var active = DeloadDecisionEvaluator.Evaluate(new DeloadDecisionRequest(
+            started,
+            branchEvidence: [],
+            subjectiveNotes: [],
+            activeDeloadStartedOn: started,
+            asOf: TrainingDate.From(2026, 7, 12)));
+        var complete = DeloadDecisionEvaluator.Evaluate(new DeloadDecisionRequest(
+            started,
+            branchEvidence: [],
+            subjectiveNotes: [],
+            activeDeloadStartedOn: started,
+            asOf: TrainingDate.From(2026, 7, 13)));
+
+        Assert.True(active.ShouldDeload);
+        Assert.Contains(DeloadTriggerKind.ActiveDeloadWeekIncomplete, active.Triggers);
+        Assert.False(complete.ShouldDeload);
+    }
+
     private static RecoveryDecisionRequest Request(
         LoadVariableKind loadVariableToReduce = LoadVariableKind.ItemCount,
         string coreConstraint = "no invented items",

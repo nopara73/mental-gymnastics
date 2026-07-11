@@ -9,10 +9,13 @@ namespace MentalGymnastics.Android;
 
 internal sealed class StateMarkerView : TextView
 {
-    public StateMarkerView(Context context, BranchLevelState state)
+    public StateMarkerView(
+        Context context,
+        BranchLevelState state,
+        bool maintenanceDue = false)
         : base(context)
     {
-        Text = LabelTextFor(state);
+        Text = maintenanceDue ? "Due" : LabelTextFor(state);
         ContentDescription = $"State: {Text}";
         Gravity = GravityFlags.Center;
         SetMinWidth(MgSpacing.Dp(context, 72));
@@ -22,8 +25,10 @@ internal sealed class StateMarkerView : TextView
             MgSpacing.Dp(context, MgSpacing.Sm),
             MgSpacing.Dp(context, MgSpacing.Xs));
         MgTypography.ApplyMicro(this);
-        SetTextColor(TextColorFor(state));
-        Background = BackgroundFor(context, state);
+        SetTextColor(maintenanceDue ? MgColors.Ink : TextColorFor(state));
+        Background = maintenanceDue
+            ? MgTheme.Outline(context, MgColors.Maintenance)
+            : BackgroundFor(context, state);
     }
 
     public static string LabelTextFor(BranchLevelState state)

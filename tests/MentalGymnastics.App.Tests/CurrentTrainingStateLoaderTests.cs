@@ -132,6 +132,84 @@ public sealed class CurrentTrainingStateLoaderTests : IDisposable
                 decision.Branch == BranchCode.WM);
     }
 
+    [Fact]
+    public async Task DerivesRecoveryFromTwoConsecutiveOverloadSets()
+    {
+        var configuration = Configuration();
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(State(
+        [
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training),
+        ]));
+        var sessions = new LocalSessionHistoryStore(configuration.LocalDatabaseOptions);
+        await sessions.SaveAsync(Session(
+            "overload-set-1",
+            TrainingDate.From(2026, 7, 4),
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            "artifact-overload-1",
+            LocalCompletedSessionType.Load,
+            cleanPerformance: false));
+        await sessions.SaveAsync(Session(
+            "overload-set-2",
+            TrainingDate.From(2026, 7, 4),
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            "artifact-overload-2",
+            LocalCompletedSessionType.Load,
+            cleanPerformance: false));
+
+        var readModel = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.True(readModel.RecoveryRequired);
+        Assert.True(readModel.RecoveryDecision!.ShouldRecover);
+        Assert.Contains(
+            RecoveryTriggerKind.TwoConsecutiveOverloadSetFailures,
+            readModel.RecoveryDecision.Triggers);
+        Assert.Contains(
+            readModel.WeeklyPlan.Constraints,
+            constraint => constraint.Kind == WeeklyProgrammingConstraintKind.RecoveryRequired);
+    }
+
+    [Fact]
+    public async Task DerivesDeloadWhenTwoBranchesShowOverloadInTheWeek()
+    {
+        var configuration = Configuration();
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(State(
+        [
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training),
+            Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training),
+        ]));
+        var sessions = new LocalSessionHistoryStore(configuration.LocalDatabaseOptions);
+        await sessions.SaveAsync(Session(
+            "overload-fh",
+            TrainingDate.From(2026, 7, 3),
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            "artifact-overload-fh",
+            LocalCompletedSessionType.Load,
+            cleanPerformance: false));
+        await sessions.SaveAsync(Session(
+            "overload-fs",
+            TrainingDate.From(2026, 7, 4),
+            BranchCode.FS,
+            GlobalLevelId.L1,
+            "artifact-overload-fs",
+            LocalCompletedSessionType.Load,
+            cleanPerformance: false,
+            drill: DrillId.FS1CueSwitch));
+
+        var readModel = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(TrainingDate.From(2026, 7, 5)));
+
+        Assert.True(readModel.DeloadDecision.ShouldDeload);
+        Assert.True(readModel.RecoveryRequired);
+        Assert.Contains(
+            DeloadTriggerKind.TwoOrMoreBranchesShowOverloadOrDecayInSameWeek,
+            readModel.DeloadDecision.Triggers);
+        Assert.False(readModel.WeeklyPlan.AdvancementWorkAllowed);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(tempDirectory))
@@ -164,18 +242,21 @@ public sealed class CurrentTrainingStateLoaderTests : IDisposable
         TrainingDate date,
         BranchCode branch,
         GlobalLevelId level,
-        string evidenceArtifactId)
+        string evidenceArtifactId,
+        LocalCompletedSessionType sessionType = LocalCompletedSessionType.Practice,
+        bool cleanPerformance = true,
+        DrillId drill = DrillId.FH1TargetHold)
     {
         return new LocalSessionHistoryRecord(
             sessionId,
             date,
-            LocalCompletedSessionType.Practice,
+            sessionType,
             [new LocalSessionBranchLevel(branch, level)],
-            DrillId.FH1TargetHold,
+            drill,
             null,
             LocalSessionIntensity.Moderate,
             [new LoadVariable("duration", "3 minutes")],
-            cleanPerformance: true,
+            cleanPerformance,
             notes: $"{sessionId} observable set record.",
             recoveryMarked: false,
             deloadMarked: false,

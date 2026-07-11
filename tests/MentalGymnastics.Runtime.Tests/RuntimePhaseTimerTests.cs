@@ -16,6 +16,19 @@ public sealed class RuntimePhaseTimerTests
     }
 
     [Fact]
+    public void UtcTimelineClockKeepsRuntimeInstantsComparableAcrossClockInstances()
+    {
+        var firstProvider = new ManualTimerTimeProvider(DateTimeOffset.UnixEpoch.AddDays(365));
+        var firstClock = TimeProviderRuntimeClock.CreateUtcTimeline(firstProvider);
+        firstProvider.AdvanceBy(TimeSpan.FromSeconds(7));
+
+        var restoredProvider = new ManualTimerTimeProvider(firstProvider.GetUtcNow());
+        var restoredClock = TimeProviderRuntimeClock.CreateUtcTimeline(restoredProvider);
+
+        Assert.Equal(firstClock.Now, restoredClock.Now);
+    }
+
+    [Fact]
     public void PhaseTimerEmitsTimedPhaseSnapshotsFromInjectedProviderWithoutSleeping()
     {
         var timeProvider = new ManualTimerTimeProvider();
@@ -127,6 +140,12 @@ public sealed class RuntimePhaseTimerTests
     private sealed class ManualTimerTimeProvider : TimeProvider
     {
         private long _timestampTicks;
+        private DateTimeOffset _utcNow;
+
+        public ManualTimerTimeProvider(DateTimeOffset? utcNow = null)
+        {
+            _utcNow = utcNow ?? DateTimeOffset.UnixEpoch;
+        }
 
         public ManualTimer? LastTimer { get; private set; }
 
@@ -137,6 +156,11 @@ public sealed class RuntimePhaseTimerTests
             return _timestampTicks;
         }
 
+        public override DateTimeOffset GetUtcNow()
+        {
+            return _utcNow;
+        }
+
         public void AdvanceBy(TimeSpan duration)
         {
             if (duration < TimeSpan.Zero)
@@ -145,6 +169,7 @@ public sealed class RuntimePhaseTimerTests
             }
 
             _timestampTicks += duration.Ticks;
+            _utcNow += duration;
         }
 
         public override ITimer CreateTimer(

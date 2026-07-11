@@ -8,6 +8,7 @@ namespace MentalGymnastics.Android;
 
 internal sealed class TimerRingView : View
 {
+    private readonly Paint fillPaint;
     private readonly Paint trackPaint;
     private readonly Paint progressPaint;
     private readonly Paint textPaint;
@@ -18,10 +19,16 @@ internal sealed class TimerRingView : View
     public TimerRingView(Context context)
         : base(context)
     {
+        fillPaint = new Paint(PaintFlags.AntiAlias)
+        {
+            Color = MgColors.Surface,
+        };
+        fillPaint.SetStyle(Paint.Style.Fill);
+
         trackPaint = new Paint(PaintFlags.AntiAlias)
         {
-            Color = MgColors.Hairline,
-            StrokeWidth = MgSpacing.Dp(context, 8),
+            Color = MgColors.HairlineSoft,
+            StrokeWidth = MgSpacing.Dp(context, 7),
         };
         trackPaint.SetStyle(Paint.Style.Stroke);
         trackPaint.StrokeCap = Paint.Cap.Round;
@@ -29,7 +36,7 @@ internal sealed class TimerRingView : View
         progressPaint = new Paint(PaintFlags.AntiAlias)
         {
             Color = MgColors.Training,
-            StrokeWidth = MgSpacing.Dp(context, 8),
+            StrokeWidth = MgSpacing.Dp(context, 7),
         };
         progressPaint.SetStyle(Paint.Style.Stroke);
         progressPaint.StrokeCap = Paint.Cap.Round;
@@ -44,6 +51,7 @@ internal sealed class TimerRingView : View
 
         SetMinimumWidth(MgSpacing.Dp(context, 104));
         SetMinimumHeight(MgSpacing.Dp(context, 104));
+        ImportantForAccessibility = ImportantForAccessibility.Yes;
     }
 
     public void Update(
@@ -74,6 +82,7 @@ internal sealed class TimerRingView : View
         var top = (Height - size) / 2f;
         using var bounds = new RectF(left, top, left + size, top + size);
 
+        canvas.DrawCircle(Width / 2f, Height / 2f, (size - stroke) / 2f, fillPaint);
         canvas.DrawOval(bounds, trackPaint);
         var progress = timer.Progress ?? 0d;
         canvas.DrawArc(bounds, -90, (float)(360d * Math.Clamp(progress, 0d, 1d)), false, progressPaint);

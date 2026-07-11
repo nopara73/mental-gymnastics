@@ -51,10 +51,8 @@ public sealed class LocalProgrammingEventTransaction
             bufferSize: 4096,
             useAsync: true);
 
-        var document = await JsonSerializer.DeserializeAsync<JsonObject>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
+        var document = await LocalJsonDocumentIO.ReadObjectAsync(stream, cancellationToken)
+            .ConfigureAwait(false);
 
         if (document is null ||
             !document.TryGetPropertyValue("Kind", out var kindNode) ||
@@ -98,7 +96,7 @@ public sealed class LocalProgrammingEventTransaction
             bufferSize: 4096,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken)
+        await LocalJsonDocumentIO.WriteObjectAsync(stream, document, JsonOptions, cancellationToken)
             .ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -115,6 +113,7 @@ public sealed class LocalProgrammingEventTransactionContext
     private const string MaintenanceChecksPropertyName = "MaintenanceChecks";
     private const string RestorationChecksPropertyName = "RestorationChecks";
     private const string GeneratedDrillInstancesPropertyName = "GeneratedDrillInstances";
+    private const string ActiveRuntimeSessionSnapshotsPropertyName = "ActiveRuntimeSessionSnapshots";
     private const string ArtifactIdPropertyName = "ArtifactId";
     private const string EventPropertyName = "Event";
     private const string EventIdPropertyName = "EventId";
@@ -153,6 +152,7 @@ public sealed class LocalProgrammingEventTransactionContext
     private const string ResultValuePropertyName = "ResultValue";
     private const string FailureTypePropertyName = "FailureType";
     private const string PassStatePropertyName = "PassState";
+    private const string MainFailureModeAvoidedPropertyName = "MainFailureModeAvoided";
     private const string SessionTypePropertyName = "SessionType";
     private const string SessionBranchLevelsPropertyName = "BranchLevels";
     private const string IntensityPropertyName = "Intensity";
@@ -173,6 +173,7 @@ public sealed class LocalProgrammingEventTransactionContext
             [LocalCompletedSessionType.Transfer] = "Transfer",
             [LocalCompletedSessionType.Recovery] = "Recovery",
             [LocalCompletedSessionType.Maintenance] = "Maintenance",
+            [LocalCompletedSessionType.Review] = "Review",
         });
 
     private static readonly IStableDomainIdentifierMap<LocalSessionIntensity> SessionIntensities =
@@ -317,6 +318,35 @@ public sealed class LocalProgrammingEventTransactionContext
             "The stored generated drill instance history is invalid.");
     }
 
+    public void SaveDailyTrainingPrescription(LocalDailyTrainingPrescriptionRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        LocalDailyTrainingPrescriptionStore.Upsert(document, record);
+    }
+
+    public void DeleteActiveRuntimeSessionSnapshot(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new ArgumentException("Runtime session id is required.", nameof(sessionId));
+        }
+
+        var snapshots = ReadArray(
+            ActiveRuntimeSessionSnapshotsPropertyName,
+            "The stored active runtime session snapshot list is invalid.");
+        var index = FindRecordIndex(snapshots, SessionIdPropertyName, sessionId);
+        if (index >= 0)
+        {
+            snapshots.RemoveAt(index);
+            document[ActiveRuntimeSessionSnapshotsPropertyName] = snapshots;
+        }
+    }
+
+    public void ClearActiveRuntimeSessionSnapshots()
+    {
+        document[ActiveRuntimeSessionSnapshotsPropertyName] = new JsonArray();
+    }
+
     private void UpsertByStringId(
         string collectionPropertyName,
         string idPropertyName,
@@ -333,7 +363,7 @@ public sealed class LocalProgrammingEventTransactionContext
         }
         else
         {
-            records.Add(recordObject);
+            records.AddNode(recordObject);
         }
 
         document[collectionPropertyName] = records;
@@ -409,7 +439,7 @@ public sealed class LocalProgrammingEventTransactionContext
 
         foreach (var branchLevel in practitionerState.BranchLevels)
         {
-            branchLevels.Add(new JsonObject
+            branchLevels.AddNode(new JsonObject
             {
                 [BranchPropertyName] = StableDomainIdentifiers.Branches.ToPersistedId(branchLevel.Branch),
                 [LevelPropertyName] = StableDomainIdentifiers.Levels.ToPersistedId(branchLevel.Level),
@@ -496,6 +526,11 @@ public sealed class LocalProgrammingEventTransactionContext
             attemptObject[FailureTypePropertyName] = StableDomainIdentifiers.FailureTypes.ToPersistedId(failureType);
         }
 
+        if (attempt.MainFailureModeAvoided is { } mainFailureModeAvoided)
+        {
+            attemptObject[MainFailureModeAvoidedPropertyName] = mainFailureModeAvoided;
+        }
+
         return attemptObject;
     }
 
@@ -530,7 +565,7 @@ public sealed class LocalProgrammingEventTransactionContext
         var constraintArray = new JsonArray();
         foreach (var constraint in constraints)
         {
-            constraintArray.Add(new JsonObject
+            constraintArray.AddNode(new JsonObject
             {
                 [DescriptionPropertyName] = constraint.Description,
             });
@@ -574,7 +609,7 @@ public sealed class LocalProgrammingEventTransactionContext
         var branchLevelArray = new JsonArray();
         foreach (var branchLevel in branchLevels)
         {
-            branchLevelArray.Add(new JsonObject
+            branchLevelArray.AddNode(new JsonObject
             {
                 [BranchPropertyName] = StableDomainIdentifiers.Branches.ToPersistedId(branchLevel.Branch),
                 [LevelPropertyName] = StableDomainIdentifiers.Levels.ToPersistedId(branchLevel.Level),
@@ -589,7 +624,7 @@ public sealed class LocalProgrammingEventTransactionContext
         var loadVariableArray = new JsonArray();
         foreach (var loadVariable in loadVariables)
         {
-            loadVariableArray.Add(new JsonObject
+            loadVariableArray.AddNode(new JsonObject
             {
                 [NamePropertyName] = loadVariable.Name,
                 [ValuePropertyName] = loadVariable.Value,
@@ -604,7 +639,7 @@ public sealed class LocalProgrammingEventTransactionContext
         var artifactIdArray = new JsonArray();
         foreach (var artifactId in evidenceArtifactIds)
         {
-            artifactIdArray.Add(artifactId);
+            artifactIdArray.AddString(artifactId);
         }
 
         return artifactIdArray;
@@ -615,7 +650,7 @@ public sealed class LocalProgrammingEventTransactionContext
         var evidence = new JsonArray();
         foreach (var item in artifact.ObservableEvidence)
         {
-            evidence.Add(new JsonObject
+            evidence.AddNode(new JsonObject
             {
                 [KindPropertyName] = StableDomainIdentifiers.ObservableEvidenceKinds.ToPersistedId(item.Kind),
                 [DescriptionPropertyName] = item.Description,

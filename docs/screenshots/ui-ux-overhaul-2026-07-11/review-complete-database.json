@@ -1,0 +1,372 @@
+{
+  "Kind": "MentalGymnastics.LocalDatabase",
+  "SchemaVersion": 2,
+  "PractitionerState": {
+    "BranchLevels": [
+      {
+        "Branch": "FH",
+        "Level": "L1",
+        "State": "Training"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L5",
+        "State": "Unopened"
+      }
+    ]
+  },
+  "DailyTrainingPrescriptions": [
+    {
+      "PrescriptionId": "daily-20260711",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleAnchor": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleDay": 1,
+      "WeeklySession": "Practice",
+      "State": "Completed",
+      "Blocks": [
+        {
+          "BlockId": "daily-20260711-block-01",
+          "Order": 1,
+          "Branch": "FH",
+          "Level": "L1",
+          "Drill": "FH1TargetHold",
+          "Role": "Review",
+          "LoadVariables": [
+            {
+              "Name": "duration",
+              "Value": "3 minutes"
+            },
+            {
+              "Name": "target subtlety",
+              "Value": "simple visual target"
+            },
+            {
+              "Name": "recovery window",
+              "Value": "10 seconds"
+            }
+          ],
+          "State": "Failed",
+          "SessionId": "global-review-20260711",
+          "MainFailureModeAvoided": null
+        }
+      ]
+    }
+  ],
+  "EvidenceArtifacts": [
+    {
+      "ArtifactId": "qa-review-cadence-evidence",
+      "Event": {
+        "EventId": "qa-review-cadence-clean-session",
+        "EventKind": "Practice",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold"
+      },
+      "Artifact": {
+        "Category": "Practice",
+        "Date": {
+          "Year": 2026,
+          "Month": 5,
+          "Day": 1
+        },
+        "ObservableEvidence": [
+          {
+            "Kind": "Time",
+            "Description": "Completed a clean historical Target Hold practice."
+          }
+        ],
+        "SummaryOrReference": "Clean historical practice record."
+      }
+    },
+    {
+      "ArtifactId": "global-review-20260711-artifact",
+      "Event": {
+        "EventId": "global-review-20260711",
+        "EventKind": "GlobalReview"
+      },
+      "Artifact": {
+        "Category": "GlobalReview",
+        "Date": {
+          "Year": 2026,
+          "Month": 7,
+          "Day": 11
+        },
+        "ObservableEvidence": [
+          {
+            "Kind": "GlobalReviewSummary",
+            "Description": "Global review recorded 3 blocker(s): Global review requires recovery or deload history. | Bottleneck branch must have a programmed response. | Global review requires a current transfer or stabilization artifact.. no programming decision."
+          }
+        ],
+        "SummaryOrReference": "Global review recorded 3 blocker(s): Global review requires recovery or deload history. | Bottleneck branch must have a programmed response. | Global review requires a current transfer or stabilization artifact.. no programming decision."
+      }
+    }
+  ],
+  "CompletedSessions": [
+    {
+      "SessionId": "qa-review-cadence-clean-session",
+      "Date": {
+        "Year": 2026,
+        "Month": 5,
+        "Day": 1
+      },
+      "SessionType": "Practice",
+      "BranchLevels": [
+        {
+          "Branch": "FH",
+          "Level": "L1"
+        }
+      ],
+      "Intensity": "Low",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "2 minutes"
+        }
+      ],
+      "CleanPerformance": true,
+      "Notes": "Clean historical activity for review cadence device QA.",
+      "RecoveryMarked": false,
+      "DeloadMarked": false,
+      "EvidenceArtifactIds": [
+        "qa-review-cadence-evidence"
+      ],
+      "Drill": "FH1TargetHold"
+    },
+    {
+      "SessionId": "global-review-20260711",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "SessionType": "Review",
+      "BranchLevels": [
+        {
+          "Branch": "FH",
+          "Level": "L1"
+        }
+      ],
+      "Intensity": "Low",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "3 minutes"
+        },
+        {
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        }
+      ],
+      "CleanPerformance": false,
+      "Notes": "Global review recorded 3 blocker(s): Global review requires recovery or deload history. | Bottleneck branch must have a programmed response. | Global review requires a current transfer or stabilization artifact.. no programming decision.",
+      "RecoveryMarked": false,
+      "DeloadMarked": false,
+      "EvidenceArtifactIds": [
+        "global-review-20260711-artifact"
+      ],
+      "Drill": "FH1TargetHold"
+    }
+  ]
+}

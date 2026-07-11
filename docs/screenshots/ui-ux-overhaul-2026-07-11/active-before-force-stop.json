@@ -1,0 +1,531 @@
+{
+  "Kind": "MentalGymnastics.LocalDatabase",
+  "SchemaVersion": 2,
+  "PractitionerState": {
+    "BranchLevels": [
+      {
+        "Branch": "FH",
+        "Level": "L1",
+        "State": "Training"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L5",
+        "State": "Unopened"
+      }
+    ]
+  },
+  "DailyTrainingPrescriptions": [
+    {
+      "PrescriptionId": "daily-20260711",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleAnchor": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleDay": 1,
+      "WeeklySession": "Practice",
+      "State": "Active",
+      "Blocks": [
+        {
+          "BlockId": "daily-20260711-block-01",
+          "Order": 1,
+          "Branch": "FH",
+          "Level": "L1",
+          "Drill": "FH1TargetHold",
+          "Role": "Practice",
+          "LoadVariables": [
+            {
+              "Name": "duration",
+              "Value": "2 minutes"
+            },
+            {
+              "Name": "target subtlety",
+              "Value": "simple visual target"
+            },
+            {
+              "Name": "recovery window",
+              "Value": "10 seconds"
+            }
+          ],
+          "State": "Active",
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "MainFailureModeAvoided": null
+        }
+      ]
+    }
+  ],
+  "GeneratedDrillInstances": [
+    {
+      "InstanceId": "generated-instance-fh-l1-20f32b5b710e6d7ad89c2a8c",
+      "GeneratedOn": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "Branch": "FH",
+      "Level": "L1",
+      "Drill": "FH1TargetHold",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        }
+      ],
+      "ContentIdentity": {
+        "ContentId": "generated-fh-l1-fh1targethold-efc96809501d7ca13f3f25ba",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold",
+        "ContentKind": "EquivalentPrompt",
+        "EquivalenceClass": "fh-l1-target-hold",
+        "Version": "deterministic-seed-v1"
+      },
+      "State": "InSession",
+      "ActiveSessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+      "ContentSummary": "algorithm-version=deterministic-seed-v1; request-fingerprint=622a22806fc5d9ebe0da89bf; variant-index=0; payload-seed=308a397b3f0e1853e1e963d2; payload-family=fh-target-hold; target-statement=Hold target phrase: black line; target-type=visual phrase; evidence-shape=drift marks and return times",
+      "FreshnessPolicy": "FreshEquivalentRequired",
+      "AuditMaterials": [
+        {
+          "Kind": "LoadVariable",
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Kind": "LoadVariable",
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Kind": "LoadVariable",
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "request-constraint-1",
+          "Value": "Target is stated before set"
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "request-constraint-2",
+          "Value": "every drift is marked."
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "target-and-drift",
+          "Value": "Target is stated before set; every drift is marked."
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "no-target-substitution",
+          "Value": "No target substitution."
+        },
+        {
+          "Kind": "TargetStatement",
+          "Name": "target-statement",
+          "Value": "Hold target phrase: black line"
+        },
+        {
+          "Kind": "TargetType",
+          "Name": "target-type",
+          "Value": "visual phrase"
+        },
+        {
+          "Kind": "TargetSubtlety",
+          "Name": "target-subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Kind": "HoldDuration",
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Kind": "RecoveryWindow",
+          "Name": "recovery-window",
+          "Value": "10 seconds"
+        },
+        {
+          "Kind": "DriftMarkingEvidenceShape",
+          "Name": "drift-return-evidence",
+          "Value": "mark every drift immediately; record return time within 10 seconds; target substitution prohibited"
+        }
+      ]
+    }
+  ],
+  "ActiveRuntimeSessionSnapshots": [
+    {
+      "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+      "CapturedAt": "20645.15:53:48.8122690",
+      "SessionDefinition": {
+        "SessionType": "Practice",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold",
+        "LoadVariables": [
+          {
+            "Name": "duration",
+            "Value": "2 minutes"
+          },
+          {
+            "Name": "target subtlety",
+            "Value": "simple visual target"
+          },
+          {
+            "Name": "recovery window",
+            "Value": "10 seconds"
+          }
+        ],
+        "Standard": {
+          "Branch": "FH",
+          "Level": "L1",
+          "Demand": "Hold one simple target for 3 minutes.",
+          "Standard": "No more than 5 marked drifts; each return within 10 seconds; no target change.",
+          "Gate": "Pass once enters stabilization.",
+          "Stabilization": "Repeat twice within 14 days; one after a short WM set.",
+          "Transfer": "Hold a different target type with same standard."
+        },
+        "CriticalConstraints": [
+          {
+            "Description": "Target is stated before set"
+          },
+          {
+            "Description": "every drift is marked."
+          }
+        ],
+        "GeneratedDrillInstance": {
+          "InstanceId": "generated-instance-fh-l1-20f32b5b710e6d7ad89c2a8c",
+          "ContentIdentity": {
+            "ContentId": "generated-fh-l1-fh1targethold-efc96809501d7ca13f3f25ba",
+            "Branch": "FH",
+            "Level": "L1",
+            "Drill": "FH1TargetHold",
+            "Kind": "EquivalentPrompt",
+            "EquivalenceClass": "fh-l1-target-hold",
+            "Version": "deterministic-seed-v1"
+          }
+        },
+        "SourceDrill": null
+      },
+      "LifecycleState": {
+        "Status": "Running",
+        "PauseAllowed": false
+      },
+      "InputOptions": {
+        "PauseAllowed": false,
+        "CorrectionWindow": "00:00:10",
+        "PauseAllowedPhaseKinds": [
+          "InstructionPrep",
+          "Rest",
+          "Review"
+        ]
+      },
+      "PhasePlan": {
+        "Phases": [
+          {
+            "Id": "instruction-prep",
+            "Kind": "InstructionPrep",
+            "CompletionRule": "Manual",
+            "ScheduledDuration": null
+          },
+          {
+            "Id": "active-work",
+            "Kind": "ActiveWork",
+            "CompletionRule": "Timed",
+            "ScheduledDuration": "00:02:00"
+          },
+          {
+            "Id": "review",
+            "Kind": "Review",
+            "CompletionRule": "Manual",
+            "ScheduledDuration": null
+          }
+        ]
+      },
+      "PhaseScheduler": {
+        "Status": "Running",
+        "CapturedAt": "20645.15:53:48.8120861",
+        "CurrentPhaseIndex": 1,
+        "CurrentPhaseId": "active-work",
+        "CurrentPhaseElapsed": "00:00:00.0439625",
+        "CompletedPhases": [
+          {
+            "Definition": {
+              "Id": "instruction-prep",
+              "Kind": "InstructionPrep",
+              "CompletionRule": "Manual",
+              "ScheduledDuration": null
+            },
+            "StartedAt": "20645.15:53:47.6566979",
+            "CompletedAt": "20645.15:53:48.7681236",
+            "ActualDuration": "00:00:01.1114257",
+            "CompletionCause": "Explicit"
+          }
+        ]
+      },
+      "RuntimeEvents": [
+        {
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "SequenceNumber": 1,
+          "Kind": "SessionStarted",
+          "OccurredAt": "20645.15:53:47.6195039",
+          "PhaseId": null,
+          "PhaseKind": null,
+          "Facts": []
+        },
+        {
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "SequenceNumber": 2,
+          "Kind": "PhaseStarted",
+          "OccurredAt": "20645.15:53:47.6566979",
+          "PhaseId": "instruction-prep",
+          "PhaseKind": "InstructionPrep",
+          "Facts": []
+        },
+        {
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "SequenceNumber": 3,
+          "Kind": "PhaseEnded",
+          "OccurredAt": "20645.15:53:48.7681236",
+          "PhaseId": "instruction-prep",
+          "PhaseKind": "InstructionPrep",
+          "Facts": [
+            {
+              "Name": "phase_actual_duration",
+              "Value": "00:00:01.1114257"
+            },
+            {
+              "Name": "phase_completion_cause",
+              "Value": "Explicit"
+            }
+          ]
+        },
+        {
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "SequenceNumber": 4,
+          "Kind": "PhaseStarted",
+          "OccurredAt": "20645.15:53:48.7681236",
+          "PhaseId": "active-work",
+          "PhaseKind": "ActiveWork",
+          "Facts": []
+        }
+      ],
+      "EvidenceFacts": [
+        {
+          "Name": "phase_actual_duration",
+          "Value": "00:00:01.1114257"
+        },
+        {
+          "Name": "phase_completion_cause",
+          "Value": "Explicit"
+        }
+      ],
+      "LastCorrectableEventSequenceNumber": null,
+      "CueScheduler": null
+    }
+  ]
+}

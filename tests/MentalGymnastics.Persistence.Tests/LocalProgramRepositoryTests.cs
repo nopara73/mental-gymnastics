@@ -84,6 +84,40 @@ public sealed class LocalProgramRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task ReviewCadenceFactsUseEarliestLocalActivityAndLatestCompletedReview()
+    {
+        var databasePath = DatabasePath();
+        await SaveSessionAsync(databasePath, Session(
+            "program-start",
+            TrainingDate.From(2026, 1, 1),
+            BranchCode.FH));
+        await SaveArtifactAsync(databasePath, ArtifactRecord(
+            "global-review-first",
+            "global-review-20260201",
+            LocalProgrammingEventKind.GlobalReview,
+            EvidenceArtifactCategory.GlobalReview,
+            TrainingDate.From(2026, 2, 1)));
+        await SaveArtifactAsync(databasePath, ArtifactRecord(
+            "global-review-latest",
+            "global-review-20260212",
+            LocalProgrammingEventKind.GlobalReview,
+            EvidenceArtifactCategory.GlobalReview,
+            TrainingDate.From(2026, 2, 12)));
+        await SaveArtifactAsync(databasePath, ArtifactRecord(
+            "global-review-future",
+            "global-review-20260401",
+            LocalProgrammingEventKind.GlobalReview,
+            EvidenceArtifactCategory.GlobalReview,
+            TrainingDate.From(2026, 4, 1)));
+
+        var facts = await Repository(databasePath).LoadReviewCadenceFactsAsync(
+            TrainingDate.From(2026, 3, 1));
+
+        Assert.Equal(TrainingDate.From(2026, 1, 1), facts.ProgramStartedOn);
+        Assert.Equal(TrainingDate.From(2026, 2, 12), facts.LastCompletedReviewOn);
+    }
+
+    [Fact]
     public async Task ListDueMaintenanceUsesCoreCurrencyRulesWithoutPersistingDerivedDecisions()
     {
         var databasePath = DatabasePath();
@@ -130,6 +164,43 @@ public sealed class LocalProgramRepositoryTests : IDisposable
             record.BranchLevel.Level == GlobalLevelId.L1 &&
             record.Currency.State == MaintenanceCurrencyState.Due &&
             record.Currency.DaysSinceLastPassingCheck is null);
+    }
+
+    [Fact]
+    public async Task CleanStabilizationPassStartsMaintenanceCurrencyClock()
+    {
+        var databasePath = DatabasePath();
+        await new LocalPractitionerStateStore(Options(databasePath)).SaveAsync(
+            new PractitionerState(
+            [
+                new BranchLevelStatus(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Owned),
+            ]));
+        await SaveStabilizationAsync(databasePath, StabilizationPass(
+            "ownership-baseline-fh-l1",
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            TrainingDate.From(2026, 7, 10)));
+
+        var repository = Repository(databasePath);
+        var onOwnershipDay = await repository.LoadMaintenanceCurrencyAsync(
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            TrainingDate.From(2026, 7, 10));
+        var atCadence = await repository.LoadMaintenanceCurrencyAsync(
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            TrainingDate.From(2026, 7, 17));
+        var overdue = await repository.LoadMaintenanceCurrencyAsync(
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            TrainingDate.From(2026, 7, 18));
+
+        Assert.Equal(MaintenanceCurrencyState.Current, onOwnershipDay.State);
+        Assert.Equal(0, onOwnershipDay.DaysSinceLastPassingCheck);
+        Assert.Equal(MaintenanceCurrencyState.Current, atCadence.State);
+        Assert.Equal(7, atCadence.DaysSinceLastPassingCheck);
+        Assert.Equal(MaintenanceCurrencyState.Due, overdue.State);
+        Assert.Equal(8, overdue.DaysSinceLastPassingCheck);
     }
 
     [Fact]

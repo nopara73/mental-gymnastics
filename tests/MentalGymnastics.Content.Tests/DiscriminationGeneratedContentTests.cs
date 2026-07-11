@@ -51,6 +51,10 @@ public sealed class DiscriminationGeneratedContentTests
             pair.Value.Contains("relevant difference", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(pairs, pair =>
             pair.Value.Contains("irrelevant difference", StringComparison.OrdinalIgnoreCase));
+        Assert.All(pairs, pair =>
+            Assert.DoesNotContain("expected", pair.Value, StringComparison.OrdinalIgnoreCase));
+        Assert.All(truthKey, truth =>
+            Assert.Contains("expected", truth.Value, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(truthKey, truth =>
             truth.Value.Contains("match", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(truthKey, truth =>

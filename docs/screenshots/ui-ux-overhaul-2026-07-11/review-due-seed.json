@@ -1,0 +1,268 @@
+{
+  "Kind": "MentalGymnastics.LocalDatabase",
+  "SchemaVersion": 2,
+  "PractitionerState": {
+    "BranchLevels": [
+      {
+        "Branch": "FH",
+        "Level": "L1",
+        "State": "Training"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L5",
+        "State": "Unopened"
+      }
+    ]
+  },
+  "DailyTrainingPrescriptions": [],
+  "EvidenceArtifacts": [
+    {
+      "ArtifactId": "qa-review-cadence-evidence",
+      "Event": {
+        "EventId": "qa-review-cadence-clean-session",
+        "EventKind": "Practice",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold"
+      },
+      "Artifact": {
+        "Category": "Practice",
+        "Date": {
+          "Year": 2026,
+          "Month": 5,
+          "Day": 1
+        },
+        "ObservableEvidence": [
+          {
+            "Kind": "Time",
+            "Description": "Completed a clean historical Target Hold practice."
+          }
+        ],
+        "SummaryOrReference": "Clean historical practice record."
+      }
+    }
+  ],
+  "CompletedSessions": [
+    {
+      "SessionId": "qa-review-cadence-clean-session",
+      "Date": {
+        "Year": 2026,
+        "Month": 5,
+        "Day": 1
+      },
+      "SessionType": "Practice",
+      "BranchLevels": [
+        {
+          "Branch": "FH",
+          "Level": "L1"
+        }
+      ],
+      "Intensity": "Low",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "2 minutes"
+        }
+      ],
+      "CleanPerformance": true,
+      "Notes": "Clean historical activity for review cadence device QA.",
+      "RecoveryMarked": false,
+      "DeloadMarked": false,
+      "EvidenceArtifactIds": [
+        "qa-review-cadence-evidence"
+      ],
+      "Drill": "FH1TargetHold"
+    }
+  ]
+}

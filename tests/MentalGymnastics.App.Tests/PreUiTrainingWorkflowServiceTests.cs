@@ -32,11 +32,8 @@ public sealed class PreUiTrainingWorkflowServiceTests : IDisposable
                     GlobalLevelId.L1,
                     DrillId.FH1TargetHold,
                     AppTrainingSessionType.Test,
-                    [
-                        new LoadVariable("duration", "3 minutes"),
-                        new LoadVariable("target subtlety", "simple phrase"),
-                        new LoadVariable("recovery window", "10 seconds"),
-                    ])),
+                    TrainingLoadProfileCatalog.Get(BranchCode.FH, GlobalLevelId.L1)
+                        .TargetStage.LoadVariables)),
             PromptContentKind.EquivalentPrompt,
             "fh-l1-target-hold",
             PromptFreshnessPolicy.FreshEquivalentRequired,
@@ -135,7 +132,7 @@ public sealed class PreUiTrainingWorkflowServiceTests : IDisposable
             variable => variable.Name == "catalog-load");
         Assert.Contains(
             prepared.Selection.SelectedWork.LoadVariables,
-            variable => variable.Name == "duration" && variable.Value == "3 minutes");
+            variable => variable.Name == "duration" && variable.Value == "2 minutes");
         Assert.NotNull(prepared.GeneratedContent);
         Assert.NotNull(prepared.RuntimeSession);
 
@@ -279,7 +276,8 @@ public sealed class PreUiTrainingWorkflowServiceTests : IDisposable
                 DrillId.FH1TargetHold,
                 transferTask: null,
                 LocalSessionIntensity.Moderate,
-                [new LoadVariable("catalog-demand", DemandFor(BranchCode.FH, GlobalLevelId.L1))],
+                TrainingLoadProfileCatalog.Get(BranchCode.FH, GlobalLevelId.L1)
+                    .TargetStage.LoadVariables,
                 cleanPerformance: true,
                 "FH L1 clean practice prepared the formal demand.",
                 recoveryMarked: false,

@@ -78,7 +78,8 @@ public sealed class RuntimeFormalAttemptPersistenceInput
         FormalTestPassState passState,
         FailureType? failureType = null,
         string? attemptId = null,
-        TestTask? task = null)
+        TestTask? task = null,
+        string? mainFailureModeAvoided = null)
     {
         ArgumentNullException.ThrowIfNull(resultEvidence);
         EnsureDefined(passState, nameof(passState));
@@ -93,6 +94,7 @@ public sealed class RuntimeFormalAttemptPersistenceInput
         FailureType = failureType;
         AttemptId = NormalizeOptionalString(attemptId);
         Task = task;
+        MainFailureModeAvoided = NormalizeOptionalString(mainFailureModeAvoided);
     }
 
     public TestResultEvidence ResultEvidence { get; }
@@ -104,6 +106,8 @@ public sealed class RuntimeFormalAttemptPersistenceInput
     public string? AttemptId { get; }
 
     public TestTask? Task { get; }
+
+    public string? MainFailureModeAvoided { get; }
 
     private static string? NormalizeOptionalString(string? value)
     {
@@ -338,7 +342,9 @@ public static class RuntimePersistenceHandoffMapper
         return new LocalSessionHistoryRecord(
             result.SessionId,
             metadata.Date,
-            MapSessionType(result.SessionType),
+            request.Maintenance is null
+                ? MapSessionType(result.SessionType)
+                : LocalCompletedSessionType.Maintenance,
             [new LocalSessionBranchLevel(result.Branch, result.Level)],
             result.Drill,
             metadata.TransferTask,
@@ -389,7 +395,10 @@ public static class RuntimePersistenceHandoffMapper
         }
 
         var result = request.Result;
-        var formalArtifact = RequireArtifact(artifacts, EvidenceArtifactCategory.Test, "formal test attempt");
+        var formalCategory = result.SessionType == SessionType.Transfer
+            ? EvidenceArtifactCategory.Transfer
+            : EvidenceArtifactCategory.Test;
+        var formalArtifact = RequireArtifact(artifacts, formalCategory, "formal test attempt");
         var task = request.FormalAttempt.Task ?? DefaultTestTask(result, request.Metadata);
         var attempt = new FormalTestAttempt(
             result.Branch,
@@ -402,7 +411,8 @@ public static class RuntimePersistenceHandoffMapper
             request.FormalAttempt.ResultEvidence,
             request.FormalAttempt.FailureType,
             request.FormalAttempt.PassState,
-            formalArtifact.Record.Artifact);
+            formalArtifact.Record.Artifact,
+            request.FormalAttempt.MainFailureModeAvoided);
 
         return new LocalFormalTestAttemptRecord(
             ids.FormalAttemptId!,
@@ -534,6 +544,7 @@ public static class RuntimePersistenceHandoffMapper
         return category switch
         {
             EvidenceArtifactCategory.Test when ids.FormalAttemptId is not null => ids.FormalAttemptId,
+            EvidenceArtifactCategory.Transfer when ids.FormalAttemptId is not null => ids.FormalAttemptId,
             EvidenceArtifactCategory.Stabilization when ids.StabilizationPassId is not null => ids.StabilizationPassId,
             EvidenceArtifactCategory.Maintenance when ids.MaintenanceCheckId is not null => ids.MaintenanceCheckId,
             _ => sessionId,

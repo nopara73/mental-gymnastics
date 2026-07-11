@@ -1,0 +1,427 @@
+{
+  "Kind": "MentalGymnastics.LocalDatabase",
+  "SchemaVersion": 2,
+  "PractitionerState": {
+    "BranchLevels": [
+      {
+        "Branch": "FH",
+        "Level": "L1",
+        "State": "Training"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L5",
+        "State": "Unopened"
+      }
+    ]
+  },
+  "DailyTrainingPrescriptions": [
+    {
+      "PrescriptionId": "daily-20260711",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleAnchor": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleDay": 1,
+      "WeeklySession": "Practice",
+      "State": "Stopped",
+      "Blocks": [
+        {
+          "BlockId": "daily-20260711-block-01",
+          "Order": 1,
+          "Branch": "FH",
+          "Level": "L1",
+          "Drill": "FH1TargetHold",
+          "Role": "Practice",
+          "LoadVariables": [
+            {
+              "Name": "duration",
+              "Value": "2 minutes"
+            },
+            {
+              "Name": "target subtlety",
+              "Value": "simple visual target"
+            },
+            {
+              "Name": "recovery window",
+              "Value": "10 seconds"
+            }
+          ],
+          "State": "Abandoned",
+          "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+          "MainFailureModeAvoided": null
+        }
+      ]
+    }
+  ],
+  "GeneratedDrillInstances": [
+    {
+      "InstanceId": "generated-instance-fh-l1-20f32b5b710e6d7ad89c2a8c",
+      "GeneratedOn": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "Branch": "FH",
+      "Level": "L1",
+      "Drill": "FH1TargetHold",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        }
+      ],
+      "ContentIdentity": {
+        "ContentId": "generated-fh-l1-fh1targethold-efc96809501d7ca13f3f25ba",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold",
+        "ContentKind": "EquivalentPrompt",
+        "EquivalenceClass": "fh-l1-target-hold",
+        "Version": "deterministic-seed-v1"
+      },
+      "State": "Abandoned",
+      "ContentSummary": "algorithm-version=deterministic-seed-v1; request-fingerprint=622a22806fc5d9ebe0da89bf; variant-index=0; payload-seed=308a397b3f0e1853e1e963d2; payload-family=fh-target-hold; target-statement=Hold target phrase: black line; target-type=visual phrase; evidence-shape=drift marks and return times",
+      "FreshnessPolicy": "FreshEquivalentRequired",
+      "AuditMaterials": [
+        {
+          "Kind": "LoadVariable",
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Kind": "LoadVariable",
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Kind": "LoadVariable",
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "request-constraint-1",
+          "Value": "Target is stated before set"
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "request-constraint-2",
+          "Value": "every drift is marked."
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "target-and-drift",
+          "Value": "Target is stated before set; every drift is marked."
+        },
+        {
+          "Kind": "HonestyConstraint",
+          "Name": "no-target-substitution",
+          "Value": "No target substitution."
+        },
+        {
+          "Kind": "TargetStatement",
+          "Name": "target-statement",
+          "Value": "Hold target phrase: black line"
+        },
+        {
+          "Kind": "TargetType",
+          "Name": "target-type",
+          "Value": "visual phrase"
+        },
+        {
+          "Kind": "TargetSubtlety",
+          "Name": "target-subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Kind": "HoldDuration",
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Kind": "RecoveryWindow",
+          "Name": "recovery-window",
+          "Value": "10 seconds"
+        },
+        {
+          "Kind": "DriftMarkingEvidenceShape",
+          "Name": "drift-return-evidence",
+          "Value": "mark every drift immediately; record return time within 10 seconds; target substitution prohibited"
+        }
+      ]
+    }
+  ],
+  "ActiveRuntimeSessionSnapshots": [],
+  "EvidenceArtifacts": [
+    {
+      "ArtifactId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8-interruption-evidence",
+      "Event": {
+        "EventId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+        "EventKind": "Practice",
+        "Branch": "FH",
+        "Level": "L1",
+        "Drill": "FH1TargetHold"
+      },
+      "Artifact": {
+        "Category": "Practice",
+        "Date": {
+          "Year": 2026,
+          "Month": 7,
+          "Day": 11
+        },
+        "ObservableEvidence": [
+          {
+            "Kind": "ErrorCount",
+            "Description": "Interrupted active work produced no evaluable result. Reason: Stored active work could not be resumed safely: Runtime session snapshot cannot be restored without corrupting the drill\u0027s honesty constraints."
+          }
+        ],
+        "SummaryOrReference": "Interrupted attempt record."
+      }
+    }
+  ],
+  "CompletedSessions": [
+    {
+      "SessionId": "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "SessionType": "Practice",
+      "BranchLevels": [
+        {
+          "Branch": "FH",
+          "Level": "L1"
+        }
+      ],
+      "Intensity": "Low",
+      "LoadVariables": [
+        {
+          "Name": "duration",
+          "Value": "2 minutes"
+        },
+        {
+          "Name": "target subtlety",
+          "Value": "simple visual target"
+        },
+        {
+          "Name": "recovery window",
+          "Value": "10 seconds"
+        }
+      ],
+      "CleanPerformance": false,
+      "Notes": "Interrupted attempt: Stored active work could not be resumed safely: Runtime session snapshot cannot be restored without corrupting the drill\u0027s honesty constraints.",
+      "RecoveryMarked": false,
+      "DeloadMarked": false,
+      "EvidenceArtifactIds": [
+        "session-android-daily-20260711-block-01-ae552a9968f24fdbae4d85a6a74982f0-20260711-fh-l1-23c4a9f24bb8-interruption-evidence"
+      ],
+      "Drill": "FH1TargetHold"
+    }
+  ]
+}

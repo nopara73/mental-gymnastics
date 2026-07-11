@@ -71,7 +71,8 @@ public sealed class RuntimeFormalGateHandoffInput
         TestResultEvidence resultEvidence,
         FormalTestPassState passState,
         FailureType? failureType = null,
-        TestTask? task = null)
+        TestTask? task = null,
+        string? mainFailureModeAvoided = null)
     {
         ArgumentNullException.ThrowIfNull(resultEvidence);
         EnsureDefined(passState, nameof(passState));
@@ -85,6 +86,9 @@ public sealed class RuntimeFormalGateHandoffInput
         PassState = passState;
         FailureType = failureType;
         Task = task;
+        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
+            ? null
+            : mainFailureModeAvoided.Trim();
     }
 
     public TrainingDate Date { get; }
@@ -96,6 +100,8 @@ public sealed class RuntimeFormalGateHandoffInput
     public FailureType? FailureType { get; }
 
     public TestTask? Task { get; }
+
+    public string? MainFailureModeAvoided { get; }
 
     private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum
@@ -406,8 +412,11 @@ public static class RuntimeCoreEvaluationHandoffMapper
         }
 
         var result = request.Result;
-        RequireEvidenceCategory(result, EvidenceArtifactCategory.Test, "formal gate evaluation");
-        var artifact = FirstArtifact(result, EvidenceArtifactCategory.Test);
+        var formalCategory = result.SessionType == SessionType.Transfer
+            ? EvidenceArtifactCategory.Transfer
+            : EvidenceArtifactCategory.Test;
+        RequireEvidenceCategory(result, formalCategory, "formal gate evaluation");
+        var artifact = FirstArtifact(result, formalCategory);
         var task = request.FormalGate.Task ?? DefaultFormalTestTask(result);
 
         return new FormalTestAttempt(
@@ -421,7 +430,8 @@ public static class RuntimeCoreEvaluationHandoffMapper
             request.FormalGate.ResultEvidence,
             request.FormalGate.FailureType,
             request.FormalGate.PassState,
-            artifact);
+            artifact,
+            request.FormalGate.MainFailureModeAvoided);
     }
 
     private static TestReadinessPracticeSession? BuildReadinessPracticeSession(

@@ -72,6 +72,7 @@ public sealed class LocalDatabaseInitializationTests : IDisposable
         Assert.False(result.DatabaseCreated);
         Assert.Equal(LocalDatabaseSchema.CurrentVersion, result.SchemaVersion);
         Assert.Contains(new LocalDatabaseMigrationStep(0, 1), result.AppliedMigrations);
+        Assert.Contains(new LocalDatabaseMigrationStep(1, 2), result.AppliedMigrations);
         Assert.Equal(LocalDatabaseSchema.CurrentVersion, await initializer.GetCurrentSchemaVersionAsync());
         Assert.Contains("\"ProgressionData\"", migratedJson, StringComparison.Ordinal);
         Assert.Contains("\"Branch\": \"FH\"", migratedJson, StringComparison.Ordinal);

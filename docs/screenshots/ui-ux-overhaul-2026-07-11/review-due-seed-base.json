@@ -1,0 +1,253 @@
+{
+  "Kind": "MentalGymnastics.LocalDatabase",
+  "SchemaVersion": 2,
+  "PractitionerState": {
+    "BranchLevels": [
+      {
+        "Branch": "FH",
+        "Level": "L1",
+        "State": "Training"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FH",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "FS",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "WM",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "IR",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "DE",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "CO",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "AI",
+        "Level": "L5",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L1",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L2",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L3",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L4",
+        "State": "Unopened"
+      },
+      {
+        "Branch": "TI",
+        "Level": "L5",
+        "State": "Unopened"
+      }
+    ]
+  },
+  "DailyTrainingPrescriptions": [
+    {
+      "PrescriptionId": "daily-20260711",
+      "Date": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleAnchor": {
+        "Year": 2026,
+        "Month": 7,
+        "Day": 11
+      },
+      "CycleDay": 1,
+      "WeeklySession": "Practice",
+      "State": "Planned",
+      "Blocks": [
+        {
+          "BlockId": "daily-20260711-block-01",
+          "Order": 1,
+          "Branch": "FH",
+          "Level": "L1",
+          "Drill": "FH1TargetHold",
+          "Role": "Practice",
+          "LoadVariables": [
+            {
+              "Name": "duration",
+              "Value": "2 minutes"
+            },
+            {
+              "Name": "target subtlety",
+              "Value": "simple visual target"
+            },
+            {
+              "Name": "recovery window",
+              "Value": "10 seconds"
+            }
+          ],
+          "State": "Planned",
+          "SessionId": null,
+          "MainFailureModeAvoided": null
+        }
+      ]
+    }
+  ]
+}

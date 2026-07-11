@@ -98,6 +98,61 @@ public sealed class RuntimeSessionSnapshotTests
     }
 
     [Fact]
+    public void LifecycleSuspensionPreservesTimedWorkAndOpenDriftWithoutExposingUserPause()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = RuntimeInputCommandHandler.Start(
+            "session-lifecycle-suspension",
+            CreateFocusHoldSessionDefinition(),
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Timed(
+                    "active",
+                    RuntimeSessionPhaseKind.ActiveWork,
+                    new RuntimeDuration(TimeSpan.FromMinutes(3))),
+            ]),
+            clock);
+
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.Pause).IsAvailable);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(18));
+        Assert.True(handler.Handle(RuntimeInputCommand.MarkDrift("open-drift")).IsAccepted);
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(2));
+
+        var suspended = handler.SuspendForLifecycle();
+        var duplicateSuspend = handler.SuspendForLifecycle();
+        var snapshot = handler.CaptureSnapshot();
+
+        Assert.True(suspended.IsAccepted);
+        Assert.True(duplicateSuspend.IsAccepted);
+        Assert.Single(suspended.Events);
+        Assert.Empty(duplicateSuspend.Events);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Paused, snapshot.LifecycleState.Status);
+        Assert.Equal(RuntimePhaseSchedulerStatus.Paused, snapshot.PhaseScheduler.Status);
+        Assert.Equal(TimeSpan.FromSeconds(20), snapshot.PhaseScheduler.CurrentPhaseElapsed?.Value);
+        Assert.Contains(suspended.Events[0].Facts, fact =>
+            fact.Name == "suspension_origin" && fact.Value == "app_lifecycle");
+
+        var restoreClock = new ManualRuntimeClock(RuntimeDuration.FromSeconds(100).ToInstant());
+        var restored = RuntimeInputCommandHandler.Restore(snapshot, restoreClock);
+        var resumed = restored.ResumeFromLifecycleSuspension();
+
+        Assert.True(resumed.IsAccepted);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Running, restored.LifecycleState.Status);
+        Assert.Equal(TimeSpan.FromSeconds(20), restored.CaptureSnapshot().PhaseScheduler.CurrentPhaseElapsed?.Value);
+        Assert.False(restored.AvailabilityFor(RuntimeInputCommandKind.Pause).IsAvailable);
+
+        restoreClock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var returned = restored.Handle(RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(10)));
+
+        Assert.True(returned.IsAccepted);
+        Assert.Contains(returned.Events[0].Facts, fact =>
+            fact.Name == "recovery_time" && fact.Value == "00:00:07");
+        Assert.Contains(returned.Events[0].Facts, fact =>
+            fact.Name == "return_timing_outcome" && fact.Value == "within_window");
+        Assert.Equal(TimeSpan.FromSeconds(25), restored.CaptureSnapshot().PhaseScheduler.CurrentPhaseElapsed?.Value);
+    }
+
+    [Fact]
     public void RestoredCueSchedulerPreservesPendingCuesGeneratedInstanceEventsAndResponseState()
     {
         var generatedInstance = CueGeneratedInstance();

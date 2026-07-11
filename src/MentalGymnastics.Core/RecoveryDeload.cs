@@ -327,7 +327,9 @@ public sealed class DeloadDecisionRequest
     public DeloadDecisionRequest(
         TrainingDate weekStart,
         IEnumerable<DeloadBranchWeekEvidence> branchEvidence,
-        IEnumerable<string> subjectiveNotes)
+        IEnumerable<string> subjectiveNotes,
+        TrainingDate? activeDeloadStartedOn = null,
+        TrainingDate? asOf = null)
     {
         ArgumentNullException.ThrowIfNull(branchEvidence);
         ArgumentNullException.ThrowIfNull(subjectiveNotes);
@@ -335,6 +337,8 @@ public sealed class DeloadDecisionRequest
         WeekStart = weekStart;
         BranchEvidence = branchEvidence.ToArray();
         SubjectiveNotes = subjectiveNotes.ToArray();
+        ActiveDeloadStartedOn = activeDeloadStartedOn;
+        AsOf = asOf ?? weekStart;
     }
 
     public TrainingDate WeekStart { get; }
@@ -342,6 +346,10 @@ public sealed class DeloadDecisionRequest
     public IReadOnlyList<DeloadBranchWeekEvidence> BranchEvidence { get; }
 
     public IReadOnlyList<string> SubjectiveNotes { get; }
+
+    public TrainingDate? ActiveDeloadStartedOn { get; }
+
+    public TrainingDate AsOf { get; }
 }
 
 public sealed record DeloadWeekPrescription(
@@ -369,15 +377,23 @@ public static class DeloadDecisionEvaluator
             .Distinct()
             .Count();
 
-        var triggers = affectedBranchCount >= 2
-            ? new[] { DeloadTriggerKind.TwoOrMoreBranchesShowOverloadOrDecayInSameWeek }
-            : [];
+        var triggers = new List<DeloadTriggerKind>();
+        if (affectedBranchCount >= 2)
+        {
+            triggers.Add(DeloadTriggerKind.TwoOrMoreBranchesShowOverloadOrDecayInSameWeek);
+        }
+
+        if (request.ActiveDeloadStartedOn is { } startedOn &&
+            startedOn.DaysUntil(request.AsOf) is >= 0 and < 7)
+        {
+            triggers.Add(DeloadTriggerKind.ActiveDeloadWeekIncomplete);
+        }
 
         return new DeloadDecisionResult(
             request.WeekStart,
-            ShouldDeload: triggers.Length > 0,
+            ShouldDeload: triggers.Count > 0,
             triggers,
-            triggers.Length > 0 ? Prescription() : null);
+            triggers.Count > 0 ? Prescription() : null);
     }
 
     private static DeloadWeekPrescription Prescription()

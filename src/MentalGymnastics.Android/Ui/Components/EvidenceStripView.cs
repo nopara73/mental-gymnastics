@@ -12,10 +12,11 @@ internal sealed class EvidenceStripView : LinearLayout
     {
         Orientation = Orientation.Horizontal;
         SetGravity(GravityFlags.CenterVertical);
-        ContentDescription = $"Evidence summary: {recentSessionCount} sessions, {evidenceCount} artifacts, {blockerCount} blockers";
+        ContentDescription = $"Practice log summary: {recentSessionCount} sessions, {evidenceCount} records, {blockerCount} blockers";
+        ImportantForAccessibility = ImportantForAccessibility.Yes;
 
         AddChip(context, $"{recentSessionCount} sessions");
-        AddChip(context, $"{evidenceCount} artifacts");
+        AddChip(context, $"{evidenceCount} records");
         AddChip(context, $"{blockerCount} blockers", blockerCount > 0 ? MgColors.Blocked : MgColors.Hairline);
     }
 
@@ -25,6 +26,7 @@ internal sealed class EvidenceStripView : LinearLayout
         {
             Text = label,
             Gravity = GravityFlags.Center,
+            ImportantForAccessibility = ImportantForAccessibility.No,
         };
         MgTypography.ApplyMicro(chip);
         chip.SetPadding(

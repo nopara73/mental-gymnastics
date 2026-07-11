@@ -1,12 +1,12 @@
-# MentalGymnastics Pre-UI App Integration Boundary
+# MentalGymnastics App Integration Boundary
 
-**Status:** Implemented pre-UI application integration reference
+**Status:** Implemented application integration reference
 **Project:** `src/MentalGymnastics.App`
 **Tests:** `tests/MentalGymnastics.App.Tests`
 **Composes:** [Core](core-library.md), [Local Persistence](local-persistence-boundary.md), [Session Runtime](session-runtime-boundary.md), [Generated Content](generated-content-boundary.md)
 **Source program:** [MentalGymnastics: Complete Training Program](program/training-program.md)
 
-This document describes the implemented boundary for the pre-UI application integration layer. The project establishes the non-visual composition boundary for the implemented domain, storage, runtime, and content libraries and provides app-facing workflows that future Android screens can call.
+This document describes the implemented boundary for the non-visual application integration layer. The project composes the domain, storage, runtime, and content libraries and provides the app-facing workflows consumed by the Android product.
 
 The app integration layer is not Android UI. It should contain no screens, layouts, navigation, visual design, Compose or View code, UI tests, notifications, accounts, sync, backend services, telemetry, analytics, or AI/API dependencies.
 
@@ -19,7 +19,7 @@ The intended dependency direction is:
 3. `MentalGymnastics.Runtime` owns live session execution mechanics.
 4. `MentalGymnastics.Content` owns generated drill instances and content packaging.
 5. `MentalGymnastics.App` composes those libraries into use-case workflows.
-6. Future Android UI references `MentalGymnastics.App` and renders app-facing state.
+6. Android UI references `MentalGymnastics.App` and renders app-facing state.
 
 Core, Persistence, Runtime, and Content must not reference the app integration layer. Android UI should not bypass the app integration layer to create parallel orchestration paths.
 
@@ -47,7 +47,7 @@ App integration must not own:
 - JSON schema, migrations, stable identifiers, local stores, repository storage details, transactions, integrity validation, backup/restore internals, or alternate persistence formats. These belong to Persistence.
 - Timers, phase scheduling, cue scheduling, response timing, runtime command validation, scoring facts, live evidence capture, protocol execution, completion result generation, snapshot/restore internals, or runtime handoff internals. These belong to Runtime.
 - Prompt material, cue sequences, generated instance identity, deterministic seeds, content banks, freshness/equivalence checks, content validation, transfer content, runtime packaging, or persistence handoff construction. These belong to Content.
-- Android screens, layouts, navigation, visual styling, accessibility widgets, platform lifecycle presentation, UI copy, or UI tests. These belong to future Android UI.
+- Android screens, layouts, navigation, visual styling, accessibility widgets, platform lifecycle presentation, UI copy, or UI tests. These belong to `MentalGymnastics.Android`.
 - Accounts, sync, backend services, telemetry, analytics, notifications, AI/API calls, network access, or cloud storage.
 
 ## Persistence Constraint

@@ -212,7 +212,8 @@ public sealed class SelectedWorkRuntimeSessionPreparer
                 package.LoadVariables,
                 package.Standard,
                 package.CriticalConstraints,
-                runtimeIdentity);
+                runtimeIdentity,
+                package.SourceDrill);
         }
         catch (ArgumentException exception)
         {
@@ -238,9 +239,7 @@ public sealed class SelectedWorkRuntimeSessionPreparer
         RuntimeCueSchedule? cueSchedule;
         try
         {
-            cueSchedule = package.Cues.Count == 0
-                ? null
-                : new RuntimeCueSchedule(runtimeIdentity, package.Cues.Select(ToRuntimeCue));
+            cueSchedule = CreateCueSchedule(package);
         }
         catch (ArgumentException exception)
         {
@@ -297,6 +296,21 @@ public sealed class SelectedWorkRuntimeSessionPreparer
             new RuntimeDuration(cue.ResponseWindow),
             expectation,
             cue.ExpectedResponse);
+    }
+
+    internal static RuntimeCueSchedule? CreateCueSchedule(GeneratedContentRuntimePackage package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        if (package.Cues.Count == 0)
+        {
+            return null;
+        }
+
+        var identity = new RuntimeGeneratedDrillInstanceIdentity(
+            package.GeneratedInstance.InstanceId,
+            package.GeneratedInstance.ContentIdentity,
+            package.GeneratedInstance.ContentVersion);
+        return new RuntimeCueSchedule(identity, package.Cues.Select(ToRuntimeCue));
     }
 
     private static SelectedWorkRuntimeSessionPreparationResult Reject(

@@ -79,7 +79,12 @@ public sealed record PreUiLiveSessionEvidenceState(
     int CueResponseCount,
     int AnswerCount,
     int CorrectionCount,
-    int ExpectedEvidenceFactCount);
+    int ExpectedEvidenceFactCount,
+    int ReturnCount = 0,
+    int LateReturnCount = 0,
+    int TargetChangeCount = 0,
+    int OpenDriftCount = 0,
+    TimeSpan? MaximumReturnTime = null);
 
 public sealed record PreUiLiveSessionState(
     string SessionId,
@@ -98,7 +103,8 @@ public sealed record PreUiLiveSessionState(
     IReadOnlyList<PreUiLiveSessionCommandState> Commands,
     PreUiLiveSessionEvidenceState Evidence,
     PreUiLiveSessionCommandOutcome? LastCommand,
-    string Detail)
+    string Detail,
+    DrillId? SourceDrill = null)
 {
     public bool IsTerminal => LifecycleStatus is
         RuntimeSessionLifecycleStatus.Completed or
@@ -111,6 +117,7 @@ public sealed record PreUiLiveSessionState(
 public enum PreUiLiveSessionCompletionStatus
 {
     Processed,
+    CancelledBeforeWork,
     NotTerminal,
 }
 
@@ -121,7 +128,8 @@ public sealed class PreUiLiveSessionCompletionRequest
         LocalSessionIntensity intensity = LocalSessionIntensity.Moderate,
         string? notes = null,
         bool recoveryMarked = false,
-        bool deloadMarked = false)
+        bool deloadMarked = false,
+        string? mainFailureModeAvoided = null)
     {
         if (!Enum.IsDefined(intensity))
         {
@@ -133,6 +141,9 @@ public sealed class PreUiLiveSessionCompletionRequest
         Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
         RecoveryMarked = recoveryMarked;
         DeloadMarked = deloadMarked;
+        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
+            ? null
+            : mainFailureModeAvoided.Trim();
     }
 
     public TrainingDate CompletedOn { get; }
@@ -144,6 +155,8 @@ public sealed class PreUiLiveSessionCompletionRequest
     public bool RecoveryMarked { get; }
 
     public bool DeloadMarked { get; }
+
+    public string? MainFailureModeAvoided { get; }
 }
 
 public sealed record PreUiLiveSessionCompletionResult(
@@ -155,6 +168,10 @@ public sealed record PreUiLiveSessionCompletionResult(
 {
     public bool IsProcessed => Status == PreUiLiveSessionCompletionStatus.Processed;
 
+    public bool IsFinalized => Status is
+        PreUiLiveSessionCompletionStatus.Processed or
+        PreUiLiveSessionCompletionStatus.CancelledBeforeWork;
+
     public bool GrantsAdvancementInApp => false;
 }
 
@@ -163,6 +180,8 @@ public sealed class PreUiLiveSessionController
     private static readonly RuntimeInputCommandKind[] RenderedCommands =
     [
         RuntimeInputCommandKind.MarkDrift,
+        RuntimeInputCommandKind.MarkReturn,
+        RuntimeInputCommandKind.MarkTargetChange,
         RuntimeInputCommandKind.RespondToCue,
         RuntimeInputCommandKind.SubmitAnswer,
         RuntimeInputCommandKind.MarkGuess,
@@ -180,6 +199,7 @@ public sealed class PreUiLiveSessionController
     private readonly RuntimeCueScheduler? cueScheduler;
     private readonly IReadOnlyList<GeneratedContentMaterial> inputMaterials;
     private readonly IReadOnlyList<GeneratedContentPayloadFact> expectedEvidenceFacts;
+    private readonly AppTrainingSessionType appSessionType;
     private readonly bool saveActiveSnapshot;
 
     public PreUiLiveSessionController(
@@ -204,7 +224,9 @@ public sealed class PreUiLiveSessionController
         cueScheduler = startResult.CueScheduler;
         inputMaterials = runtimeSession.InputMaterials;
         expectedEvidenceFacts = runtimeSession.ExpectedEvidenceFacts;
+        appSessionType = runtimeSession.SelectedWork.SessionType;
         this.saveActiveSnapshot = saveActiveSnapshot;
+        SynchronizeCueSchedulerToRuntime();
     }
 
     public PreUiLiveSessionController(
@@ -213,6 +235,7 @@ public sealed class PreUiLiveSessionController
         RuntimeCueScheduler? cueScheduler,
         IEnumerable<GeneratedContentMaterial>? inputMaterials = null,
         IEnumerable<GeneratedContentPayloadFact>? expectedEvidenceFacts = null,
+        AppTrainingSessionType? appSessionType = null,
         bool saveActiveSnapshot = true)
     {
         ArgumentNullException.ThrowIfNull(workflow);
@@ -241,7 +264,9 @@ public sealed class PreUiLiveSessionController
         this.cueScheduler = cueScheduler;
         this.inputMaterials = Array.AsReadOnly(materialArray);
         this.expectedEvidenceFacts = Array.AsReadOnly(evidenceFactArray);
+        this.appSessionType = appSessionType ?? ToAppSessionType(commandHandler.EventLog.SessionDefinition.SessionType);
         this.saveActiveSnapshot = saveActiveSnapshot;
+        SynchronizeCueSchedulerToRuntime();
     }
 
     public string SessionId => commandHandler.EventLog.SessionId;
@@ -271,10 +296,44 @@ public sealed class PreUiLiveSessionController
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask<PreUiLiveSessionState> SuspendForLifecycleAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = commandHandler.SuspendForLifecycle();
+        SynchronizeCueSchedulerToRuntime();
+        if (result.IsAccepted)
+        {
+            await SaveSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return BuildState(lastCommand: null, result.IsAccepted
+            ? "Active session suspended for app lifecycle."
+            : "Active session could not be suspended for app lifecycle.");
+    }
+
+    public async ValueTask<PreUiLiveSessionState> ResumeFromLifecycleAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = commandHandler.ResumeFromLifecycleSuspension();
+        SynchronizeCueSchedulerToRuntime();
+        if (result.IsAccepted)
+        {
+            await SaveSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return BuildState(lastCommand: null, result.IsAccepted
+            ? "Active session resumed after app lifecycle suspension."
+            : "Active session could not resume after app lifecycle suspension.");
+    }
+
     public async ValueTask<PreUiLiveSessionState> RefreshAsync(
         CancellationToken cancellationToken = default)
     {
+        SynchronizeCueSchedulerToRuntime();
         var timedAdvance = AdvanceRuntimeIfReady();
+        SynchronizeCueSchedulerToRuntime();
         var cueAdvance = AdvanceCuesIfReady();
         if (timedAdvance.EventCount > 0 || cueAdvance.EventCount > 0)
         {
@@ -297,15 +356,8 @@ public sealed class PreUiLiveSessionController
 
         if (outcome.IsAccepted)
         {
-            if (request.Command == RuntimeInputCommandKind.Pause)
-            {
-                cueScheduler?.Pause();
-            }
-            else if (request.Command == RuntimeInputCommandKind.Resume)
-            {
-                cueScheduler?.Resume();
-            }
-
+            SynchronizeCueSchedulerToRuntime();
+            AdvanceCuesIfReady();
             await SaveSnapshotAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -332,7 +384,45 @@ public sealed class PreUiLiveSessionController
                 "Runtime session is not terminal; app workflow did not process a result.");
         }
 
+        if (completionStatus.Value == RuntimeSessionCompletionStatus.Abandoned &&
+            !HasTrainingWorkStarted(snapshot))
+        {
+            await workflow.CancelPreparedSessionAsync(
+                new PreUiPreparedSessionCancellationRequest(
+                    snapshot.SessionId,
+                    snapshot.GeneratedDrillInstance?.InstanceId,
+                    request.Notes ?? "User left session setup before work started."),
+                cancellationToken).ConfigureAwait(false);
+
+            return new PreUiLiveSessionCompletionResult(
+                PreUiLiveSessionCompletionStatus.CancelledBeforeWork,
+                RuntimeSessionCompletionStatus.Abandoned,
+                WorkflowResult: null,
+                state,
+                "Session setup was cancelled before training work started; no attempt was recorded.");
+        }
+
         var runtimeResult = BuildCompletionResult(snapshot, completionStatus.Value, request);
+        var executable = ExecutableStandardCatalog.Get(
+            snapshot.SessionDefinition.Branch,
+            snapshot.SessionDefinition.Level);
+        var evaluatedStandard = executable.Drill == snapshot.SessionDefinition.Drill
+            ? StandardForSession(executable, snapshot)
+            : null;
+        var standardEvaluation = evaluatedStandard is null
+            ? null
+            : RuntimeStandardEvaluationHandoffMapper.Map(
+                runtimeResult,
+                inputMaterials.Select(material => new RuntimeScoringMaterial(
+                    material.Kind.ToString(),
+                    material.Name,
+                    material.Value)));
+        var standardResult = EvaluateStandard(evaluatedStandard, standardEvaluation);
+        EnsurePassingFormalWorkNamesFailureMode(request, standardResult);
+        var formalGate = FormalGateFor(request, standardResult);
+        var readinessPractice = ReadinessPracticeFor(snapshot, standardResult);
+        var stabilization = StabilizationFor(request, standardResult);
+        var maintenance = MaintenanceFor(request.CompletedOn, snapshot, standardResult);
         var workflowResult = await workflow.CompleteSessionAsync(
             new PreUiTrainingWorkflowCompletionRequest(
                 new CompletedRuntimeSessionProcessingRequest(
@@ -340,10 +430,23 @@ public sealed class PreUiLiveSessionController
                     new RuntimePersistenceHandoffMetadata(
                         request.CompletedOn,
                         request.Intensity,
-                        CleanPerformance(completionStatus.Value, snapshot),
+                        cleanPerformance: false,
                         request.Notes ?? DefaultCompletionNotes(snapshot, completionStatus.Value),
-                        recoveryMarked: request.RecoveryMarked,
-                        deloadMarked: request.DeloadMarked)),
+                        transferTask: appSessionType == AppTrainingSessionType.Transfer
+                            ? TransferTestCatalog.TransferTests.Single(test =>
+                                test.SourceBranch == snapshot.SessionDefinition.Branch).TransferTask
+                            : null,
+                        recoveryMarked: request.RecoveryMarked ||
+                            appSessionType == AppTrainingSessionType.Recovery,
+                        deloadMarked: request.DeloadMarked),
+                    evaluatedStandard,
+                    standardEvaluation,
+                    formalGate,
+                    readinessPractice,
+                    stabilization,
+                    maintenance,
+                    transfer: TransferFor(snapshot, standardResult),
+                    failureResponse: FailureResponseFor(snapshot, standardResult)),
                 request.CompletedOn),
             cancellationToken).ConfigureAwait(false);
 
@@ -388,7 +491,7 @@ public sealed class PreUiLiveSessionController
     {
         if (cueScheduler is null ||
             commandHandler.LifecycleState.Status != RuntimeSessionLifecycleStatus.Running ||
-            commandHandler.CurrentPhase?.Kind != RuntimeSessionPhaseKind.CueResponse)
+            !CueSchedulingIsActive())
         {
             return new PreUiLiveSessionCommandOutcome(
                 RuntimeInputCommandKind.RespondToCue,
@@ -413,6 +516,31 @@ public sealed class PreUiLiveSessionController
                 : "Runtime emitted due cue events.");
     }
 
+    private void SynchronizeCueSchedulerToRuntime()
+    {
+        if (cueScheduler is null)
+        {
+            return;
+        }
+
+        if (commandHandler.LifecycleState.Status == RuntimeSessionLifecycleStatus.Running &&
+            CueSchedulingIsActive())
+        {
+            cueScheduler.Resume();
+            return;
+        }
+
+        cueScheduler.Pause();
+    }
+
+    private bool CueSchedulingIsActive()
+    {
+        return commandHandler.CurrentPhase?.Kind == RuntimeSessionPhaseKind.CueResponse ||
+            (commandHandler.EventLog.SessionDefinition.Drill == DrillId.FH2DistractorHold ||
+                commandHandler.EventLog.SessionDefinition.SourceDrill == DrillId.FH2DistractorHold) &&
+            commandHandler.CurrentPhase?.Kind == RuntimeSessionPhaseKind.ActiveWork;
+    }
+
     private PreUiLiveSessionCommandOutcome HandleCueResponse(
         PreUiLiveSessionCommandRequest request)
     {
@@ -434,7 +562,8 @@ public sealed class PreUiLiveSessionController
                 "No runtime cue scheduler is active for this session.");
         }
 
-        var cueId = request.TargetId ?? ActiveCue(cueScheduler.CaptureSnapshot())?.CueId;
+        var activeCue = ActiveCueState(cueScheduler, cueScheduler.CaptureSnapshot());
+        var cueId = request.TargetId ?? activeCue?.CueId;
         if (cueId is null)
         {
             return new PreUiLiveSessionCommandOutcome(
@@ -447,7 +576,9 @@ public sealed class PreUiLiveSessionController
                 "Runtime has not presented a cue to answer.");
         }
 
-        var response = request.Value ?? "response";
+        var scheduledCue = cueScheduler.Schedule.Cues.FirstOrDefault(cue =>
+            string.Equals(cue.Id, cueId, StringComparison.Ordinal));
+        var response = request.Value ?? scheduledCue?.ExpectedResponse ?? "respond";
         var result = cueScheduler.RecordResponse(RuntimeCueResponse.ForCue(cueId, response));
         return new PreUiLiveSessionCommandOutcome(
             RuntimeInputCommandKind.RespondToCue,
@@ -483,9 +614,14 @@ public sealed class PreUiLiveSessionController
         {
             RuntimeInputCommandKind.MarkDrift =>
                 RuntimeInputCommand.MarkDrift(request.TargetId ?? GeneratedCommandId("drift")),
+            RuntimeInputCommandKind.MarkReturn =>
+                RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(
+                    FocusHoldLevelOneStandard.ReturnWindowSeconds)),
+            RuntimeInputCommandKind.MarkTargetChange =>
+                RuntimeInputCommand.MarkTargetChange(request.Value ?? "different target"),
             RuntimeInputCommandKind.SubmitAnswer =>
                 RuntimeInputCommand.SubmitAnswer(
-                    request.TargetId ?? GeneratedCommandId("answer"),
+                    request.TargetId ?? commandHandler.CurrentPhase?.Id ?? GeneratedCommandId("answer"),
                     request.Value ?? "submitted"),
             RuntimeInputCommandKind.MarkGuess =>
                 RuntimeInputCommand.MarkGuess(request.TargetId ?? GeneratedCommandId("guess")),
@@ -520,11 +656,7 @@ public sealed class PreUiLiveSessionController
             ?.OccurredAt ?? RuntimeInstant.Zero;
         var completedAt = snapshot.RuntimeEvents.LastOrDefault(IsTerminalRuntimeEvent)
             ?.OccurredAt ?? snapshot.CapturedAt;
-        var captureKind = completionStatus != RuntimeSessionCompletionStatus.Completed
-            ? RuntimeEvidenceCaptureKind.FailedSet
-            : HasFailureMarks(snapshot)
-                ? RuntimeEvidenceCaptureKind.FailedSet
-                : RuntimeEvidenceCaptureKind.BestSet;
+        var captureKind = EvidenceCaptureKind(completionStatus, snapshot);
 
         var result = RuntimeSessionCoordinator.Complete(new RuntimeSessionCoordinatorRequest(
             snapshot.SessionId,
@@ -536,9 +668,248 @@ public sealed class PreUiLiveSessionController
             snapshot.PhaseScheduler.CompletedPhases,
             CoordinatorEvents(snapshot),
             persistenceInputs: null,
-            completionFacts: CompletionFacts(snapshot, completionStatus, request)));
+            completionFacts: CompletionFacts(snapshot, completionStatus, request),
+            evidenceDate: request.CompletedOn));
 
         return result.CompletionResult;
+    }
+
+    private RuntimeEvidenceCaptureKind EvidenceCaptureKind(
+        RuntimeSessionCompletionStatus completionStatus,
+        RuntimeSessionSnapshot snapshot)
+    {
+        if (completionStatus != RuntimeSessionCompletionStatus.Completed)
+        {
+            return RuntimeEvidenceCaptureKind.FailedSet;
+        }
+
+        return appSessionType switch
+        {
+            AppTrainingSessionType.Test => RuntimeEvidenceCaptureKind.FormalAttempt,
+            AppTrainingSessionType.Stabilization => RuntimeEvidenceCaptureKind.Stabilization,
+            AppTrainingSessionType.Transfer => RuntimeEvidenceCaptureKind.Transfer,
+            AppTrainingSessionType.Maintenance => RuntimeEvidenceCaptureKind.Maintenance,
+            _ => HasFailureMarks(snapshot)
+                ? RuntimeEvidenceCaptureKind.FailedSet
+                : RuntimeEvidenceCaptureKind.BestSet,
+        };
+    }
+
+    private RuntimeFormalGateHandoffInput? FormalGateFor(
+        PreUiLiveSessionCompletionRequest request,
+        StandardEvaluationResult? standardResult)
+    {
+        if (appSessionType is not AppTrainingSessionType.Test and not AppTrainingSessionType.Transfer ||
+            standardResult is null)
+        {
+            return null;
+        }
+
+        return new RuntimeFormalGateHandoffInput(
+            request.CompletedOn,
+            new TestResultEvidence(
+                TestResultEvidenceKind.Score,
+                standardResult.Passed ? "The stated standard passed." : "The stated standard was not met."),
+            standardResult.Passed ? FormalTestPassState.PassOnce : FormalTestPassState.Fail,
+            standardResult.Passed ? null : FailureType.TechnicalFailure,
+            task: appSessionType == AppTrainingSessionType.Transfer
+                ? TestTask.ForTransfer(TransferTestCatalog.TransferTests.Single(test =>
+                    test.SourceBranch == commandHandler.EventLog.SessionDefinition.Branch).TransferTask)
+                : null,
+            mainFailureModeAvoided: request.MainFailureModeAvoided);
+    }
+
+    private RuntimeReadinessPracticeHandoffInput? ReadinessPracticeFor(
+        RuntimeSessionSnapshot snapshot,
+        StandardEvaluationResult? standardResult)
+    {
+        if (appSessionType is not AppTrainingSessionType.Practice and not AppTrainingSessionType.Load ||
+            standardResult is null)
+        {
+            return null;
+        }
+
+        var profile = TrainingLoadProfileCatalog.Get(
+            snapshot.SessionDefinition.Branch,
+            snapshot.SessionDefinition.Level);
+        var fullLoad = TrainingLoadStageStandardResolver.IsFormalStandardLoad(
+            profile,
+            snapshot.SessionDefinition.LoadVariables);
+        return new RuntimeReadinessPracticeHandoffInput(
+            snapshot.SessionDefinition.Standard.Demand,
+            standardResult.Passed && fullLoad);
+    }
+
+    private EvaluatedStandard StandardForSession(
+        ExecutableTrainingStandardDefinition executable,
+        RuntimeSessionSnapshot snapshot)
+    {
+        if (appSessionType is AppTrainingSessionType.Test or
+            AppTrainingSessionType.Stabilization or
+            AppTrainingSessionType.Transfer or
+            AppTrainingSessionType.Maintenance)
+        {
+            return executable.EvaluatedStandard;
+        }
+
+        return TrainingLoadStageStandardResolver.Resolve(
+            TrainingLoadProfileCatalog.Get(
+                snapshot.SessionDefinition.Branch,
+                snapshot.SessionDefinition.Level),
+            snapshot.SessionDefinition.LoadVariables,
+            executable.EvaluatedStandard);
+    }
+
+    private RuntimeStabilizationCoreHandoffInput? StabilizationFor(
+        PreUiLiveSessionCompletionRequest request,
+        StandardEvaluationResult? standardResult)
+    {
+        if (appSessionType != AppTrainingSessionType.Stabilization || standardResult is null)
+        {
+            return null;
+        }
+
+        return new RuntimeStabilizationCoreHandoffInput(
+            request.CompletedOn,
+            standardResult,
+            standardResult.Passed ? FormalTestPassState.StabilizationPass : FormalTestPassState.Fail,
+            afterAdjacentWorkOrControlledDistractor: inputMaterials.Any(material => material.Kind is
+                GeneratedContentMaterialKind.DistractorPrompt or
+                GeneratedContentMaterialKind.Interference or
+                GeneratedContentMaterialKind.DisruptionEvent),
+            request.MainFailureModeAvoided ?? string.Empty);
+    }
+
+    private RuntimeMaintenanceCoreHandoffInput? MaintenanceFor(
+        TrainingDate date,
+        RuntimeSessionSnapshot snapshot,
+        StandardEvaluationResult? standardResult)
+    {
+        if (appSessionType != AppTrainingSessionType.Maintenance || standardResult is null)
+        {
+            return null;
+        }
+
+        return new RuntimeMaintenanceCoreHandoffInput(
+            date,
+            snapshot.SessionDefinition.Level,
+            MaintenanceCheckKind.StandardOrTransfer,
+            standardResult);
+    }
+
+    private RuntimeTransferEligibilityHandoffInput? TransferFor(
+        RuntimeSessionSnapshot snapshot,
+        StandardEvaluationResult? standardResult)
+    {
+        if (appSessionType != AppTrainingSessionType.Transfer || standardResult is null)
+        {
+            return null;
+        }
+
+        var transfer = TransferTestCatalog.TransferTests.Single(test =>
+            test.SourceBranch == snapshot.SessionDefinition.Branch);
+        var sourceStandard = snapshot.SessionDefinition.Standard;
+        var capacity = ProgramCatalog.Drills
+            .Single(drill => drill.Id == snapshot.SessionDefinition.Drill)
+            .CapacityTrained
+            .FirstOrDefault();
+        return new RuntimeTransferEligibilityHandoffInput(
+            snapshot.SessionDefinition.Level,
+            transfer.TransferTask,
+            capacity,
+            transfer.SameDemand,
+            transfer.ChangedContext,
+            new TransferSourceStandardEvidence(
+                snapshot.SessionDefinition.Branch,
+                snapshot.SessionDefinition.Level,
+                sourceStandard.Standard,
+                visibleInTransferArtifact: inputMaterials.Any(material =>
+                    material.Kind == GeneratedContentMaterialKind.SourceBranchStandard)),
+            transfer.RetestRequirement);
+    }
+
+    private RuntimeFailureResponseHandoffInput? FailureResponseFor(
+        RuntimeSessionSnapshot snapshot,
+        StandardEvaluationResult? standardResult)
+    {
+        if (standardResult is null || standardResult.Passed)
+        {
+            return null;
+        }
+
+        var failureType = standardResult.Failures.Any(failure =>
+            failure.Kind == StandardFailureKind.CriticalConstraintBroken)
+                ? FailureType.EffortFailure
+                : standardResult.Failures.Any(failure =>
+                    failure.Kind == StandardFailureKind.NumericalThresholdMissed)
+                    ? FailureType.Overload
+                    : FailureType.TechnicalFailure;
+        var signals = failureType switch
+        {
+            FailureType.EffortFailure => new[] { FailureEvidenceSignal.BrokenHonestyConstraint },
+            FailureType.Overload => new[]
+            {
+                FailureEvidenceSignal.ErrorsRiseAfterLoadIncrease,
+                FailureEvidenceSignal.ConstraintPreserved,
+            },
+            _ => new[] { FailureEvidenceSignal.WrongProcedure },
+        };
+        _ = snapshot;
+        return new RuntimeFailureResponseHandoffInput(
+            failureType,
+            signals,
+            isFirstFailureOfType: true,
+            repeatedOverloadInSameBranch: false);
+    }
+
+    private void EnsurePassingFormalWorkNamesFailureMode(
+        PreUiLiveSessionCompletionRequest request,
+        StandardEvaluationResult? standardResult)
+    {
+        if (standardResult?.Passed != true ||
+            appSessionType is not AppTrainingSessionType.Test and
+                not AppTrainingSessionType.Transfer and
+                not AppTrainingSessionType.Stabilization ||
+            !string.IsNullOrWhiteSpace(request.MainFailureModeAvoided))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "A passing formal or stabilization session must name the documented failure mode the practitioner avoided.");
+    }
+
+    private static StandardEvaluationResult? EvaluateStandard(
+        EvaluatedStandard? standard,
+        RuntimeStandardEvaluationHandoffInput? input)
+    {
+        if (standard is null || input is null)
+        {
+            return null;
+        }
+
+        return StandardEvaluator.Evaluate(
+            standard,
+            new StandardEvaluationAttempt(
+                input.Measurements,
+                input.CriticalConstraintChecks,
+                input.OutputComplete,
+                input.RubricOutcome));
+    }
+
+    private static AppTrainingSessionType ToAppSessionType(SessionType sessionType)
+    {
+        return sessionType switch
+        {
+            SessionType.Practice => AppTrainingSessionType.Practice,
+            SessionType.Load => AppTrainingSessionType.Load,
+            SessionType.Test => AppTrainingSessionType.Test,
+            SessionType.Stabilization => AppTrainingSessionType.Stabilization,
+            SessionType.Regression => AppTrainingSessionType.Regression,
+            SessionType.Transfer => AppTrainingSessionType.Transfer,
+            SessionType.Recovery => AppTrainingSessionType.Recovery,
+            _ => throw new ArgumentOutOfRangeException(nameof(sessionType), sessionType, "Unknown runtime session type."),
+        };
     }
 
     private static IEnumerable<RuntimeSessionCoordinatorEventInput> CoordinatorEvents(
@@ -555,7 +926,7 @@ public sealed class PreUiLiveSessionController
                 runtimeEvent.Facts));
     }
 
-    private static IReadOnlyList<RuntimeEventFact> CompletionFacts(
+    private IReadOnlyList<RuntimeEventFact> CompletionFacts(
         RuntimeSessionSnapshot snapshot,
         RuntimeSessionCompletionStatus completionStatus,
         PreUiLiveSessionCompletionRequest request)
@@ -580,7 +951,8 @@ public sealed class PreUiLiveSessionController
         if (completionStatus != RuntimeSessionCompletionStatus.Completed || HasFailureMarks(snapshot))
         {
             var errorCount = CountEvents(snapshot, RuntimeEventKind.ErrorRecorded) +
-                CountEvents(snapshot, RuntimeEventKind.GuessMarked);
+                CountEvents(snapshot, RuntimeEventKind.GuessMarked) +
+                CueFailureCount(snapshot);
             facts.Add(new RuntimeEventFact("failed_item_list", FailureSummary(snapshot)));
             facts.Add(new RuntimeEventFact("error_count", errorCount.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
@@ -600,21 +972,11 @@ public sealed class PreUiLiveSessionController
         };
     }
 
-    private static bool CleanPerformance(
-        RuntimeSessionCompletionStatus completionStatus,
-        RuntimeSessionSnapshot snapshot)
-    {
-        _ = completionStatus;
-        _ = snapshot;
-
-        // Generic live completion persists evidence; clean readiness credit requires explicit standard evaluation.
-        return false;
-    }
-
-    private static bool HasFailureMarks(RuntimeSessionSnapshot snapshot)
+    private bool HasFailureMarks(RuntimeSessionSnapshot snapshot)
     {
         return CountEvents(snapshot, RuntimeEventKind.ErrorRecorded) > 0 ||
-            CountEvents(snapshot, RuntimeEventKind.GuessMarked) > 0;
+            CountEvents(snapshot, RuntimeEventKind.GuessMarked) > 0 ||
+            CueFailureCount(snapshot) > 0;
     }
 
     private static string CompletionOutputSample(RuntimeSessionSnapshot snapshot)
@@ -623,27 +985,32 @@ public sealed class PreUiLiveSessionController
             $"{snapshot.SessionDefinition.Drill} live session completed from runtime event log.";
     }
 
-    private static string CompletionScore(RuntimeSessionSnapshot snapshot)
+    private string CompletionScore(RuntimeSessionSnapshot snapshot)
     {
         return string.Join(
             "; ",
             [
                 $"drift_count={CountEvents(snapshot, RuntimeEventKind.DriftMarked)}",
+                $"return_count={CountEvents(snapshot, RuntimeEventKind.RecoveryCompleted)}",
+                $"late_return_count={CountFactValue(snapshot, "return_timing_outcome", "late")}",
+                $"target_substitution_count={CountFactValue(snapshot, "error_kind", "target_substitution")}",
                 $"guess_count={CountEvents(snapshot, RuntimeEventKind.GuessMarked)}",
                 $"error_count={CountEvents(snapshot, RuntimeEventKind.ErrorRecorded)}",
+                $"cue_error_count={CueFailureCount(snapshot)}",
                 $"answer_count={CountEvents(snapshot, RuntimeEventKind.AnswerSubmitted)}",
                 $"cue_response_count={CountEvents(snapshot, RuntimeEventKind.CueResponseSubmitted)}",
                 $"completed_phase_count={snapshot.PhaseScheduler.CompletedPhases.Count}",
             ]);
     }
 
-    private static string FailureSummary(RuntimeSessionSnapshot snapshot)
+    private string FailureSummary(RuntimeSessionSnapshot snapshot)
     {
         return string.Join(
             "; ",
             [
                 $"guess_count={CountEvents(snapshot, RuntimeEventKind.GuessMarked)}",
                 $"error_count={CountEvents(snapshot, RuntimeEventKind.ErrorRecorded)}",
+                $"cue_error_count={CueFailureCount(snapshot)}",
                 $"correction_count={CountEvents(snapshot, RuntimeEventKind.CorrectionSubmitted)}",
             ]);
     }
@@ -660,6 +1027,13 @@ public sealed class PreUiLiveSessionController
     private static bool IsTerminalRuntimeEvent(RuntimeEvent runtimeEvent)
     {
         return runtimeEvent.Kind is RuntimeEventKind.SessionCompleted or RuntimeEventKind.SessionAbandoned;
+    }
+
+    private static bool HasTrainingWorkStarted(RuntimeSessionSnapshot snapshot)
+    {
+        return snapshot.RuntimeEvents.Any(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.PhaseStarted &&
+            runtimeEvent.PhaseKind is not null and not RuntimeSessionPhaseKind.InstructionPrep);
     }
 
     private static string RefreshDetail(
@@ -704,101 +1078,558 @@ public sealed class PreUiLiveSessionController
             activePhase?.CompletionRule,
             timer,
             activeCue,
-            CurrentMaterials(activePhase).ToArray(),
-            CommandStates(activeCue).ToArray(),
+            CurrentMaterials(
+                snapshot.SessionDefinition.Drill,
+                snapshot.SessionDefinition.SourceDrill,
+                activePhase).ToArray(),
+            CommandStates(activeCue, snapshot, cueSnapshot).ToArray(),
             EvidenceState(snapshot),
             lastCommand,
-            detail);
+            detail,
+            snapshot.SessionDefinition.SourceDrill);
     }
 
     private IEnumerable<PreUiLiveSessionCommandState> CommandStates(
-        PreUiLiveSessionCueState? activeCue)
+        PreUiLiveSessionCueState? activeCue,
+        RuntimeSessionSnapshot snapshot,
+        RuntimeCueSchedulerSnapshot? cueSnapshot)
     {
+        var drill = snapshot.SessionDefinition.Drill;
+        var phase = ActivePhase(snapshot);
+        var phaseHasAnswer = phase is not null && snapshot.RuntimeEvents.Any(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+            string.Equals(runtimeEvent.PhaseId, phase.Id, StringComparison.Ordinal));
+        var phaseHasAuditStart = phase is not null && snapshot.RuntimeEvents.Any(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.AuditStarted &&
+            string.Equals(runtimeEvent.PhaseId, phase.Id, StringComparison.Ordinal));
+
         foreach (var command in RenderedCommands)
         {
-            var availability = commandHandler.AvailabilityFor(command);
-            if (command == RuntimeInputCommandKind.RespondToCue && availability.IsAvailable && activeCue is null)
+            if (!IsRenderedForDrill(
+                    drill,
+                    snapshot.SessionDefinition.SourceDrill,
+                    phase?.Kind,
+                    command))
             {
-                yield return new PreUiLiveSessionCommandState(
-                    command,
-                    IsAvailable: false,
-                    InvalidReason: null,
-                    CueInvalidReason: RuntimeCueResponseInvalidReason.CueNotPresented,
-                    LabelFor(command));
                 continue;
+            }
+
+            var availability = commandHandler.AvailabilityFor(command);
+            var presentationAvailable = availability.IsAvailable;
+            if (command == RuntimeInputCommandKind.RespondToCue &&
+                (activeCue is null ||
+                    activeCue.ResponseExpectation != RuntimeCueResponseExpectation.ResponseRequired))
+            {
+                presentationAvailable = false;
+            }
+
+            if (command == RuntimeInputCommandKind.FinishPhase &&
+                phase?.Kind == RuntimeSessionPhaseKind.CueResponse &&
+                !CueSequenceComplete(cueSnapshot))
+            {
+                presentationAvailable = false;
+            }
+
+            if (command == RuntimeInputCommandKind.StartAudit && phaseHasAuditStart)
+            {
+                presentationAvailable = false;
+            }
+
+            if (command == RuntimeInputCommandKind.SubmitAnswer && phaseHasAnswer)
+            {
+                presentationAvailable = false;
+            }
+
+            if (command == RuntimeInputCommandKind.FinishPhase &&
+                RequiresSubmittedAnswer(drill, phase?.Kind) &&
+                !phaseHasAnswer)
+            {
+                presentationAvailable = false;
+            }
+
+            if (command == RuntimeInputCommandKind.SubmitAnswer &&
+                phase?.Kind == RuntimeSessionPhaseKind.Audit &&
+                !phaseHasAuditStart)
+            {
+                presentationAvailable = false;
             }
 
             yield return new PreUiLiveSessionCommandState(
                 command,
-                availability.IsAvailable,
+                presentationAvailable,
                 availability.InvalidReason,
-                CueInvalidReason: null,
+                CueInvalidReason: command == RuntimeInputCommandKind.RespondToCue && activeCue is null
+                    ? RuntimeCueResponseInvalidReason.CueNotPresented
+                    : null,
                 LabelFor(command));
         }
     }
 
     private IEnumerable<PreUiLiveSessionMaterialState> CurrentMaterials(
+        DrillId drill,
+        DrillId? sourceDrill,
         RuntimeSessionPhaseDefinition? activePhase)
     {
-        var preferredKinds = MaterialKindsFor(activePhase?.Kind).ToArray();
-        var materials = inputMaterials
-            .Where(material => preferredKinds.Length == 0 || preferredKinds.Contains(material.Kind))
-            .Take(8)
-            .ToArray();
-
-        if (materials.Length == 0)
+        var preferredKinds = MaterialKindsFor(
+            drill,
+            sourceDrill,
+            activePhase?.Kind,
+            activePhase?.Id).ToList();
+        if (activePhase?.Kind == RuntimeSessionPhaseKind.ReconstructionInput &&
+            inputMaterials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload))
         {
-            materials = inputMaterials.Take(8).ToArray();
+            preferredKinds.Add(GeneratedContentMaterialKind.ComponentPayload);
+            preferredKinds.Add(GeneratedContentMaterialKind.ComponentEvidenceRequirement);
         }
+        var materials = activePhase?.Kind == RuntimeSessionPhaseKind.Review
+            ? inputMaterials.Where(material => !IsScoringOnlyMaterial(material.Kind)).ToArray()
+            : preferredKinds
+                .SelectMany(kind => inputMaterials.Where(material => material.Kind == kind))
+                .ToArray();
 
-        return materials.Select(material => new PreUiLiveSessionMaterialState(
-            material.Kind.ToString(),
-            material.Name,
-            material.Value));
+        return materials
+            .DistinctBy(material => (material.Kind, material.Value))
+            .Select(material => new PreUiLiveSessionMaterialState(
+                material.Kind.ToString(),
+                material.Name,
+                material.Value));
+    }
+
+    private static bool IsScoringOnlyMaterial(GeneratedContentMaterialKind kind)
+    {
+        return kind is
+            GeneratedContentMaterialKind.BranchScoringKey or
+            GeneratedContentMaterialKind.ExpectedAction or
+            GeneratedContentMaterialKind.ExpectedReconstruction or
+            GeneratedContentMaterialKind.FinalExpectedOutput or
+            GeneratedContentMaterialKind.ExpectedFinding or
+            GeneratedContentMaterialKind.ExpectedClassification or
+            GeneratedContentMaterialKind.ExpectedMapping or
+            GeneratedContentMaterialKind.MatchTruth;
     }
 
     private static IEnumerable<GeneratedContentMaterialKind> MaterialKindsFor(
-        RuntimeSessionPhaseKind? phase)
+        DrillId drill,
+        DrillId? sourceDrill,
+        RuntimeSessionPhaseKind? phase,
+        string? phaseId)
     {
+        if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery && sourceDrill.HasValue)
+        {
+            GeneratedContentMaterialKind[] wrapperKinds = phase switch
+            {
+                RuntimeSessionPhaseKind.InstructionPrep => drill == DrillId.AI1PressureRepeat
+                    ?
+                    [
+                        GeneratedContentMaterialKind.SourceBranchStandard,
+                        GeneratedContentMaterialKind.PressureSource,
+                        GeneratedContentMaterialKind.NoStandardLoweringMarker,
+                        GeneratedContentMaterialKind.HonestyConstraint,
+                    ]
+                    :
+                    [
+                        GeneratedContentMaterialKind.SourceTask,
+                        GeneratedContentMaterialKind.RestartRule,
+                        GeneratedContentMaterialKind.RecoveryWindow,
+                        GeneratedContentMaterialKind.HonestyConstraint,
+                    ],
+                RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse => drill == DrillId.AI1PressureRepeat
+                    ?
+                    [
+                        GeneratedContentMaterialKind.PressureSource,
+                        GeneratedContentMaterialKind.NoStandardLoweringMarker,
+                    ]
+                    :
+                    [
+                        GeneratedContentMaterialKind.DisruptionEvent,
+                        GeneratedContentMaterialKind.RestartRule,
+                        GeneratedContentMaterialKind.RecoveryWindow,
+                    ],
+                _ => [],
+            };
+
+            return wrapperKinds
+                .Concat(MaterialKindsFor(sourceDrill.Value, sourceDrill: null, phase, phaseId))
+                .Distinct();
+        }
+
+        if (phase == RuntimeSessionPhaseKind.InstructionPrep)
+        {
+            return drill switch
+            {
+                DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
+                [
+                    GeneratedContentMaterialKind.TargetStatement,
+                    GeneratedContentMaterialKind.DistractorNoResponseRule,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter =>
+                [
+                    GeneratedContentMaterialKind.TargetSet,
+                    GeneratedContentMaterialKind.ResponseWindow,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.WM1DelayedReconstruction =>
+                [
+                    GeneratedContentMaterialKind.EncodeInstruction,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.WM2MentalTransform =>
+                [
+                    GeneratedContentMaterialKind.TransformRule,
+                    GeneratedContentMaterialKind.HiddenNotePolicy,
+                    GeneratedContentMaterialKind.RuleExplanationPrompt,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.IR1GoNoGoRule =>
+                [
+                    GeneratedContentMaterialKind.RuleStatement,
+                    GeneratedContentMaterialKind.CuePace,
+                    GeneratedContentMaterialKind.NoGoFrequency,
+                    GeneratedContentMaterialKind.ResponseWindow,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.IR2ExceptionRule =>
+                [
+                    GeneratedContentMaterialKind.RuleStatement,
+                    GeneratedContentMaterialKind.ExceptionDefinition,
+                    GeneratedContentMaterialKind.CuePace,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.DE1PairDiscrimination =>
+                [
+                    GeneratedContentMaterialKind.RelevantFeature,
+                    GeneratedContentMaterialKind.GuessHandling,
+                    GeneratedContentMaterialKind.FalsePositiveFalseNegativeKey,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.DE2SeededAudit =>
+                [
+                    GeneratedContentMaterialKind.AuditInstruction,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.CO1RuleExtraction =>
+                [
+                    GeneratedContentMaterialKind.RuleFamily,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.CO2StructureMapping =>
+                [
+                    GeneratedContentMaterialKind.MappingLimit,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.AI1PressureRepeat =>
+                [
+                    GeneratedContentMaterialKind.SourceBranchStandard,
+                    GeneratedContentMaterialKind.PressureSource,
+                    GeneratedContentMaterialKind.NoStandardLoweringMarker,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.AI2DisruptionRecovery =>
+                [
+                    GeneratedContentMaterialKind.SourceTask,
+                    GeneratedContentMaterialKind.RestartRule,
+                    GeneratedContentMaterialKind.RecoveryWindow,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask =>
+                [
+                    GeneratedContentMaterialKind.CompositeTaskPrompt,
+                    GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                    GeneratedContentMaterialKind.PressureSource,
+                    GeneratedContentMaterialKind.HonestyConstraint,
+                ],
+                _ => [],
+            };
+        }
+
+        if (phase == RuntimeSessionPhaseKind.ActiveWork)
+        {
+            return drill switch
+            {
+                DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
+                [
+                    GeneratedContentMaterialKind.TargetStatement,
+                    GeneratedContentMaterialKind.HoldDuration,
+                    GeneratedContentMaterialKind.RecoveryWindow,
+                    GeneratedContentMaterialKind.DriftMarkingEvidenceShape,
+                    GeneratedContentMaterialKind.DistractorNoResponseRule,
+                ],
+                DrillId.DE1PairDiscrimination =>
+                [
+                    GeneratedContentMaterialKind.DiscriminationPair,
+                    GeneratedContentMaterialKind.RelevantFeature,
+                    GeneratedContentMaterialKind.GuessHandling,
+                    GeneratedContentMaterialKind.FalsePositiveFalseNegativeKey,
+                ],
+                DrillId.CO1RuleExtraction =>
+                [
+                    GeneratedContentMaterialKind.PositiveExample,
+                    GeneratedContentMaterialKind.NegativeExample,
+                ],
+                DrillId.CO2StructureMapping =>
+                [
+                    GeneratedContentMaterialKind.SourceStructure,
+                    GeneratedContentMaterialKind.TargetStructure,
+                    GeneratedContentMaterialKind.MappingLimit,
+                ],
+                DrillId.AI1PressureRepeat =>
+                [
+                    GeneratedContentMaterialKind.SourceBranchStandard,
+                    GeneratedContentMaterialKind.PressureSource,
+                    GeneratedContentMaterialKind.NoStandardLoweringMarker,
+                ],
+                DrillId.AI2DisruptionRecovery =>
+                [
+                    GeneratedContentMaterialKind.SourceTask,
+                    GeneratedContentMaterialKind.DisruptionEvent,
+                    GeneratedContentMaterialKind.DisruptionTiming,
+                    GeneratedContentMaterialKind.RestartDelay,
+                    GeneratedContentMaterialKind.TaskComplexity,
+                    GeneratedContentMaterialKind.RestartRule,
+                    GeneratedContentMaterialKind.RecoveryWindow,
+                    GeneratedContentMaterialKind.PostDisruptionEvidence,
+                ],
+                DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask =>
+                [
+                    GeneratedContentMaterialKind.CompositeTaskPrompt,
+                    GeneratedContentMaterialKind.ComponentPayload,
+                    GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                    GeneratedContentMaterialKind.PressureSource,
+                ],
+                _ => [],
+            };
+        }
+
         return phase switch
         {
-            RuntimeSessionPhaseKind.InstructionPrep =>
+            RuntimeSessionPhaseKind.EncodeWindow => drill == DrillId.WM2MentalTransform
+                ?
+                [
+                    GeneratedContentMaterialKind.SourceItem,
+                    GeneratedContentMaterialKind.TransformRule,
+                    GeneratedContentMaterialKind.OperationStep,
+                    GeneratedContentMaterialKind.HiddenNotePolicy,
+                ]
+                :
+                [
+                    GeneratedContentMaterialKind.EncodeInstruction,
+                    GeneratedContentMaterialKind.EncodeItem,
+                ],
+            RuntimeSessionPhaseKind.CueResponse => drill == DrillId.IR2ExceptionRule
+                ?
+                [
+                    GeneratedContentMaterialKind.RuleStatement,
+                    GeneratedContentMaterialKind.ExceptionDefinition,
+                    GeneratedContentMaterialKind.CuePace,
+                ]
+                : drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter
+                    ?
+                    [
+                        GeneratedContentMaterialKind.TargetSet,
+                        GeneratedContentMaterialKind.ResponseWindow,
+                    ]
+                    :
+                    [
+                        GeneratedContentMaterialKind.CuePace,
+                        GeneratedContentMaterialKind.NoGoFrequency,
+                        GeneratedContentMaterialKind.ResponseWindow,
+                    ],
+            RuntimeSessionPhaseKind.ReconstructionInput => drill == DrillId.CO1RuleExtraction
+                ?
+                [
+                    GeneratedContentMaterialKind.UnseenExample,
+                ]
+                : drill == DrillId.CO2StructureMapping
+                ?
+                [
+                    GeneratedContentMaterialKind.SourceStructure,
+                    GeneratedContentMaterialKind.TargetStructure,
+                    GeneratedContentMaterialKind.RequiredRelation,
+                    GeneratedContentMaterialKind.MappingLimit,
+                ]
+                : drill == DrillId.TI1CompositeTask
+                ?
+                [
+                    GeneratedContentMaterialKind.DelayedReconstructionPayload,
+                    GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                ]
+                : drill == DrillId.TI2GlobalReviewTask
+                ?
+                [
+                    GeneratedContentMaterialKind.DelayedReconstructionPayload,
+                    GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                ]
+                : drill == DrillId.WM2MentalTransform
+                ?
+                [
+                    GeneratedContentMaterialKind.TransformRule,
+                    GeneratedContentMaterialKind.RuleExplanationPrompt,
+                    GeneratedContentMaterialKind.HiddenNotePolicy,
+                ]
+                :
+                [
+                    GeneratedContentMaterialKind.ReconstructionInstruction,
+                ],
+            RuntimeSessionPhaseKind.Audit => drill == DrillId.TI2GlobalReviewTask
+                ?
+                [
+                    GeneratedContentMaterialKind.CompositeTaskPrompt,
+                    GeneratedContentMaterialKind.AuditPayload,
+                    GeneratedContentMaterialKind.ComponentEvidenceRequirement,
+                    GeneratedContentMaterialKind.PressureSource,
+                ]
+                : drill == DrillId.CO2StructureMapping
+                ?
+                [
+                    GeneratedContentMaterialKind.AuditPayload,
+                    GeneratedContentMaterialKind.MappingLimit,
+                ]
+                :
+                [
+                    GeneratedContentMaterialKind.AuditInstruction,
+                    GeneratedContentMaterialKind.LockedOriginalOutput,
+                    GeneratedContentMaterialKind.NonErrorDistractor,
+                ],
+            RuntimeSessionPhaseKind.Recovery =>
             [
-                GeneratedContentMaterialKind.TargetStatement,
-                GeneratedContentMaterialKind.TargetSet,
-                GeneratedContentMaterialKind.RuleStatement,
-                GeneratedContentMaterialKind.HonestyConstraint,
-                GeneratedContentMaterialKind.SourceBranchStandard,
-                GeneratedContentMaterialKind.PressureSource,
-            ],
-            RuntimeSessionPhaseKind.EncodeWindow =>
-            [
-                GeneratedContentMaterialKind.EncodeInstruction,
-                GeneratedContentMaterialKind.EncodeItem,
-                GeneratedContentMaterialKind.SourceItem,
-            ],
-            RuntimeSessionPhaseKind.CueResponse =>
-            [
-                GeneratedContentMaterialKind.CueStep,
-                GeneratedContentMaterialKind.ValidCue,
-                GeneratedContentMaterialKind.InvalidCue,
-                GeneratedContentMaterialKind.GoNoGoCue,
-                GeneratedContentMaterialKind.ExpectedAction,
-            ],
-            RuntimeSessionPhaseKind.ReconstructionInput =>
-            [
-                GeneratedContentMaterialKind.ReconstructionInstruction,
-                GeneratedContentMaterialKind.ExpectedReconstruction,
-                GeneratedContentMaterialKind.FinalExpectedOutput,
-            ],
-            RuntimeSessionPhaseKind.Audit =>
-            [
-                GeneratedContentMaterialKind.AuditInstruction,
-                GeneratedContentMaterialKind.AuditPayload,
-                GeneratedContentMaterialKind.ExpectedFinding,
+                GeneratedContentMaterialKind.SourceTask,
+                GeneratedContentMaterialKind.RestartRule,
+                GeneratedContentMaterialKind.RecoveryWindow,
+                GeneratedContentMaterialKind.PostDisruptionEvidence,
             ],
             _ => [],
         };
+    }
+
+    private bool IsRenderedForDrill(
+        DrillId drill,
+        DrillId? sourceDrill,
+        RuntimeSessionPhaseKind? phase,
+        RuntimeInputCommandKind command)
+    {
+        if (command is RuntimeInputCommandKind.FinishPhase or
+            RuntimeInputCommandKind.Pause or
+            RuntimeInputCommandKind.Resume or
+            RuntimeInputCommandKind.Abandon)
+        {
+            return true;
+        }
+
+        if (phase == RuntimeSessionPhaseKind.ReconstructionInput &&
+            inputMaterials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload) &&
+            command is RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.MarkError or
+                RuntimeInputCommandKind.Correct)
+        {
+            return true;
+        }
+
+        if (phase == RuntimeSessionPhaseKind.Audit &&
+            drill == DrillId.CO2StructureMapping &&
+            command is RuntimeInputCommandKind.StartAudit or
+                RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.MarkError or
+                RuntimeInputCommandKind.Correct)
+        {
+            return true;
+        }
+
+        if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery &&
+            command == RuntimeInputCommandKind.MarkGuess)
+        {
+            return true;
+        }
+
+        if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery && sourceDrill.HasValue)
+        {
+            return IsRenderedForDrill(sourceDrill.Value, sourceDrill: null, phase, command);
+        }
+
+        return drill switch
+        {
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold => command is
+                RuntimeInputCommandKind.MarkDrift or
+                RuntimeInputCommandKind.MarkReturn or
+                RuntimeInputCommandKind.MarkTargetChange,
+            DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter or
+            DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => command is
+                RuntimeInputCommandKind.RespondToCue or
+                RuntimeInputCommandKind.MarkError,
+            DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform => command is
+                RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.MarkGuess or
+                RuntimeInputCommandKind.MarkError or
+                RuntimeInputCommandKind.Correct,
+            DrillId.DE1PairDiscrimination => command is
+                RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.MarkGuess or
+                RuntimeInputCommandKind.Correct,
+            DrillId.DE2SeededAudit or DrillId.TI2GlobalReviewTask => command is
+                RuntimeInputCommandKind.StartAudit or
+                RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.Correct,
+            DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping or DrillId.TI1CompositeTask => command is
+                RuntimeInputCommandKind.SubmitAnswer or
+                RuntimeInputCommandKind.MarkError or
+                RuntimeInputCommandKind.Correct,
+            _ => false,
+        };
+    }
+
+    private bool RequiresSubmittedAnswer(
+        DrillId drill,
+        RuntimeSessionPhaseKind? phase)
+    {
+        if (phase == RuntimeSessionPhaseKind.ReconstructionInput &&
+            inputMaterials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload))
+        {
+            return true;
+        }
+
+        return phase switch
+        {
+            RuntimeSessionPhaseKind.ReconstructionInput => drill is
+                DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform or
+                DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping or
+                DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask,
+            RuntimeSessionPhaseKind.Audit => drill is
+                DrillId.DE2SeededAudit or DrillId.CO2StructureMapping or DrillId.TI2GlobalReviewTask,
+            RuntimeSessionPhaseKind.ActiveWork => drill is
+                DrillId.DE1PairDiscrimination or
+                DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping or
+                DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask,
+            _ => false,
+        };
+    }
+
+    private bool CueSequenceComplete(RuntimeCueSchedulerSnapshot? snapshot)
+    {
+        if (cueScheduler is null || snapshot is null || snapshot.CueStates.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var state in snapshot.CueStates)
+        {
+            if (!state.PresentedAt.HasValue)
+            {
+                return false;
+            }
+
+            if (state.ResponseEventSequenceNumber.HasValue)
+            {
+                continue;
+            }
+
+            var cue = cueScheduler.Schedule.Cues.Single(item => item.Id == state.CueId);
+            if (snapshot.CapturedAt.ElapsedSince(state.PresentedAt.Value).Value <= cue.ResponseWindow.Value)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static PreUiLiveSessionTimerState TimerState(
@@ -834,17 +1665,114 @@ public sealed class PreUiLiveSessionController
             snapshot.EvidenceFacts.Count,
             CountEvents(snapshot, RuntimeEventKind.DriftMarked),
             CountEvents(snapshot, RuntimeEventKind.GuessMarked),
-            CountEvents(snapshot, RuntimeEventKind.ErrorRecorded),
+            CountEvents(snapshot, RuntimeEventKind.ErrorRecorded) + CueFailureCount(snapshot),
             CountEvents(snapshot, RuntimeEventKind.CueEmitted),
             CountEvents(snapshot, RuntimeEventKind.CueResponseSubmitted),
             CountEvents(snapshot, RuntimeEventKind.AnswerSubmitted),
             CountEvents(snapshot, RuntimeEventKind.CorrectionSubmitted),
-            expectedEvidenceFacts.Count);
+            expectedEvidenceFacts.Count,
+            ReturnCount: CountEvents(snapshot, RuntimeEventKind.RecoveryCompleted),
+            LateReturnCount: CountFactValue(snapshot, "return_timing_outcome", "late"),
+            TargetChangeCount: CountFactValue(snapshot, "error_kind", "target_substitution"),
+            OpenDriftCount: OpenDriftCount(snapshot),
+            MaximumReturnTime: MaximumReturnTime(snapshot));
+    }
+
+    private int CueFailureCount(RuntimeSessionSnapshot snapshot)
+    {
+        var incorrectOrLate = CountFactValue(snapshot, "response_outcome", "incorrect") +
+            CountFactValue(snapshot, "response_outcome", "late");
+        if (cueScheduler is null)
+        {
+            return incorrectOrLate;
+        }
+
+        var cueSnapshot = cueScheduler.CaptureSnapshot();
+        var omitted = cueSnapshot.CueStates.Count(state =>
+        {
+            if (!state.PresentedAt.HasValue || state.ResponseEventSequenceNumber.HasValue)
+            {
+                return false;
+            }
+
+            var cue = cueScheduler.Schedule.Cues.Single(item => item.Id == state.CueId);
+            return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired &&
+                cueSnapshot.CapturedAt.ElapsedSince(state.PresentedAt.Value).Value > cue.ResponseWindow.Value;
+        });
+
+        return incorrectOrLate + omitted;
     }
 
     private static int CountEvents(RuntimeSessionSnapshot snapshot, RuntimeEventKind kind)
     {
         return snapshot.RuntimeEvents.Count(runtimeEvent => runtimeEvent.Kind == kind);
+    }
+
+    private static int OpenDriftCount(RuntimeSessionSnapshot snapshot)
+    {
+        var returnedDriftIds = snapshot.RuntimeEvents
+            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted)
+            .Select(runtimeEvent => EventFact(runtimeEvent, "drift_id"))
+            .Where(driftId => driftId is not null)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return snapshot.RuntimeEvents.Count(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.DriftMarked &&
+            (EventFact(runtimeEvent, "drift_id") is not { } driftId ||
+                !returnedDriftIds.Contains(driftId)));
+    }
+
+    private static TimeSpan? MaximumReturnTime(RuntimeSessionSnapshot snapshot)
+    {
+        var returnTimes = snapshot.RuntimeEvents
+            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted)
+            .Select(runtimeEvent => EventFact(runtimeEvent, "recovery_time"))
+            .Where(value => value is not null)
+            .Select(value => TimeSpan.TryParseExact(
+                value,
+                "c",
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var duration)
+                    ? duration
+                    : TimeSpan.Zero)
+            .ToArray();
+
+        return returnTimes.Length == 0 ? null : returnTimes.Max();
+    }
+
+    private static string? EventFact(RuntimeEvent runtimeEvent, string name)
+    {
+        return runtimeEvent.Facts.LastOrDefault(fact =>
+            string.Equals(fact.Name, name, StringComparison.Ordinal))?.Value;
+    }
+
+    private static int CountFactValue(
+        RuntimeSessionSnapshot snapshot,
+        string factName,
+        string factValue)
+    {
+        return snapshot.RuntimeEvents.Count(runtimeEvent => runtimeEvent.Facts.Any(fact =>
+            string.Equals(fact.Name, factName, StringComparison.Ordinal) &&
+            string.Equals(fact.Value, factValue, StringComparison.Ordinal)));
+    }
+
+    private static bool IsLevelOneTargetHold(RuntimeSessionSnapshot snapshot)
+    {
+        return snapshot.SessionDefinition.Branch == BranchCode.FH &&
+            snapshot.SessionDefinition.Level == GlobalLevelId.L1 &&
+            snapshot.SessionDefinition.Drill == DrillId.FH1TargetHold;
+    }
+
+    private bool TargetStatedBeforeSet(RuntimeSessionSnapshot snapshot)
+    {
+        var targetWasAvailable = inputMaterials.Any(material =>
+            material.Kind == GeneratedContentMaterialKind.TargetStatement &&
+            !string.IsNullOrWhiteSpace(material.Value));
+        var activeSetStarted = snapshot.RuntimeEvents.Any(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.PhaseStarted &&
+            runtimeEvent.PhaseKind == RuntimeSessionPhaseKind.ActiveWork);
+
+        return targetWasAvailable && activeSetStarted;
     }
 
     private static RuntimeSessionPhaseDefinition? ActivePhase(RuntimeSessionSnapshot snapshot)
@@ -855,25 +1783,25 @@ public sealed class PreUiLiveSessionController
                 string.Equals(phase.Id, snapshot.PhaseScheduler.CurrentPhaseId, StringComparison.Ordinal));
     }
 
-    private static RuntimeCueStateSnapshot? ActiveCue(RuntimeCueSchedulerSnapshot cueSnapshot)
-    {
-        return cueSnapshot.CueStates
-            .Where(cueState => cueState.PresentedAt.HasValue && !cueState.ResponseEventSequenceNumber.HasValue)
-            .OrderBy(cueState => cueState.PresentedAt!.Value.Offset)
-            .LastOrDefault();
-    }
-
     private static PreUiLiveSessionCueState? ActiveCueState(
         RuntimeCueScheduler scheduler,
         RuntimeCueSchedulerSnapshot cueSnapshot)
     {
-        var activeCue = ActiveCue(cueSnapshot);
-        if (activeCue is null)
+        var activeState = cueSnapshot.CueStates
+            .Where(state => state.PresentedAt.HasValue && !state.ResponseEventSequenceNumber.HasValue)
+            .OrderByDescending(state => state.PresentedAt!.Value.Offset)
+            .FirstOrDefault(state =>
+            {
+                var scheduledCue = scheduler.Schedule.Cues.Single(item => item.Id == state.CueId);
+                return cueSnapshot.CapturedAt.ElapsedSince(state.PresentedAt!.Value).Value <=
+                    scheduledCue.ResponseWindow.Value;
+            });
+        if (activeState is null)
         {
             return null;
         }
 
-        var cue = scheduler.Schedule.Cues.Single(item => item.Id == activeCue.CueId);
+        var cue = scheduler.Schedule.Cues.Single(item => item.Id == activeState.CueId);
         return new PreUiLiveSessionCueState(
             cue.Id,
             cue.Kind,
@@ -965,17 +1893,19 @@ public sealed class PreUiLiveSessionController
     {
         return command switch
         {
-            RuntimeInputCommandKind.MarkDrift => "Drift",
+            RuntimeInputCommandKind.MarkDrift => "Mind wandered",
+            RuntimeInputCommandKind.MarkReturn => "Back on target",
+            RuntimeInputCommandKind.MarkTargetChange => "Target changed",
             RuntimeInputCommandKind.RespondToCue => "Respond",
-            RuntimeInputCommandKind.SubmitAnswer => "Submit",
-            RuntimeInputCommandKind.MarkGuess => "Guess",
-            RuntimeInputCommandKind.MarkError => "Error",
-            RuntimeInputCommandKind.Correct => "Correct",
-            RuntimeInputCommandKind.StartAudit => "Audit",
-            RuntimeInputCommandKind.FinishPhase => "Next",
+            RuntimeInputCommandKind.SubmitAnswer => "Submit answer",
+            RuntimeInputCommandKind.MarkGuess => "Mark guess",
+            RuntimeInputCommandKind.MarkError => "Mark error",
+            RuntimeInputCommandKind.Correct => "Fix answer",
+            RuntimeInputCommandKind.StartAudit => "Start audit",
+            RuntimeInputCommandKind.FinishPhase => "Next step",
             RuntimeInputCommandKind.Pause => "Pause",
             RuntimeInputCommandKind.Resume => "Resume",
-            RuntimeInputCommandKind.Abandon => "Abandon",
+            RuntimeInputCommandKind.Abandon => "Stop early",
             _ => command.ToString(),
         };
     }

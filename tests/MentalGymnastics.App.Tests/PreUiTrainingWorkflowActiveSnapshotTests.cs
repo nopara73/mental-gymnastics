@@ -291,9 +291,9 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         var response = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(
                 RuntimeInputCommandKind.RespondToCue,
-                cued.ActiveCue!.CueId,
-                cued.ActiveCue.ExpectedResponse ?? "switch"));
+                cued.ActiveCue!.CueId));
         Assert.True(response.LastCommand!.IsAccepted);
+        Assert.Equal(RuntimeCueResponseOutcome.Correct, response.LastCommand.CueOutcome);
         Assert.Equal(1, response.Evidence.CueResponseCount);
 
         var error = await controller.HandleCommandAsync(
@@ -307,6 +307,167 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         var stored = await new LocalActiveRuntimeSessionSnapshotStore(configuration.LocalDatabaseOptions)
             .LoadAsync("workflow-live-controller");
         Assert.NotNull(stored);
+    }
+
+    [Fact]
+    public async Task IncorrectAndOmittedCueResponsesRemainVisibleAsFailureEvidence()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await PrepareCuePracticeAsync(workflow, "workflow-cue-failure-evidence");
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var cued = await controller.RefreshAsync();
+        var wrong = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.RespondToCue,
+                cued.ActiveCue!.CueId,
+                "not-the-active-target"));
+
+        Assert.Equal(RuntimeCueResponseOutcome.Incorrect, wrong.LastCommand!.CueOutcome);
+        Assert.Equal(1, wrong.Evidence.ErrorCount);
+
+        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(1)));
+        await controller.RefreshAsync();
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(3));
+        var expired = await controller.RefreshAsync();
+        Assert.True(expired.Evidence.ErrorCount > 1);
+        var review = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
+        var terminal = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.True(terminal.IsTerminal);
+
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(SessionDate));
+
+        Assert.False(completed.WorkflowResult!.ProcessingResult.SessionHistory.CleanPerformance);
+        Assert.Contains(completed.WorkflowResult.ProcessingResult.EvidenceArtifacts, artifact =>
+            artifact.Artifact.ObservableEvidence.Any(evidence =>
+                evidence.Kind == ObservableEvidenceKind.FailedItemList));
+    }
+
+    [Fact]
+    public async Task CueScheduleDoesNotRunWhileUserReadsInstructionPrep()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await PrepareCuePracticeAsync(workflow, "workflow-cue-prep-clock");
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        Assert.True(started.CueScheduler!.IsPaused);
+
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(30));
+        var prep = await controller.RefreshAsync();
+
+        Assert.Equal(RuntimeSessionPhaseKind.InstructionPrep, prep.CurrentPhaseKind);
+        Assert.Null(prep.ActiveCue);
+        Assert.Equal(0, prep.Evidence.CueCount);
+
+        var cuePhase = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+
+        Assert.Equal(RuntimeSessionPhaseKind.CueResponse, cuePhase.CurrentPhaseKind);
+        Assert.False(started.CueScheduler.IsPaused);
+        Assert.Null(cuePhase.ActiveCue);
+        Assert.False(CommandState(cuePhase, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var firstCue = await controller.RefreshAsync();
+
+        Assert.NotNull(firstCue.ActiveCue);
+        Assert.Equal(1, firstCue.Evidence.CueCount);
+        Assert.True(CommandState(firstCue, RuntimeInputCommandKind.RespondToCue).IsAvailable);
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerLabelsCommandsFromUserIntent()
+    {
+        var configuration = Configuration();
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "workflow-live-command-labels"));
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var initial = await controller.RefreshAsync();
+
+        Assert.Equal("Next step", CommandState(initial, RuntimeInputCommandKind.FinishPhase).Label);
+        Assert.Equal("Stop early", CommandState(initial, RuntimeInputCommandKind.Abandon).Label);
+
+        var active = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+
+        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
+        Assert.Equal("Mind wandered", CommandState(active, RuntimeInputCommandKind.MarkDrift).Label);
+        Assert.False(CommandState(active, RuntimeInputCommandKind.MarkReturn).IsAvailable);
+        Assert.Equal("Back on target", CommandState(active, RuntimeInputCommandKind.MarkReturn).Label);
+        Assert.True(CommandState(active, RuntimeInputCommandKind.MarkTargetChange).IsAvailable);
+        Assert.Equal("Target changed", CommandState(active, RuntimeInputCommandKind.MarkTargetChange).Label);
+        Assert.DoesNotContain(
+            active.Commands,
+            command => command.Command == RuntimeInputCommandKind.SubmitAnswer);
+        Assert.Equal("Stop early", CommandState(active, RuntimeInputCommandKind.Abandon).Label);
+        Assert.DoesNotContain(active.Commands.Select(command => command.Label), label =>
+            label is "Abandon" or "Submit" or "Drift");
+
+        var returning = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift));
+
+        Assert.False(CommandState(returning, RuntimeInputCommandKind.MarkDrift).IsAvailable);
+        Assert.True(CommandState(returning, RuntimeInputCommandKind.MarkReturn).IsAvailable);
+        Assert.Equal(1, returning.Evidence.OpenDriftCount);
+
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var returned = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
+
+        Assert.True(CommandState(returned, RuntimeInputCommandKind.MarkDrift).IsAvailable);
+        Assert.False(CommandState(returned, RuntimeInputCommandKind.MarkReturn).IsAvailable);
+        Assert.Equal(1, returned.Evidence.ReturnCount);
+        Assert.Equal(0, returned.Evidence.OpenDriftCount);
+        Assert.Equal(TimeSpan.FromSeconds(5), returned.Evidence.MaximumReturnTime);
+        Assert.Contains(started.CommandHandler!.Events, runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted &&
+            runtimeEvent.Facts.Any(fact =>
+                fact.Name == "recovery_time" && fact.Value == "00:00:05"));
     }
 
     [Fact]
@@ -376,9 +537,9 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
         Assert.True(active.Timer.IsTimed);
-        Assert.Equal(TimeSpan.FromMinutes(3), active.Timer.Remaining);
+        Assert.Equal(TimeSpan.FromMinutes(2), active.Timer.Remaining);
 
-        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(3)));
+        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(2)));
         var review = await controller.RefreshAsync();
         Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
         Assert.Equal(RuntimeSessionLifecycleStatus.Running, review.LifecycleStatus);
@@ -401,7 +562,11 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.NotNull(completed.WorkflowResult);
         Assert.Equal(RuntimeSessionCompletionStatus.Completed, completed.WorkflowResult!.ProcessingResult.CompletionStatus);
         Assert.Single(completed.WorkflowResult.ProcessingResult.EvidenceArtifacts);
-        Assert.False(completed.WorkflowResult.ProcessingResult.SessionHistory.CleanPerformance);
+        Assert.All(
+            completed.WorkflowResult.ProcessingResult.EvidenceArtifacts,
+            artifact => Assert.Equal(SessionDate, artifact.Artifact.Date));
+        Assert.True(completed.WorkflowResult.ProcessingResult.SessionHistory.CleanPerformance);
+        Assert.True(completed.WorkflowResult.ProcessingResult.StandardEvaluationResult!.Passed);
         Assert.Contains(
             completed.WorkflowResult.RefreshedState.RecentSessions,
             session => session.SessionId == prepared.RuntimeSession!.SessionId);
@@ -415,7 +580,333 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task LiveSessionControllerProcessesAbandonedFocusHoldPathWithoutSuccessfulEvidence()
+    public async Task LifecycleSuspendRestoreAndResumePreserveLiveFocusHoldEvidenceAndTime()
+    {
+        var configuration = Configuration();
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "android-lifecycle-fh"));
+        var originalTarget = prepared.RuntimeSession!.InputMaterials.Single(material =>
+            material.Kind == GeneratedContentMaterialKind.TargetStatement);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(prepared.RuntimeSession!, clock, saveActiveSnapshot: true));
+        var controller = new PreUiLiveSessionController(workflow, prepared.RuntimeSession!, started);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(18));
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift, "lifecycle-drift"));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(2));
+
+        var suspended = await controller.SuspendForLifecycleAsync();
+        var persisted = await new LocalActiveRuntimeSessionSnapshotStore(configuration.LocalDatabaseOptions)
+            .LoadAsync(prepared.RuntimeSession!.SessionId);
+
+        Assert.Equal(RuntimeSessionLifecycleStatus.Paused, suspended.LifecycleStatus);
+        Assert.Equal(TimeSpan.FromSeconds(20), suspended.Timer.Elapsed);
+        Assert.Equal(1, suspended.Evidence.DriftCount);
+        Assert.NotNull(persisted);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Paused.ToString(), persisted.LifecycleState.Status);
+
+        var restoreClock = new ManualRuntimeClock(new RuntimeInstant(TimeSpan.FromSeconds(100)));
+        var restored = await workflow.TryResumeLatestActiveSessionAsync(
+            new PreUiActiveSessionResumeLatestRequest(restoreClock));
+        Assert.True(restored.CanResume);
+        Assert.Contains(restored.InputMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.TargetStatement &&
+            material.Name == originalTarget.Name &&
+            material.Value == originalTarget.Value);
+        var resumedController = new PreUiLiveSessionController(
+            workflow,
+            restored.CommandHandler!,
+            restored.CueScheduler,
+            inputMaterials: restored.InputMaterials);
+        var resumed = await resumedController.ResumeFromLifecycleAsync();
+
+        Assert.Equal(RuntimeSessionLifecycleStatus.Running, resumed.LifecycleStatus);
+        Assert.Equal(TimeSpan.FromSeconds(20), resumed.Timer.Elapsed);
+        Assert.Equal(1, resumed.Evidence.DriftCount);
+        Assert.False(CommandState(resumed, RuntimeInputCommandKind.Pause).IsAvailable);
+
+        restoreClock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var returned = await resumedController.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
+
+        Assert.True(returned.LastCommand!.IsAccepted);
+        Assert.Equal(TimeSpan.FromSeconds(25), returned.Timer.Elapsed);
+        Assert.Equal(1, returned.Evidence.ReturnCount);
+        Assert.Equal(0, returned.Evidence.LateReturnCount);
+        Assert.Equal(TimeSpan.FromSeconds(7), returned.Evidence.MaximumReturnTime);
+    }
+
+    [Fact]
+    public async Task LatestCueSessionRestoreRebuildsPersistedScheduleAndMaterialsInsideApp()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await PrepareCuePracticeAsync(workflow, "android-lifecycle-fs");
+        var originalCueMaterial = prepared.RuntimeSession!.InputMaterials.First(material =>
+            material.Kind is GeneratedContentMaterialKind.ValidCue or GeneratedContentMaterialKind.InvalidCue);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(prepared.RuntimeSession, clock, saveActiveSnapshot: true));
+        var controller = new PreUiLiveSessionController(workflow, prepared.RuntimeSession, started);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var cued = await controller.RefreshAsync();
+        Assert.NotNull(cued.ActiveCue);
+        await controller.SuspendForLifecycleAsync();
+
+        var restored = await workflow.TryResumeLatestActiveSessionAsync(
+            new PreUiActiveSessionResumeLatestRequest(
+                new ManualRuntimeClock(new RuntimeInstant(TimeSpan.FromSeconds(100)))));
+
+        Assert.True(restored.CanResume);
+        Assert.NotNull(restored.CueScheduler);
+        Assert.Contains(restored.InputMaterials, material =>
+            material.Kind == originalCueMaterial.Kind &&
+            material.Name == originalCueMaterial.Name &&
+            material.Value == originalCueMaterial.Value);
+        Assert.Equal(
+            prepared.RuntimeSession.CueSchedule!.Cues.Select(cue => cue.Id),
+            restored.CueScheduler!.Schedule.Cues.Select(cue => cue.Id));
+
+        var resumedController = new PreUiLiveSessionController(
+            workflow,
+            restored.CommandHandler!,
+            restored.CueScheduler,
+            inputMaterials: restored.InputMaterials);
+        var resumed = await resumedController.ResumeFromLifecycleAsync();
+
+        Assert.Equal(RuntimeSessionLifecycleStatus.Running, resumed.LifecycleStatus);
+        Assert.NotNull(resumed.ActiveCue);
+        Assert.Equal(cued.ActiveCue!.CueId, resumed.ActiveCue!.CueId);
+    }
+
+    [Fact]
+    public async Task SecondCleanFocusHoldPracticeMarksTheLevelTestReady()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training));
+        await SaveCleanFocusHoldPracticeAsync(
+            configuration,
+            "fh-clean-first",
+            TrainingDate.From(2026, 7, 4));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "fh-clean-second"));
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(3)));
+        await controller.RefreshAsync();
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(SessionDate));
+
+        Assert.True(completed.IsProcessed);
+        Assert.NotNull(completed.WorkflowResult);
+        Assert.Equal(
+            BranchLevelTransition.MarkTestReady,
+            completed.WorkflowResult!.ProcessingResult.StateTransition!.Value.Transition);
+        Assert.Equal(
+            BranchLevelState.TestReady,
+            completed.WorkflowResult.RefreshedState.CurrentPractitionerState.GetBranchLevelState(
+                BranchCode.FH,
+                GlobalLevelId.L1));
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerCompletesFocusHoldMaintenanceAsMaintenance()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Maintenance),
+            Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "android-live-fh-maintenance"));
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        Assert.Equal(AppTrainingSessionType.Maintenance, prepared.Selection.SelectedWork!.SessionType);
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(3)));
+        await controller.RefreshAsync();
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(SessionDate));
+
+        Assert.True(completed.IsProcessed);
+        Assert.NotNull(completed.WorkflowResult);
+        Assert.Equal(
+            LocalCompletedSessionType.Maintenance,
+            completed.WorkflowResult!.ProcessingResult.SessionHistory.SessionType);
+        Assert.NotNull(completed.WorkflowResult.ProcessingResult.MaintenanceCheck);
+        Assert.Equal(
+            MaintenanceCurrencyState.Current,
+            completed.WorkflowResult.ProcessingResult.MaintenanceCurrencyResult!.State);
+        Assert.Equal(
+            BranchLevelState.Owned,
+            completed.WorkflowResult.RefreshedState.CurrentPractitionerState.GetBranchLevelState(
+                BranchCode.FH,
+                GlobalLevelId.L1));
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerCompletesFocusHoldTestThroughTheFormalGate()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.TestReady));
+        await SaveCleanFocusHoldPracticeAsync(
+            configuration,
+            "fh-ready-a",
+            TrainingDate.From(2026, 7, 3));
+        await SaveCleanFocusHoldPracticeAsync(
+            configuration,
+            "fh-ready-b",
+            TrainingDate.From(2026, 7, 4));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "android-live-fh-test"));
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        Assert.Equal(AppTrainingSessionType.Test, prepared.Selection.SelectedWork!.SessionType);
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(3)));
+        await controller.RefreshAsync();
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+
+        var missingFailureMode = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.CompleteAsync(
+                new PreUiLiveSessionCompletionRequest(SessionDate)).AsTask());
+        Assert.Contains("must name", missingFailureMode.Message, StringComparison.OrdinalIgnoreCase);
+
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(
+                SessionDate,
+                mainFailureModeAvoided: "unmarked drift"));
+
+        Assert.True(completed.IsProcessed);
+        Assert.NotNull(completed.WorkflowResult);
+        Assert.Equal(GateOutcome.PassOnce, completed.WorkflowResult!.ProcessingResult.FormalGateDecision!.Outcome);
+        Assert.NotNull(completed.WorkflowResult.ProcessingResult.FormalTestAttempt);
+        Assert.Equal(
+            BranchLevelState.PassedOnce,
+            completed.WorkflowResult.RefreshedState.CurrentPractitionerState.GetBranchLevelState(
+                BranchCode.FH,
+                GlobalLevelId.L1));
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerPersistsFailedStandardWhenReturnIsLateAndTargetChanges()
+    {
+        var configuration = Configuration();
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "android-live-fh-failed-standard"));
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(11));
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.MarkTargetChange,
+                value: "red circle"));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(169));
+        var review = await controller.RefreshAsync();
+        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(SessionDate));
+
+        Assert.True(completed.IsProcessed);
+        Assert.NotNull(completed.WorkflowResult);
+        Assert.False(completed.WorkflowResult!.ProcessingResult.SessionHistory.CleanPerformance);
+        Assert.False(completed.WorkflowResult.ProcessingResult.StandardEvaluationResult!.Passed);
+        Assert.Contains(
+            completed.WorkflowResult.ProcessingResult.StandardEvaluationResult.Failures,
+            failure => failure.Detail == FocusHoldStandardMeasurements.LateReturnCount);
+        Assert.Contains(
+            completed.WorkflowResult.ProcessingResult.StandardEvaluationResult.Failures,
+            failure => failure.Detail == FocusHoldStandardMeasurements.TargetSubstitutionCount);
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerCancelsSetupBeforeWorkWithoutRecordingAttempt()
     {
         var configuration = Configuration();
         var workflow = new PreUiTrainingWorkflowService(configuration);
@@ -444,23 +935,187 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         var completed = await controller.CompleteAsync(
             new PreUiLiveSessionCompletionRequest(SessionDate));
 
-        Assert.True(completed.IsProcessed);
+        Assert.False(completed.IsProcessed);
+        Assert.True(completed.IsFinalized);
+        Assert.Equal(
+            PreUiLiveSessionCompletionStatus.CancelledBeforeWork,
+            completed.Status);
         Assert.Equal(RuntimeSessionCompletionStatus.Abandoned, completed.RuntimeCompletionStatus);
-        Assert.NotNull(completed.WorkflowResult);
-        Assert.Equal(RuntimeSessionCompletionStatus.Abandoned, completed.WorkflowResult!.ProcessingResult.CompletionStatus);
-        Assert.False(completed.WorkflowResult.ProcessingResult.SessionHistory.CleanPerformance);
-        Assert.Single(completed.WorkflowResult.ProcessingResult.EvidenceArtifacts);
-        Assert.Contains(
-            "Abandoned runtime session",
-            completed.WorkflowResult.ProcessingResult.EvidenceArtifacts[0].Artifact.SummaryOrReference,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Null(completed.WorkflowResult);
+        Assert.Null(await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions)
+            .LoadAsync(prepared.RuntimeSession!.SessionId));
 
         var generated = await new LocalGeneratedDrillInstanceStore(configuration.LocalDatabaseOptions)
             .LoadAsync(prepared.GeneratedContent!.PersistenceHandoff!.InstanceId);
         Assert.NotNull(generated);
         Assert.Equal(LocalGeneratedDrillInstanceState.Abandoned, generated.State);
+        Assert.Null(generated.ActiveSessionId);
+        Assert.Null(generated.ResultEvidenceArtifactId);
         Assert.Null(await new LocalActiveRuntimeSessionSnapshotStore(configuration.LocalDatabaseOptions)
             .LoadAsync(prepared.RuntimeSession!.SessionId));
+    }
+
+    [Fact]
+    public async Task LiveSessionControllerRecordsAbandonmentAfterTrainingWorkStarts()
+    {
+        var configuration = Configuration();
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "android-live-fh-abandon-active"));
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                new ManualRuntimeClock(RuntimeInstant.Zero),
+                saveActiveSnapshot: true));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.Abandon,
+                value: "user stopped active hold"));
+        var completed = await controller.CompleteAsync(
+            new PreUiLiveSessionCompletionRequest(SessionDate));
+
+        Assert.True(completed.IsProcessed);
+        Assert.True(completed.IsFinalized);
+        Assert.NotNull(completed.WorkflowResult);
+        Assert.Equal(
+            RuntimeSessionCompletionStatus.Abandoned,
+            completed.WorkflowResult!.ProcessingResult.CompletionStatus);
+        Assert.False(completed.WorkflowResult.ProcessingResult.SessionHistory.CleanPerformance);
+        Assert.Single(completed.WorkflowResult.ProcessingResult.EvidenceArtifacts);
+    }
+
+    [Fact]
+    public async Task WorkingMemoryLiveFlowHidesAnswerKeyAndRequiresOneSubmission()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.PassedOnce),
+            Status(BranchCode.WM, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.WM,
+                        GlobalLevelId.L1,
+                        DrillId.WM1DelayedReconstruction,
+                        AppTrainingSessionType.Practice)),
+                "wm-live-visibility"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var prep = await controller.RefreshAsync();
+        Assert.DoesNotContain(prep.CurrentMaterials, IsHiddenAnswerMaterial);
+
+        var encode = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.EncodeWindow, encode.CurrentPhaseKind);
+        Assert.Contains(encode.CurrentMaterials, material => material.Kind == "EncodeItem");
+        Assert.DoesNotContain(encode.CurrentMaterials, IsHiddenAnswerMaterial);
+
+        var delay = await AdvancePhaseAsync(controller, clock, encode);
+        Assert.Equal(RuntimeSessionPhaseKind.DelayWindow, delay.CurrentPhaseKind);
+        Assert.Empty(delay.CurrentMaterials);
+
+        var reconstruct = await AdvancePhaseAsync(controller, clock, delay);
+        Assert.Equal(RuntimeSessionPhaseKind.ReconstructionInput, reconstruct.CurrentPhaseKind);
+        Assert.DoesNotContain(reconstruct.CurrentMaterials, IsHiddenAnswerMaterial);
+        Assert.True(CommandState(reconstruct, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.False(CommandState(reconstruct, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        var submitted = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.SubmitAnswer,
+                value: "one, two, three, four, five"));
+        Assert.False(CommandState(submitted, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.True(CommandState(submitted, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+    }
+
+    [Fact]
+    public async Task GlobalReviewLiveFlowRunsWorkAuditDelayThenReconstruction()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.TI, GlobalLevelId.L5, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "ti2-live-order"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var active = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
+        Assert.Contains(active.CurrentMaterials, material => material.Kind == "ComponentPayload");
+        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "BranchScoringKey");
+        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "AuditPayload");
+        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.False(CommandState(active, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+            RuntimeInputCommandKind.SubmitAnswer,
+            value: "separate component evidence"));
+        var audit = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
+        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "AuditPayload");
+        Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.True(CommandState(audit, RuntimeInputCommandKind.StartAudit).IsAvailable);
+        Assert.False(CommandState(audit, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+
+        var auditStarted = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.StartAudit));
+        Assert.True(CommandState(auditStarted, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+            RuntimeInputCommandKind.SubmitAnswer,
+            value: "supported findings"));
+        var delay = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.DelayWindow, delay.CurrentPhaseKind);
+        Assert.Empty(delay.CurrentMaterials);
+
+        var reconstruct = await AdvancePhaseAsync(controller, clock, delay);
+        Assert.Equal(RuntimeSessionPhaseKind.ReconstructionInput, reconstruct.CurrentPhaseKind);
+        Assert.Contains(reconstruct.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.DoesNotContain(reconstruct.CurrentMaterials, material => material.Kind == "AuditPayload");
+        Assert.True(CommandState(reconstruct, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.False(CommandState(reconstruct, RuntimeInputCommandKind.FinishPhase).IsAvailable);
     }
 
     public void Dispose()
@@ -623,12 +1278,80 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             [new CriticalConstraint("No rereading after encode window; no invented items.")]);
     }
 
+    private static async ValueTask<PreUiLiveSessionState> AdvancePhaseAsync(
+        PreUiLiveSessionController controller,
+        ManualRuntimeClock clock,
+        PreUiLiveSessionState state)
+    {
+        if (state.Timer.IsTimed)
+        {
+            clock.AdvanceBy(new RuntimeDuration(state.Timer.Remaining!.Value));
+            return await controller.RefreshAsync();
+        }
+
+        return await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+    }
+
+    private static bool IsHiddenAnswerMaterial(PreUiLiveSessionMaterialState material)
+    {
+        return material.Kind is
+            "ExpectedActiveTarget" or
+            "ExpectedAction" or
+            "ExpectedReconstruction" or
+            "FinalExpectedOutput" or
+            "MatchTruth" or
+            "SeededError" or
+            "ExpectedFinding" or
+            "ExpectedClassification" or
+            "ExpectedMapping" or
+            "BranchScoringKey";
+    }
+
     private static async ValueTask SaveStateAsync(
         AppStartupConfiguration configuration,
         params BranchLevelStatus[] statuses)
     {
         await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions)
             .SaveAsync(new PractitionerState(statuses));
+    }
+
+    private static async ValueTask SaveCleanFocusHoldPracticeAsync(
+        AppStartupConfiguration configuration,
+        string sessionId,
+        TrainingDate date)
+    {
+        var artifactId = $"{sessionId}-artifact";
+        await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new LocalEvidenceArtifactRecord(
+                artifactId,
+                new LocalProgrammingEventReference(
+                    sessionId,
+                    LocalProgrammingEventKind.Practice,
+                    BranchCode.FH,
+                    GlobalLevelId.L1,
+                    DrillId.FH1TargetHold),
+                new EvidenceArtifact(
+                    EvidenceArtifactCategory.Practice,
+                    date,
+                    [new ObservableEvidence(ObservableEvidenceKind.OutputSample, "Clean Target Hold evidence.")],
+                    "Clean Target Hold practice.")));
+        await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new LocalSessionHistoryRecord(
+                sessionId,
+                date,
+                LocalCompletedSessionType.Practice,
+                [new LocalSessionBranchLevel(BranchCode.FH, GlobalLevelId.L1)],
+                DrillId.FH1TargetHold,
+                transferTask: null,
+                LocalSessionIntensity.Moderate,
+                TrainingLoadProfileCatalog.Get(BranchCode.FH, GlobalLevelId.L1)
+                    .TargetStage.LoadVariables,
+                cleanPerformance: true,
+                "Clean Target Hold practice.",
+                recoveryMarked: false,
+                deloadMarked: false,
+                [artifactId]));
     }
 
     private static BranchLevelStatus Status(

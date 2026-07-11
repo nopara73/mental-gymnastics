@@ -13,11 +13,13 @@ internal sealed class BranchTileView : MgPanel
         var levelArray = levels
             .OrderBy(level => level.Level)
             .ToArray();
-        ContentDescription = $"{branch} branch tile";
+        ContentDescription = $"{branch} branch. {string.Join(", ", levelArray.Select(level => $"{level.Level} {level.State}"))}";
+        ImportantForAccessibility = ImportantForAccessibility.Yes;
 
         var header = new LinearLayout(context)
         {
             Orientation = Orientation.Horizontal,
+            ImportantForAccessibility = ImportantForAccessibility.NoHideDescendants,
         };
         header.SetGravity(GravityFlags.CenterVertical);
 
@@ -37,6 +39,7 @@ internal sealed class BranchTileView : MgPanel
         var rail = new LinearLayout(context)
         {
             Orientation = Orientation.Horizontal,
+            ImportantForAccessibility = ImportantForAccessibility.NoHideDescendants,
         };
         rail.SetGravity(GravityFlags.CenterVertical);
         rail.SetPadding(0, MgSpacing.Dp(context, MgSpacing.Md), 0, 0);

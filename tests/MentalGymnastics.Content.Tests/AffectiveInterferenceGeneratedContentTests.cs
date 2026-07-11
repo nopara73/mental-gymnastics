@@ -45,8 +45,13 @@ public sealed class AffectiveInterferenceGeneratedContentTests
 
         var sourceTask = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.SourceTask);
-        Assert.Contains("source content reference", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("executable source task", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FH-L3", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
+        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.SourceDrill, "FH2DistractorHold");
+        Assert.Contains(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.TargetStatement);
+        Assert.Contains(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.DistractorPrompt);
 
         var pressureSource = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.PressureSource);
@@ -74,6 +79,9 @@ public sealed class AffectiveInterferenceGeneratedContentTests
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "clean-evidence-collection-policy" &&
             fact.Value.Contains("clean evidence", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(generated.Result.PayloadFacts, fact =>
+            fact.Name == "source-instance-id" &&
+            !string.IsNullOrWhiteSpace(fact.Value));
     }
 
     [Fact]
@@ -136,6 +144,11 @@ public sealed class AffectiveInterferenceGeneratedContentTests
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.RestartDelay, "10 seconds");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TaskComplexity, "two-target cue sequence");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.RecoveryWindow, "30 seconds");
+        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.SourceDrill, "FS2InvalidCueFilter");
+        Assert.Contains(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.TargetSet);
+        Assert.Contains(generated.Materials, material =>
+            material.Kind is GeneratedContentMaterialKind.ValidCue or GeneratedContentMaterialKind.InvalidCue);
 
         var sourceTask = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.SourceTask);

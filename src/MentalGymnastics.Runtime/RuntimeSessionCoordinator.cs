@@ -154,7 +154,8 @@ public sealed class RuntimeSessionCoordinatorRequest
         IEnumerable<RuntimeSessionCoordinatorEventInput> events,
         RuntimeSessionCoordinatorCoreInputs? coreInputs = null,
         RuntimeSessionCoordinatorPersistenceInputs? persistenceInputs = null,
-        IEnumerable<RuntimeEventFact>? completionFacts = null)
+        IEnumerable<RuntimeEventFact>? completionFacts = null,
+        TrainingDate? evidenceDate = null)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
         {
@@ -203,6 +204,7 @@ public sealed class RuntimeSessionCoordinatorRequest
         CoreInputs = coreInputs;
         PersistenceInputs = persistenceInputs;
         CompletionFacts = Array.AsReadOnly(completionFactArray);
+        EvidenceDate = evidenceDate;
     }
 
     public string SessionId { get; }
@@ -226,6 +228,8 @@ public sealed class RuntimeSessionCoordinatorRequest
     public RuntimeSessionCoordinatorPersistenceInputs? PersistenceInputs { get; }
 
     public IReadOnlyList<RuntimeEventFact> CompletionFacts { get; }
+
+    public TrainingDate? EvidenceDate { get; }
 
     private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum
@@ -362,6 +366,11 @@ public static class RuntimeSessionCoordinator
 
     private static TrainingDate DetermineEvidenceDate(RuntimeSessionCoordinatorRequest request)
     {
+        if (request.EvidenceDate.HasValue)
+        {
+            return request.EvidenceDate.Value;
+        }
+
         if (request.PersistenceInputs is not null)
         {
             return request.PersistenceInputs.Metadata.Date;

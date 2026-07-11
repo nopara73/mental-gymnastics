@@ -34,7 +34,35 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal(BranchCode.WM, presentation.MaintenanceDecayPriority.Branch);
         Assert.Equal(GlobalLevelId.L2, presentation.MaintenanceDecayPriority.Level);
         Assert.True(presentation.MaintenanceDecayPriority.BlocksAdvancement);
+        Assert.NotNull(presentation.PrimaryPrescribedWork);
+        Assert.Equal(BranchCode.WM, presentation.PrimaryPrescribedWork!.BranchLevels.Single().Branch);
+        Assert.Equal(GlobalLevelId.L2, presentation.PrimaryPrescribedWork.BranchLevels.Single().Level);
+        Assert.Equal(DrillId.WM1DelayedReconstruction, presentation.PrimaryPrescribedWork.Drill);
+        Assert.Equal(AppTrainingSessionType.Regression, presentation.PrimaryPrescribedWork.SessionType);
         Assert.False(presentation.GrantsAdvancementInApp);
+    }
+
+    [Fact]
+    public async Task CurrentStatePresentationKeepsDueMaintenanceWorkAndActionAligned()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Owned),
+            Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+
+        var state = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(Today));
+        var presentation = TrainingPresentationMapper.FromCurrentState(state);
+
+        Assert.Equal(TrainingPresentationPriorityKind.MaintenanceDue, presentation.Priority);
+        Assert.Equal(TrainingPresentationPrimaryActionKind.StartMaintenance, presentation.PrimaryAction);
+        Assert.NotNull(presentation.PrimaryPrescribedWork);
+        Assert.Equal(BranchCode.FH, presentation.PrimaryPrescribedWork!.BranchLevels.Single().Branch);
+        Assert.Equal(DrillId.FH1TargetHold, presentation.PrimaryPrescribedWork.Drill);
+        Assert.Equal(AppTrainingSessionType.Maintenance, presentation.PrimaryPrescribedWork.SessionType);
+        Assert.Equal(TrainingPresentationWorkSource.Maintenance, presentation.PrimaryPrescribedWork.Source);
+        Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
     }
 
     [Fact]
@@ -51,8 +79,78 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal(TrainingPresentationPrimaryActionKind.StartPrescribedWork, presentation.PrimaryAction);
         Assert.True(presentation.PrimaryActionEnabled);
         Assert.NotNull(presentation.PrimaryPrescribedWork);
+        Assert.Equal("Target Hold", presentation.PrimaryPrescribedWork!.Exercise.ExerciseName);
+        Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
+        Assert.Equal("Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
+        Assert.Contains("Hold one simple target", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Mind wandered", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Practice one loop", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("notice attention moved", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("mark it", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("return to the same target", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("clean return", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
+        Assert.Contains("not feeling calm", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
+        Assert.Contains("After this is stable", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("longer holds", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("distraction", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("memory", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("switching", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("transfer", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.DoesNotContain("Focus Shift", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.DoesNotContain("Inhibition", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.DoesNotContain("No promise this makes you smarter", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.DoesNotContain("Focus Hold", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
+        Assert.DoesNotContain("FH", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
+        Assert.DoesNotContain("+", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
         Assert.NotNull(presentation.UrgentBlocker);
         Assert.False(presentation.GrantsAdvancementInApp);
+    }
+
+    [Fact]
+    public async Task CurrentStatePresentationShowsTheActiveBranchInsteadOfTheFirstWeeklyBranch()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Owned),
+            Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        await SavePassingMaintenanceAsync(
+            configuration,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            Today);
+
+        var state = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(Today));
+        var presentation = TrainingPresentationMapper.FromCurrentState(state);
+
+        Assert.NotNull(presentation.PrimaryPrescribedWork);
+        Assert.Equal(BranchCode.FS, presentation.PrimaryPrescribedWork!.BranchLevels.Single().Branch);
+        Assert.Equal(DrillId.FS1CueSwitch, presentation.PrimaryPrescribedWork.Drill);
+        Assert.Equal("Cue Switch", presentation.PrimaryPrescribedWork.Exercise.ExerciseName);
+        Assert.Equal("Focus Shift · Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
+        Assert.Equal(AppTrainingSessionType.Practice, presentation.PrimaryPrescribedWork.SessionType);
+        Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
+    }
+
+    [Fact]
+    public async Task CurrentStatePresentationPairsTestReadyWorkWithTheProgrammedTestSession()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training),
+            Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.TestReady));
+
+        var state = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(Today));
+        var presentation = TrainingPresentationMapper.FromCurrentState(state);
+
+        Assert.NotNull(presentation.PrimaryPrescribedWork);
+        Assert.Equal(BranchCode.FS, presentation.PrimaryPrescribedWork!.BranchLevels.Single().Branch);
+        Assert.Equal(WeeklySessionKind.TestOrStabilization, presentation.PrimaryPrescribedWork.WeeklySession);
+        Assert.Equal(AppTrainingSessionType.Test, presentation.PrimaryPrescribedWork.SessionType);
+        Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
     }
 
     [Fact]
@@ -78,6 +176,40 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.NotNull(presentation.UrgentBlocker);
         Assert.Equal(TrainingPresentationBlockerKind.MaintenanceOrDecay, presentation.UrgentBlocker!.Kind);
         Assert.False(presentation.GrantsAdvancementInApp);
+
+        var prepared = await new PreUiTrainingWorkflowService(configuration)
+            .PrepareNextSessionWithDefaultsAsync(
+                new PreUiTrainingWorkflowDefaultPreparationRequest(
+                    new NextTrainingWorkSelectionQuery(Today)));
+        var preflight = TrainingPresentationMapper.FromPreflight(prepared);
+
+        Assert.True(preflight.CanStart);
+        Assert.Empty(preflight.Blockers);
+    }
+
+    [Fact]
+    public async Task ExceptionRulePreflightShowsCompactRuleAndExceptionsBeforeCuesStart()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.IR, GlobalLevelId.L2, BranchLevelState.Maintenance));
+
+        var prepared = await new PreUiTrainingWorkflowService(configuration)
+            .PrepareNextSessionWithDefaultsAsync(
+                new PreUiTrainingWorkflowDefaultPreparationRequest(
+                    new NextTrainingWorkSelectionQuery(Today)));
+        var preflight = TrainingPresentationMapper.FromPreflight(prepared);
+
+        Assert.True(preflight.CanStart);
+        Assert.Equal("Tap round. Withhold angular. Exceptions win.", preflight.Work!.Exercise.PrimaryMaterial);
+        Assert.Equal(3, preflight.Work.Exercise.SetupItems.Count);
+        Assert.All(preflight.Work.Exercise.SetupItems, item =>
+        {
+            Assert.Contains(':', item);
+            Assert.DoesNotContain("instead", item, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("cue is", item, StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     [Fact]
@@ -95,6 +227,34 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.True(preflight.CanStart);
         Assert.NotNull(preflight.Work);
         Assert.Equal("Target Hold", preflight.Work!.DrillLabel);
+        Assert.Equal("Target Hold", preflight.Work.Exercise.ExerciseName);
+        Assert.Equal("Level 1", preflight.Work.Exercise.BranchLevelLabel);
+        Assert.DoesNotContain("Focus Hold", preflight.Work.Exercise.BranchLevelLabel);
+        Assert.Contains("Practice one loop", preflight.Work.Exercise.Purpose);
+        Assert.Contains("clean return", preflight.Work.Exercise.PracticeGain);
+        Assert.Contains("After this is stable", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("longer holds", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("distraction", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("memory", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("switching", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("transfer", preflight.Work.Exercise.WhereItGoes);
+        Assert.DoesNotContain("Focus Shift", preflight.Work.Exercise.WhereItGoes);
+        Assert.DoesNotContain("No promise this makes you smarter", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("Read the target", preflight.Work.Exercise.BeforeStartInstruction);
+        Assert.Contains("Counts if", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("finish 2 minutes", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("tap 5 times or fewer", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("Try again if", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("miss a wander", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("Tap Mind wandered", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("Keep the same target", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("saves wander taps", preflight.Work.Exercise.EvidenceRecorded);
+        var primaryMaterial = Assert.IsType<string>(preflight.Work.Exercise.PrimaryMaterial);
+        Assert.False(string.IsNullOrWhiteSpace(primaryMaterial));
+        Assert.False(primaryMaterial.EndsWith(".", StringComparison.Ordinal));
+        Assert.DoesNotContain("Hold target", primaryMaterial);
+        Assert.DoesNotContain("target phrase", primaryMaterial);
+        Assert.DoesNotContain("target word", primaryMaterial);
         Assert.Contains("No more than 5 marked drifts", preflight.Standard);
         Assert.Contains("Target is stated before set", preflight.HonestyConstraint);
         Assert.True(preflight.LoadVariableCount > 0);
@@ -102,6 +262,121 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.True(preflight.ExpectedEvidenceFactCount > 0);
         Assert.Empty(preflight.Blockers);
         Assert.DoesNotContain("workflow", preflight.RevealOnDemand.Select(reveal => reveal.Label));
+        AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
+    }
+
+    [Fact]
+    public void LivePrepPresentationStatesUserActionInsteadOfRuntimePhaseJargon()
+    {
+        var live = new PreUiLiveSessionState(
+            "raw-runtime-session",
+            SessionType.Practice,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold,
+            RuntimeSessionLifecycleStatus.Running,
+            RuntimePhaseSchedulerStatus.Running,
+            "raw-phase-id",
+            RuntimeSessionPhaseKind.InstructionPrep,
+            RuntimeSessionPhaseCompletionRule.Manual,
+            new PreUiLiveSessionTimerState(
+                TimeSpan.Zero,
+                Remaining: null,
+                Progress: null,
+                IsTimed: false),
+            ActiveCue: null,
+            [new PreUiLiveSessionMaterialState("TargetStatement", "Target", "Hold target phrase: blue square.")],
+            [
+                new PreUiLiveSessionCommandState(
+                    RuntimeInputCommandKind.FinishPhase,
+                    IsAvailable: true,
+                    InvalidReason: null,
+                    CueInvalidReason: null,
+                    "Next step"),
+            ],
+            new PreUiLiveSessionEvidenceState(
+                RuntimeEventCount: 1,
+                EvidenceFactCount: 0,
+                DriftCount: 0,
+                GuessCount: 0,
+                ErrorCount: 0,
+                CueCount: 0,
+                CueResponseCount: 0,
+                AnswerCount: 0,
+                CorrectionCount: 0,
+                ExpectedEvidenceFactCount: 1),
+            LastCommand: null,
+            "Runtime session state captured.");
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal("Say the target once. Start when ready.", presentation.CurrentInstruction);
+        Assert.DoesNotContain("Prep", presentation.CurrentInstruction);
+        Assert.Equal("Target Hold", presentation.Work.Exercise.ExerciseName);
+        Assert.Equal("blue square", presentation.Work.Exercise.PrimaryMaterial);
+        Assert.Equal(RuntimeInputCommandKind.FinishPhase, presentation.PrimaryCommand?.Command);
+        AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
+    }
+
+    [Fact]
+    public void LiveTargetHoldActiveWorkPromotesDriftMarkingOverGenericSubmission()
+    {
+        var live = new PreUiLiveSessionState(
+            "raw-runtime-session",
+            SessionType.Practice,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold,
+            RuntimeSessionLifecycleStatus.Running,
+            RuntimePhaseSchedulerStatus.Running,
+            "raw-phase-id",
+            RuntimeSessionPhaseKind.ActiveWork,
+            RuntimeSessionPhaseCompletionRule.Timed,
+            new PreUiLiveSessionTimerState(
+                TimeSpan.FromSeconds(48),
+                Remaining: TimeSpan.FromMinutes(2),
+                Progress: 0.25,
+                IsTimed: true),
+            ActiveCue: null,
+            [new PreUiLiveSessionMaterialState("TargetStatement", "Target", "Hold target phrase: blue square.")],
+            [
+                new PreUiLiveSessionCommandState(
+                    RuntimeInputCommandKind.SubmitAnswer,
+                    IsAvailable: true,
+                    InvalidReason: null,
+                    CueInvalidReason: null,
+                    "Submit answer"),
+                new PreUiLiveSessionCommandState(
+                    RuntimeInputCommandKind.MarkDrift,
+                    IsAvailable: true,
+                    InvalidReason: null,
+                    CueInvalidReason: null,
+                    "Mind wandered"),
+                new PreUiLiveSessionCommandState(
+                    RuntimeInputCommandKind.Abandon,
+                    IsAvailable: true,
+                    InvalidReason: null,
+                    CueInvalidReason: null,
+                    "Stop early"),
+            ],
+            new PreUiLiveSessionEvidenceState(
+                RuntimeEventCount: 2,
+                EvidenceFactCount: 1,
+                DriftCount: 0,
+                GuessCount: 0,
+                ErrorCount: 0,
+                CueCount: 0,
+                CueResponseCount: 0,
+                AnswerCount: 0,
+                CorrectionCount: 0,
+                ExpectedEvidenceFactCount: 1),
+            LastCommand: null,
+            "Runtime session state captured.");
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal("Hold the target.", presentation.CurrentInstruction);
+        Assert.Equal(RuntimeInputCommandKind.MarkDrift, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
     }
 
@@ -158,6 +433,28 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.False(presentation.GrantsAdvancementInApp);
     }
 
+    [Fact]
+    public async Task ResultPresentationPrefersSpecificHoldFailureOverIncompleteArtifactJargon()
+    {
+        var presentation = await ProcessedPresentationAsync(ProcessingResult(
+            cleanPerformance: false,
+            standard: new StandardEvaluationResult(
+                Passed: false,
+                [
+                    new StandardEvaluationFailure(
+                        StandardFailureKind.OutputIncomplete,
+                        "Required output artifact is incomplete."),
+                    new StandardEvaluationFailure(
+                        StandardFailureKind.NumericalThresholdMissed,
+                        FocusHoldStandardMeasurements.ActiveDurationSeconds),
+                ])));
+
+        Assert.Equal(["Hold ended before 0:30."], presentation.BlockingFailureDetails);
+        Assert.Contains(
+            presentation.Work.LoadVariables,
+            load => load.Name == "duration" && load.Value == "30 seconds");
+    }
+
     [Theory]
     [MemberData(nameof(ProcessedOutcomeCases))]
     public async Task ResultPresentationNamesProgramOutcomeWithoutInventingProgress(
@@ -170,6 +467,78 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal(expectedOutcome, presentation.Outcome);
         Assert.Equal(expectedSuccessfulEvidence, presentation.ProducesSuccessfulEvidence);
         Assert.False(presentation.GrantsAdvancementInApp);
+    }
+
+    [Fact]
+    public async Task RevealLabelsUseUserFacingLanguageInsteadOfInternalWorkflowTerms()
+    {
+        var configuration = Configuration();
+        var state = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(Today));
+        var current = TrainingPresentationMapper.FromCurrentState(state);
+
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(Today)));
+        var preflight = TrainingPresentationMapper.FromPreflight(prepared);
+        var live = TrainingPresentationMapper.FromLiveSession(LiveState(
+            RuntimeSessionLifecycleStatus.Running,
+            RuntimePhaseSchedulerStatus.Running,
+            RuntimeSessionCompletionStatus.Completed));
+        var result = await ProcessedPresentationAsync(ProcessingResult());
+
+        var labels = current.RevealOnDemand
+            .Concat(preflight.RevealOnDemand)
+            .Concat(live.RevealOnDemand)
+            .Concat(result.RevealOnDemand)
+            .Select(reveal => reveal.Label)
+            .ToArray();
+
+        Assert.Contains("Exercise material", labels);
+        Assert.Contains("Session details", labels);
+        Assert.Contains("Saved exercise material", labels);
+        Assert.Contains("Available controls", labels);
+        Assert.Contains("Recorded events", labels);
+        Assert.Contains("Program result", labels);
+        Assert.Contains("Saved records", labels);
+        Assert.Contains("Saved result", labels);
+
+        string[] forbiddenLabels =
+        [
+            "Evidence artifacts",
+            "Runtime protocol",
+            "Stored drill instance",
+            "Available commands",
+            "Core evaluation",
+            "Saved evidence",
+            "Persisted result",
+        ];
+
+        foreach (var forbidden in forbiddenLabels)
+        {
+            Assert.DoesNotContain(labels, label => label.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public void EveryDrillUsesAConcreteActiveInstruction()
+    {
+        foreach (var drill in Enum.GetValues<DrillId>())
+        {
+            var presentation = TrainingPresentationMapper.FromLiveSession(
+                LiveStateForDrill(drill, RuntimeSessionPhaseKind.ActiveWork));
+
+            Assert.False(string.IsNullOrWhiteSpace(presentation.CurrentInstruction));
+            Assert.DoesNotContain(
+                "do the current exercise step",
+                presentation.CurrentInstruction,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "follow the current exercise step",
+                presentation.CurrentInstruction,
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     public void Dispose()
@@ -200,6 +569,27 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         BranchLevelState state)
     {
         return new BranchLevelStatus(branch, level, state);
+    }
+
+    private static ValueTask SavePassingMaintenanceAsync(
+        AppStartupConfiguration configuration,
+        BranchCode branch,
+        GlobalLevelId level,
+        TrainingDate date)
+    {
+        return new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions).SaveMaintenanceAsync(
+            new LocalMaintenanceCheckRecord(
+                $"maintenance-{branch}-{level}",
+                $"artifact-{branch}-{level}",
+                completedSessionId: null,
+                DrillId.FH1TargetHold,
+                "The stated standard remained visible before the check.",
+                new MaintenanceCheckEvidence(
+                    branch,
+                    level,
+                    date,
+                    MaintenanceCheckKind.StandardOrTransfer,
+                    new StandardEvaluationResult(Passed: true, Failures: []))));
     }
 
     private static PreUiLiveSessionState LiveState(
@@ -245,7 +635,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
                     IsAvailable: false,
                     RuntimeInputCommandInvalidReason.InvalidPhaseCompletion,
                     CueInvalidReason: null,
-                    "Finish phase"),
+                    "Next step"),
             ],
             new PreUiLiveSessionEvidenceState(
                 RuntimeEventCount: 4,
@@ -262,8 +652,75 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
             "Runtime session state captured.");
     }
 
+    private static PreUiLiveSessionState LiveStateForDrill(
+        DrillId drill,
+        RuntimeSessionPhaseKind phase)
+    {
+        return new PreUiLiveSessionState(
+            $"live-{drill}",
+            SessionType.Practice,
+            BranchFor(drill),
+            GlobalLevelId.L1,
+            drill,
+            RuntimeSessionLifecycleStatus.Running,
+            RuntimePhaseSchedulerStatus.Running,
+            "active",
+            phase,
+            RuntimeSessionPhaseCompletionRule.Manual,
+            new PreUiLiveSessionTimerState(TimeSpan.Zero, Remaining: null, Progress: null, IsTimed: false),
+            ActiveCue: null,
+            CurrentMaterials: [],
+            Commands:
+            [
+                new PreUiLiveSessionCommandState(
+                    RuntimeInputCommandKind.FinishPhase,
+                    IsAvailable: true,
+                    InvalidReason: null,
+                    CueInvalidReason: null,
+                    "Next step"),
+            ],
+            new PreUiLiveSessionEvidenceState(
+                RuntimeEventCount: 0,
+                EvidenceFactCount: 0,
+                DriftCount: 0,
+                GuessCount: 0,
+                ErrorCount: 0,
+                CueCount: 0,
+                CueResponseCount: 0,
+                AnswerCount: 0,
+                CorrectionCount: 0,
+                ExpectedEvidenceFactCount: 0),
+            LastCommand: null,
+            "Live state for drill presentation.");
+    }
+
+    private static BranchCode BranchFor(DrillId drill)
+    {
+        return drill switch
+        {
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold => BranchCode.FH,
+            DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => BranchCode.FS,
+            DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform => BranchCode.WM,
+            DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => BranchCode.IR,
+            DrillId.DE1PairDiscrimination or DrillId.DE2SeededAudit => BranchCode.DE,
+            DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping => BranchCode.CO,
+            DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery => BranchCode.AI,
+            DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask => BranchCode.TI,
+            _ => throw new ArgumentOutOfRangeException(nameof(drill), drill, "Unknown drill."),
+        };
+    }
+
     public static IEnumerable<object[]> ProcessedOutcomeCases()
     {
+        yield return
+        [
+            ProcessingResult(
+                transition: Transition(
+                    BranchLevelState.Training,
+                    BranchLevelTransition.MarkTestReady)),
+            TrainingResultPresentationOutcomeKind.TestReady,
+            true,
+        ];
         yield return
         [
             ProcessingResult(
@@ -338,7 +795,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         yield return
         [
             ProcessingResult(),
-            TrainingResultPresentationOutcomeKind.NoAdvancement,
+            TrainingResultPresentationOutcomeKind.CleanPractice,
             true,
         ];
     }
@@ -526,6 +983,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
             typeof(LiveSessionPresentationReadModel),
             typeof(ResultPresentationReadModel),
             typeof(TrainingPresentationWorkSummary),
+            typeof(TrainingExercisePresentation),
             typeof(TrainingBranchLevelPresentation),
             typeof(TrainingPresentationBlockerSummary),
             typeof(TrainingMaintenanceDecayPriority),

@@ -56,11 +56,11 @@ public sealed class GeneratedContentLoadConstraint
         GeneratedContentValidation.EnsureDefined(matchKind, nameof(matchKind));
 
         if (matchKind == GeneratedContentLoadConstraintMatchKind.MinimumMaterialCount &&
-            (minimumCount is null or <= 0))
+            (minimumCount is null or < 0))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(minimumCount),
-                "Minimum material count constraints must include a positive count.");
+                "Minimum material count constraints cannot be negative.");
         }
 
         ProgramLoadVariable = programLoadVariable;
@@ -182,6 +182,7 @@ public static class GeneratedContentLoadConstraintMapper
             ["cue density"] = LoadVariableKind.CueDensity,
             ["rule contrast"] = LoadVariableKind.RuleContrast,
             ["return precision"] = LoadVariableKind.ReturnPrecision,
+            ["response window"] = LoadVariableKind.ResponseSpeed,
             ["item count"] = LoadVariableKind.ItemCount,
             ["detail density"] = LoadVariableKind.DetailDensity,
             ["operation steps"] = LoadVariableKind.OperationSteps,
@@ -210,6 +211,7 @@ public static class GeneratedContentLoadConstraintMapper
             ["branch count"] = LoadVariableKind.BranchCount,
             ["number of branches"] = LoadVariableKind.BranchCount,
             ["task length"] = LoadVariableKind.TaskLength,
+            ["output length"] = LoadVariableKind.TaskLength,
             ["domain distance"] = LoadVariableKind.DomainDistance,
         };
 
@@ -412,6 +414,19 @@ public static class GeneratedContentLoadConstraintMapper
             return true;
         }
 
+        if (branch == BranchCode.FS &&
+            (drill == DrillId.FS1CueSwitch || drill == DrillId.FS2InvalidCueFilter) &&
+            string.Equals(normalizedName, "response window", StringComparison.Ordinal))
+        {
+            constraint = new GeneratedContentLoadConstraint(
+                programLoadVariable: null,
+                loadVariable.Name,
+                loadVariable.Value,
+                [GeneratedContentMaterialKind.ResponseWindow],
+                GeneratedContentLoadConstraintMatchKind.ExactMaterialValue);
+            return true;
+        }
+
         if (branch == BranchCode.AI &&
             drill == DrillId.AI2DisruptionRecovery &&
             string.Equals(normalizedName, "interruption timing", StringComparison.Ordinal))
@@ -461,6 +476,21 @@ public static class GeneratedContentLoadConstraintMapper
                 loadVariable.Value,
                 [GeneratedContentMaterialKind.RecoveryWindow],
                 GeneratedContentLoadConstraintMatchKind.ExactMaterialValue);
+            return true;
+        }
+
+        if (branch == BranchCode.AI &&
+            drill == DrillId.AI2DisruptionRecovery &&
+            (string.Equals(normalizedName, "number of branches", StringComparison.Ordinal) ||
+                string.Equals(normalizedName, "branch count", StringComparison.Ordinal)))
+        {
+            constraint = new GeneratedContentLoadConstraint(
+                programLoadVariable: LoadVariableKind.BranchCount,
+                loadVariable.Name,
+                loadVariable.Value,
+                [GeneratedContentMaterialKind.ComponentPayload],
+                GeneratedContentLoadConstraintMatchKind.MinimumMaterialCount,
+                ParseLoadCount(loadVariable.Value) ?? 1);
             return true;
         }
 

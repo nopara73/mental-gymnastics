@@ -203,14 +203,14 @@ public sealed class NextTrainingWorkSelection
 public sealed class NextTrainingWorkSelector
 {
     private readonly CurrentTrainingStateLoader stateLoader;
-    private readonly LocalMaintenanceCheckStore maintenanceCheckStore;
+    private readonly LocalProgramRepository repository;
 
     public NextTrainingWorkSelector(AppStartupConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
         stateLoader = new CurrentTrainingStateLoader(configuration);
-        maintenanceCheckStore = new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions);
+        repository = new LocalProgramRepository(configuration.LocalDatabaseOptions);
     }
 
     public async ValueTask<NextTrainingWorkSelection> SelectAsync(
@@ -228,7 +228,7 @@ public sealed class NextTrainingWorkSelector
             cancellationToken).ConfigureAwait(false);
 
         var deloadDecision = query.DeloadEvidence is null
-            ? null
+            ? currentState.DeloadDecision
             : DeloadDecisionEvaluator.Evaluate(query.DeloadEvidence);
         if (deloadDecision?.ShouldDeload == true)
         {
@@ -236,7 +236,7 @@ public sealed class NextTrainingWorkSelector
         }
 
         var recoveryDecision = query.RecoveryEvidence is null
-            ? null
+            ? currentState.RecoveryDecision
             : RecoveryDecisionEvaluator.Evaluate(query.RecoveryEvidence);
         if (recoveryDecision?.ShouldRecover == true)
         {
@@ -269,7 +269,8 @@ public sealed class NextTrainingWorkSelector
             : RecoveryWorkFor(
                 query.RequestedWork ??
                     DefaultRequestedWork(currentState, AppTrainingSessionType.Recovery),
-                advancementWorkAllowed: false);
+                advancementWorkAllowed: false,
+                recentSessions: currentState.RecentSessions);
 
         return new NextTrainingWorkSelection(
             NextTrainingWorkSelectionKind.Deload,
@@ -288,12 +289,15 @@ public sealed class NextTrainingWorkSelector
             new RequestedTrainingWork(
                 recoveryDecision.Branch,
                 recoveryDecision.Level,
-                PrimaryDrillFor(recoveryDecision.Branch),
+                PrimaryDrillFor(recoveryDecision.Branch, recoveryDecision.Level),
                 AppTrainingSessionType.Recovery);
 
         return new NextTrainingWorkSelection(
             NextTrainingWorkSelectionKind.Recovery,
-            RecoveryWorkFor(requested, advancementWorkAllowed: false),
+            RecoveryWorkFor(
+                requested,
+                advancementWorkAllowed: false,
+                recentSessions: currentState.RecentSessions),
             [],
             currentState,
             recoveryDecision: recoveryDecision);
@@ -338,7 +342,10 @@ public sealed class NextTrainingWorkSelector
 
         return new NextTrainingWorkSelection(
             NextTrainingWorkSelectionKind.Allowed,
-            WorkFromRequest(requested, advancementWorkAllowed: true),
+            WorkFromRequest(
+                requested,
+                advancementWorkAllowed: true,
+                recentSessions: currentState.RecentSessions),
             [],
             currentState,
             validation.TestReadiness,
@@ -365,7 +372,10 @@ public sealed class NextTrainingWorkSelector
 
         return new NextTrainingWorkSelection(
             NextTrainingWorkSelectionKind.Allowed,
-            WorkFromRequest(requested, advancementWorkAllowed: true),
+            WorkFromRequest(
+                requested,
+                advancementWorkAllowed: true,
+                recentSessions: currentState.RecentSessions),
             [],
             currentState,
             validation.TestReadiness,
@@ -484,7 +494,8 @@ public sealed class NextTrainingWorkSelector
                         requested.Branch,
                         requested.Level,
                         currentState.CurrentPractitionerState,
-                        maintenanceCurrency)).Issues
+                        maintenanceCurrency,
+                        currentState.LastCompletedGlobalReview)).Issues
                 .Select(issue => new NextTrainingWorkBlocker(
                     NextTrainingWorkBlockerSource.GlobalBalance,
                     issue.Branch,
@@ -501,31 +512,13 @@ public sealed class NextTrainingWorkSelector
         IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
         RequestedTrainingWork requested)
     {
-        var demand = StandardFor(requested.Branch, requested.Level).Demand;
-
-        return new TestReadinessRequest(
+        return TestReadinessRequestFactory.Create(
             currentState.CurrentPractitionerState,
             requested.Branch,
             requested.Level,
             requested.Drill,
-            demand,
-            currentState.RecentSessions
-                .Where(session => session.SessionType is LocalCompletedSessionType.Practice or LocalCompletedSessionType.Load)
-                .Where(session => session.Drill.HasValue)
-                .SelectMany(session => session.BranchLevels.Select(branchLevel =>
-                    new TestReadinessPracticeSession(
-                        branchLevel.Branch,
-                        branchLevel.Level,
-                        session.Drill!.Value,
-                        StandardFor(branchLevel.Branch, branchLevel.Level).Demand,
-                        session.CleanPerformance))),
-            maintenanceCurrency.Select(currency =>
-                new PrerequisiteMaintenanceCheck(
-                    currency.Branch,
-                    currency.OwnedLevel,
-                    currency.State == MaintenanceCurrencyState.Current)),
-            StandardFor(requested.Branch, requested.Level).Standard,
-            DrillFor(requested.Drill).HonestyConstraint);
+            TestReadinessRequestFactory.FromSessionHistory(currentState.RecentSessions),
+            maintenanceCurrency);
     }
 
     private static TransferEligibilityRequest BuildTransferEligibilityRequest(
@@ -558,13 +551,12 @@ public sealed class NextTrainingWorkSelector
         var results = new List<MaintenanceCurrencyResult>();
         foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
         {
-            var request = await maintenanceCheckStore.LoadMaintenanceCurrencyRequestAsync(
+            var currency = await repository.LoadMaintenanceCurrencyAsync(
                 status.Branch,
                 status.Level,
                 asOf,
                 cancellationToken).ConfigureAwait(false);
-
-            results.Add(MaintenanceCurrencyEvaluator.Evaluate(request));
+            results.Add(currency);
         }
 
         return results
@@ -577,24 +569,18 @@ public sealed class NextTrainingWorkSelector
         CurrentTrainingStateReadModel currentState,
         AppTrainingSessionType? forcedSessionType = null)
     {
-        foreach (var nextWork in currentState.AvailableNextWork.OrderBy(work => work.DayNumber))
+        var candidate = DefaultTrainingWorkPolicy.Select(currentState);
+        if (candidate is not null)
         {
-            foreach (var branch in nextWork.BranchEmphasis)
-            {
-                var status = SelectStatusForDefaultWork(currentState.CurrentPractitionerState, branch);
-                if (status is null)
-                {
-                    continue;
-                }
-
-                var selectedStatus = status.Value;
-                var sessionType = forcedSessionType ?? SessionTypeFor(nextWork.Session, selectedStatus.State);
-                return new RequestedTrainingWork(
-                    selectedStatus.Branch,
-                    selectedStatus.Level,
-                    PrimaryDrillFor(selectedStatus.Branch),
-                    sessionType);
-            }
+            var sessionType = forcedSessionType ??
+                DefaultTrainingWorkPolicy.SessionTypeFor(
+                    candidate.WeeklyWork.Session,
+                    candidate.Status.State);
+            return new RequestedTrainingWork(
+                candidate.Status.Branch,
+                candidate.Status.Level,
+                PrimaryDrillFor(candidate.Status.Branch, candidate.Status.Level),
+                sessionType);
         }
 
         return new RequestedTrainingWork(
@@ -604,17 +590,6 @@ public sealed class NextTrainingWorkSelector
             forcedSessionType ?? AppTrainingSessionType.Practice);
     }
 
-    private static BranchLevelStatus? SelectStatusForDefaultWork(
-        PractitionerState currentState,
-        BranchCode branch)
-    {
-        return currentState.BranchLevels
-            .Where(status => status.Branch == branch && status.State != BranchLevelState.Unopened)
-            .OrderBy(status => StatusPriority(status.State))
-            .ThenByDescending(status => LevelRank(status.Level))
-            .FirstOrDefault();
-    }
-
     private static SelectedTrainingWork WorkFromMaintenanceRecord(
         LocalDueMaintenanceRecord dueMaintenance)
     {
@@ -622,14 +597,15 @@ public sealed class NextTrainingWorkSelector
             new RequestedTrainingWork(
                 dueMaintenance.BranchLevel.Branch,
                 dueMaintenance.BranchLevel.Level,
-                PrimaryDrillFor(dueMaintenance.BranchLevel.Branch),
+                PrimaryDrillFor(dueMaintenance.BranchLevel.Branch, dueMaintenance.BranchLevel.Level),
                 AppTrainingSessionType.Maintenance),
             advancementWorkAllowed: false);
     }
 
     private static SelectedTrainingWork RecoveryWorkFor(
         RequestedTrainingWork requested,
-        bool advancementWorkAllowed)
+        bool advancementWorkAllowed,
+        IReadOnlyList<LocalSessionHistoryRecord> recentSessions)
     {
         return WorkFromRequest(
             new RequestedTrainingWork(
@@ -638,24 +614,33 @@ public sealed class NextTrainingWorkSelector
                 requested.Drill,
                 AppTrainingSessionType.Recovery,
                 requested.LoadVariables),
-            advancementWorkAllowed);
+            advancementWorkAllowed,
+            recentSessions);
     }
 
     private static SelectedTrainingWork WorkFromRequest(
         RequestedTrainingWork requested,
-        bool advancementWorkAllowed)
+        bool advancementWorkAllowed,
+        IReadOnlyList<LocalSessionHistoryRecord>? recentSessions = null)
     {
         var standard = StandardFor(requested.Branch, requested.Level);
         var drill = DrillFor(requested.Drill);
         var loadVariables = requested.LoadVariables.Count == 0
-            ? DefaultLoadVariablesFor(requested.Drill)
+            ? ProgressiveLoadPlanner.Prescribe(
+                TrainingLoadProfileCatalog.Get(requested.Branch, requested.Level),
+                DefaultTrainingWorkPolicy.CoreSessionTypeFor(requested.SessionType),
+                LoadHistoryFor(requested, recentSessions ?? [])).Stage.LoadVariables
             : requested.LoadVariables;
 
         return new SelectedTrainingWork(
             requested.Branch,
             requested.Level,
             requested.Drill,
-            requested.SessionType,
+            ExecutableTrainingStandards.HonestSessionType(
+                requested.Branch,
+                requested.Level,
+                requested.Drill,
+                requested.SessionType),
             standard.Demand,
             standard.Standard,
             drill.HonestyConstraint,
@@ -663,115 +648,24 @@ public sealed class NextTrainingWorkSelector
             advancementWorkAllowed);
     }
 
-    private static IReadOnlyList<LoadVariable> DefaultLoadVariablesFor(DrillId drill)
+    private static IReadOnlyList<TrainingLoadHistoryEntry> LoadHistoryFor(
+        RequestedTrainingWork requested,
+        IEnumerable<LocalSessionHistoryRecord> sessions)
     {
-        return drill switch
-        {
-            DrillId.FH1TargetHold =>
-            [
-                new LoadVariable("duration", "3 minutes"),
-                new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
-            ],
-            DrillId.FH2DistractorHold =>
-            [
-                new LoadVariable("duration", "5 minutes"),
-                new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
-                new LoadVariable("distractor frequency", "periodic"),
-                new LoadVariable("distractor salience", "low"),
-            ],
-            DrillId.FS1CueSwitch =>
-            [
-                new LoadVariable("target count", "2"),
-                new LoadVariable("switch count", "4"),
-                new LoadVariable("cue density", "low"),
-                new LoadVariable("return precision", "next cue"),
-            ],
-            DrillId.FS2InvalidCueFilter =>
-            [
-                new LoadVariable("target count", "2"),
-                new LoadVariable("switch count", "6"),
-                new LoadVariable("cue density", "moderate"),
-                new LoadVariable("rule contrast", "valid symbol versus invalid lure"),
-                new LoadVariable("return precision", "next valid cue"),
-            ],
-            DrillId.WM1DelayedReconstruction =>
-            [
-                new LoadVariable("item count", "5"),
-                new LoadVariable("detail density", "simple objects"),
-                new LoadVariable("delay", "60 seconds"),
-            ],
-            DrillId.WM2MentalTransform =>
-            [
-                new LoadVariable("item count", "6"),
-                new LoadVariable("detail density", "simple objects"),
-                new LoadVariable("operation steps", "2"),
-                new LoadVariable("delay", "2 minutes"),
-                new LoadVariable("interference", "reversal"),
-            ],
-            DrillId.IR1GoNoGoRule =>
-            [
-                new LoadVariable("cue conflict", "simple go/no-go symbols"),
-                new LoadVariable("response speed", "2 seconds"),
-                new LoadVariable("no-go frequency", "every third cue"),
-            ],
-            DrillId.IR2ExceptionRule =>
-            [
-                new LoadVariable("exception count", "3"),
-                new LoadVariable("response speed", "2 seconds"),
-                new LoadVariable("similarity", "near symbols"),
-            ],
-            DrillId.DE1PairDiscrimination =>
-            [
-                new LoadVariable("similarity", "near match"),
-                new LoadVariable("item quantity", "6"),
-                new LoadVariable("time limit", "60 seconds"),
-            ],
-            DrillId.DE2SeededAudit =>
-            [
-                new LoadVariable("error subtlety", "subtle wording errors"),
-                new LoadVariable("output length", "6 lines"),
-                new LoadVariable("audit delay", "5 minutes"),
-                new LoadVariable("quantity", "3"),
-            ],
-            DrillId.CO1RuleExtraction =>
-            [
-                new LoadVariable("rule ambiguity", "clear examples"),
-                new LoadVariable("example count", "8"),
-            ],
-            DrillId.CO2StructureMapping =>
-            [
-                new LoadVariable("relation count", "3"),
-                new LoadVariable("domain distance", "near domain"),
-            ],
-            DrillId.AI1PressureRepeat =>
-            [
-                new LoadVariable("time pressure", "90 seconds"),
-                new LoadVariable("observation", "visible evaluator note"),
-            ],
-            DrillId.AI2DisruptionRecovery =>
-            [
-                new LoadVariable("interruption timing", "mid-task after first checkpoint"),
-                new LoadVariable("restart delay", "10 seconds"),
-                new LoadVariable("task complexity", "two-target cue sequence"),
-                new LoadVariable("recovery window", "30 seconds"),
-            ],
-            DrillId.TI1CompositeTask =>
-            [
-                new LoadVariable("number of branches", "2"),
-                new LoadVariable("task length", "12 minutes"),
-                new LoadVariable("transfer distance", "near transfer"),
-            ],
-            DrillId.TI2GlobalReviewTask =>
-            [
-                new LoadVariable("task length", "20 minutes"),
-                new LoadVariable("pressure", "visible review pressure"),
-                new LoadVariable("ambiguity", "moderate ambiguity"),
-                new LoadVariable("delay", "5 minutes"),
-            ],
-            _ => throw new ArgumentOutOfRangeException(nameof(drill), drill, "Unknown drill."),
-        };
+        return sessions
+            .Where(session =>
+                session.Drill == requested.Drill &&
+                session.BranchLevels.Contains(new LocalSessionBranchLevel(
+                    requested.Branch,
+                    requested.Level)))
+            .OrderBy(session => session.Date.Year)
+            .ThenBy(session => session.Date.Month)
+            .ThenBy(session => session.Date.Day)
+            .Select(session => new TrainingLoadHistoryEntry(
+                session.LoadVariables,
+                session.CleanPerformance,
+                Overload: !session.CleanPerformance))
+            .ToArray();
     }
 
     private static BranchLevelStandard StandardFor(BranchCode branch, GlobalLevelId level)
@@ -782,32 +676,6 @@ public sealed class NextTrainingWorkSelector
     private static DrillDefinition DrillFor(DrillId drill)
     {
         return ProgramCatalog.Drills.Single(definition => definition.Id == drill);
-    }
-
-    private static AppTrainingSessionType SessionTypeFor(
-        WeeklySessionKind weeklySession,
-        BranchLevelState branchLevelState)
-    {
-        return weeklySession switch
-        {
-            WeeklySessionKind.Load => AppTrainingSessionType.Load,
-            WeeklySessionKind.TestOrStabilization =>
-                branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
-                    ? AppTrainingSessionType.Stabilization
-                    : AppTrainingSessionType.Test,
-            WeeklySessionKind.TransferOrStabilization =>
-                branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
-                    ? AppTrainingSessionType.Stabilization
-                    : AppTrainingSessionType.Transfer,
-            WeeklySessionKind.Transfer => AppTrainingSessionType.Transfer,
-            WeeklySessionKind.Stabilization => AppTrainingSessionType.Stabilization,
-            WeeklySessionKind.Maintenance => AppTrainingSessionType.Maintenance,
-            WeeklySessionKind.Recovery
-                or WeeklySessionKind.RecoveryOrLightMaintenance
-                or WeeklySessionKind.OffOrRecovery
-                or WeeklySessionKind.RecoveryOrRetest => AppTrainingSessionType.Recovery,
-            _ => AppTrainingSessionType.Practice,
-        };
     }
 
     private static bool IsAdvancementWork(AppTrainingSessionType sessionType)
@@ -827,32 +695,9 @@ public sealed class NextTrainingWorkSelector
             BranchLevelState.Decayed;
     }
 
-    private static int StatusPriority(BranchLevelState state)
+    private static DrillId PrimaryDrillFor(BranchCode branch, GlobalLevelId level)
     {
-        return state switch
-        {
-            BranchLevelState.TestReady => 0,
-            BranchLevelState.PassedOnce or BranchLevelState.Stabilizing => 1,
-            BranchLevelState.Training => 2,
-            BranchLevelState.Maintenance => 3,
-            BranchLevelState.Owned => 4,
-            BranchLevelState.Decayed => 5,
-            _ => 6,
-        };
-    }
-
-    private static int LevelRank(GlobalLevelId level)
-    {
-        return ((int)level) + 1;
-    }
-
-    private static DrillId PrimaryDrillFor(BranchCode branch)
-    {
-        return ProgramCatalog.Drills
-            .First(definition => definition.Code.StartsWith(
-                $"{branch}-1",
-                StringComparison.Ordinal))
-            .Id;
+        return DefaultTrainingWorkPolicy.PrimaryDrillFor(branch, level);
     }
 
     private static bool DrillBelongsToBranch(DrillId drill, BranchCode branch)
