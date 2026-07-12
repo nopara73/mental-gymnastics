@@ -312,7 +312,8 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
                 CorrectionCount: 0,
                 ExpectedEvidenceFactCount: 1),
             LastCommand: null,
-            "Runtime session state captured.");
+            "Runtime session state captured.",
+            LoadVariables: [new LoadVariable("duration", "2 minutes")]);
 
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
@@ -322,6 +323,9 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.DoesNotContain("Prep", presentation.CurrentInstruction);
         Assert.Equal("Target Hold", presentation.Work.Exercise.ExerciseName);
         Assert.Equal("medium blue square", presentation.Work.Exercise.PrimaryMaterial);
+        Assert.Contains(
+            presentation.Work.LoadVariables,
+            variable => variable.Name == "duration" && variable.Value == "2 minutes");
         Assert.Equal(RuntimeInputCommandKind.FinishPhase, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
     }

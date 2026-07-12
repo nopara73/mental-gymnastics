@@ -19,8 +19,9 @@ The durable rule is:
 - FH-1 and FH-2 active work now use a dedicated full-screen practice surface instead of the shared scrolling live-session layout.
 - The surface contains only the target. FH-2 may additionally show the transient programmed distractor itself while it is active.
 - The timer, instruction, target caption, card background, counters, response-pad label, top bar, navigation, pause, stop, and target-change controls are absent during the hold.
+- Setup and the final ready screen state the programmed duration and that the hold ends automatically. The duration disappears completely when the hold begins; there is no active counter or countdown.
 - Status and navigation bars are hidden during live cognitive work and restored for setup, review, errors, lifecycle pause, completion, and destruction. The screen is kept awake only while that work is active.
-- The whole practice surface is one wander action. A deliberate tap records one `MarkDrift`; rapid taps are latched until the command completes. There is no visible acknowledgment to pull the eyes away from the target.
+- The whole practice surface is one wander action. A deliberate tap records one `MarkDrift`; rapid taps are latched until the command completes. Each accepted tap produces a 160 ms full-surface color pulse plus haptic feedback. The target remains visible, and no count or status text is introduced.
 - The accessibility tree exposes one full-screen action: the target description plus “Double tap when attention wanders.” The decorative target and distractor are not separate focus stops.
 - Target shapes are drawn inside measured horizontal and vertical bounds instead of being clipped by their container.
 - Focus Hold targets now use only the tested visual attributes: size, color, and shape. Untested left/center/right tokens were removed from generation, rendering, setup copy, and protocol instructions.
@@ -67,7 +68,7 @@ The correction was exercised on the physical Samsung SM-S948B, not accepted from
 
 The physical pass found three issues that source inspection alone had missed. Samsung initially reserved a black navigation region below the immersive canvas; the Window inset policy now allows the practice surface to draw through the hidden system-bar area. FS correctly rendered the cue and choices but still printed the encoded current target in a separate band; App now exposes a decoded current-target presentation and Android renders that object too. A white IR exception was technically rendered but nearly invisible on the pale canvas; white stimuli now receive a neutral contrast field without changing their encoded color identity.
 
-FH setup, FH active work, FS cue response, IR rule declaration, IR cue response, and DE pair discrimination were then recaptured from the phone. The FS, IR, and DE accessibility hierarchies contain no serialized `visual-stimulus` values. The retained README screenshots come from these real device paths.
+FH-1 setup and ready state, FH-2 setup, FH active work before/during/after acknowledgement, FS cue response, IR rule declaration, IR cue response, and DE pair discrimination were then recaptured from the phone. FH-1 consistently showed the prepared two-minute duration before start, while its active hierarchy contained no duration or timer text. The pulse frame differed from baseline, and the post-pulse frame returned byte-for-byte to the baseline screenshot. The FS, IR, and DE accessibility hierarchies contain no serialized `visual-stimulus` values. The retained README screenshots come from these real device paths.
 
 ## Verification
 

@@ -114,7 +114,8 @@ public sealed record PreUiLiveSessionState(
     DrillId? SourceDrill = null,
     PreUiLiveSessionCorrectionState? PendingCorrection = null,
     string? CurrentFocusTarget = null,
-    TimeSpan? TimeUntilNextCue = null)
+    TimeSpan? TimeUntilNextCue = null,
+    IReadOnlyList<LoadVariable>? LoadVariables = null)
 {
     public bool IsTerminal => LifecycleStatus is
         RuntimeSessionLifecycleStatus.Completed or
@@ -1172,7 +1173,8 @@ public sealed class PreUiLiveSessionController
             pendingCorrection is null ? CurrentFocusTarget(snapshot) : null,
             cueScheduler is null || cueSnapshot is null
                 ? null
-                : TimeUntilNextCue(cueScheduler, cueSnapshot));
+                : TimeUntilNextCue(cueScheduler, cueSnapshot),
+            snapshot.SessionDefinition.LoadVariables);
     }
 
     private string? CurrentFocusTarget(RuntimeSessionSnapshot snapshot)

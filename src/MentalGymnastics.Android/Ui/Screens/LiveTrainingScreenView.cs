@@ -417,10 +417,12 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             : ViewStates.Gone;
         timer.Update(presentation.Timer, presentation.LifecycleStatus);
         UpdateTimerSize(effectiveDrill, presentation.CurrentPhaseKind, hasIntegratedComponents);
-        instruction.Text = usesCompactFocusLayout
-            ? CompactFocusInstruction(presentation)
-            : presentation.CurrentInstruction;
         var isPrep = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
+        instruction.Text = isPrep && isFocusHold
+            ? FocusHoldReadyInstruction(presentation)
+            : usesCompactFocusLayout
+                ? CompactFocusInstruction(presentation)
+                : presentation.CurrentInstruction;
         var isRest = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Rest;
         timer.Visibility = isRest && presentation.Timer.IsTimed
             ? ViewStates.Visible
@@ -1362,6 +1364,17 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var totalSeconds = Math.Max(0, (int)Math.Ceiling(remaining.TotalSeconds));
         var time = $"{totalSeconds / 60:00}:{totalSeconds % 60:00}";
         return $"{presentation.CurrentInstruction.Trim().TrimEnd('.')}  ·  {time}";
+    }
+
+    private static string FocusHoldReadyInstruction(LiveSessionPresentationReadModel presentation)
+    {
+        var duration = presentation.Work.LoadVariables.FirstOrDefault(variable => string.Equals(
+            variable.Name,
+            "duration",
+            StringComparison.OrdinalIgnoreCase))?.Value;
+        duration = string.IsNullOrWhiteSpace(duration) ? "3 minutes" : duration;
+        return $"{duration} · ends automatically{Environment.NewLine}" +
+            "Tap when attention wanders. A brief flash confirms it.";
     }
 
     private static string FormatCueTime(TimeSpan value)

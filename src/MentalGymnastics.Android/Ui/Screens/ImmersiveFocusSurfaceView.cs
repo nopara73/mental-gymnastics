@@ -14,6 +14,8 @@ namespace MentalGymnastics.Android;
 /// </summary>
 internal sealed class ImmersiveFocusSurfaceView : FrameLayout
 {
+    private const long AcknowledgementPulseMilliseconds = 160;
+
     private readonly TargetMaterialView target;
     private readonly TextView distractor;
     private bool commandPending;
@@ -23,6 +25,7 @@ internal sealed class ImmersiveFocusSurfaceView : FrameLayout
     private string? activeTargetId;
     private string? activeValue;
     private string lastSemanticDescription = string.Empty;
+    private int acknowledgementPulseGeneration;
 
     public ImmersiveFocusSurfaceView(Context context)
         : base(context)
@@ -146,6 +149,8 @@ internal sealed class ImmersiveFocusSurfaceView : FrameLayout
 
     public void Reset()
     {
+        acknowledgementPulseGeneration++;
+        SetBackgroundColor(MgColors.Canvas);
         commandPending = false;
         activeCommand = null;
         activeTargetId = null;
@@ -166,8 +171,24 @@ internal sealed class ImmersiveFocusSurfaceView : FrameLayout
         commandPending = true;
         pendingPreviousOutcome = lastCommandOutcome;
         Enabled = false;
+        PulseAcknowledgement();
         PerformHapticFeedback(FeedbackConstants.ClockTick);
         CommandRequested?.Invoke(command, activeTargetId, activeValue);
+    }
+
+    private void PulseAcknowledgement()
+    {
+        var generation = ++acknowledgementPulseGeneration;
+        SetBackgroundColor(MgColors.TrainingPanel);
+        PostDelayed(
+            () =>
+            {
+                if (generation == acknowledgementPulseGeneration)
+                {
+                    SetBackgroundColor(MgColors.Canvas);
+                }
+            },
+            AcknowledgementPulseMilliseconds);
     }
 
     private static string CleanMaterial(string? value, string fallback)

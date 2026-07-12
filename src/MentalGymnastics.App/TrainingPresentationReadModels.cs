@@ -471,7 +471,7 @@ public static class TrainingPresentationMapper
             .ToArray();
 
         return new LiveSessionPresentationReadModel(
-            WorkFor(live),
+            WorkFor(live, loadVariables: live.LoadVariables),
             live.LifecycleStatus,
             live.SchedulerStatus,
             live.CurrentPhaseKind,

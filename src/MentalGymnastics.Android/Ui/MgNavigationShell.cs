@@ -888,7 +888,7 @@ internal sealed class MgNavigationShell
             presentation.PrimaryActionEnabled,
             () => SessionStartRequested?.Invoke());
 
-        if (work.Drill == DrillId.FH1TargetHold)
+        if (work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
             panel.AddView(FocusHoldCriteriaStrip(work.LoadVariables), MatchWrapWithTop(MgSpacing.Md));
         }
@@ -2595,13 +2595,14 @@ internal sealed class MgNavigationShell
         if (preflight.Work is { } work)
         {
             var requiresFailureMode = RequiresFailureModeSelection(work);
-            if (work.Drill != DrillId.FH1TargetHold)
+            var isFocusHold = work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold;
+            if (!isFocusHold)
             {
                 AddCompactScreenHeading(panel, work.Exercise.ExerciseName, work.Exercise.BranchLevelLabel);
                 AddBody(panel, work.Exercise.Purpose);
             }
 
-            if (work.Drill == DrillId.FH1TargetHold)
+            if (isFocusHold)
             {
                 var target = new TargetMaterialView(context, compact: true);
                 target.SetDense(dense: true);
@@ -2610,11 +2611,14 @@ internal sealed class MgNavigationShell
 
                 var prompt = new TextView(context)
                 {
-                    Text = "Keep attention on this exact shape.",
+                    Text = work.Drill == DrillId.FH2DistractorHold
+                        ? "Keep attention on this exact shape. Let distractors pass."
+                        : "Keep attention on this exact shape.",
                     Gravity = GravityFlags.Center,
                 };
                 MgTypography.ApplyHeading(prompt);
                 panel.AddView(prompt, MatchWrapWithTop(MgSpacing.Md));
+                AddFocusHoldDurationCue(panel, work.LoadVariables);
                 AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
                 AddFocusedBlock(
                     panel,
@@ -2717,6 +2721,47 @@ internal sealed class MgNavigationShell
             "duration",
             StringComparison.OrdinalIgnoreCase))?.Value;
         return string.IsNullOrWhiteSpace(value) ? "3 minutes" : value;
+    }
+
+    private void AddFocusHoldDurationCue(
+        LinearLayout panel,
+        IReadOnlyList<LoadVariable>? loadVariables)
+    {
+        var duration = new LinearLayout(context)
+        {
+            Orientation = Orientation.Horizontal,
+            Background = MgTheme.TintedSurface(
+                context,
+                MgColors.TrainingTint,
+                MgColors.Training,
+                cornerRadius: 8),
+        };
+        duration.SetGravity(GravityFlags.CenterVertical);
+        duration.SetPadding(
+            Dp(MgSpacing.Lg),
+            Dp(MgSpacing.Md),
+            Dp(MgSpacing.Lg),
+            Dp(MgSpacing.Md));
+
+        var value = new TextView(context)
+        {
+            Text = FocusHoldDurationLabel(loadVariables),
+            Gravity = GravityFlags.Center,
+        };
+        MgTypography.ApplyTitle(value);
+        value.SetTextColor(MgColors.TrainingDark);
+        duration.AddView(value, new LinearLayout.LayoutParams(Dp(112), ViewGroup.LayoutParams.WrapContent));
+
+        var explanation = new TextView(context)
+        {
+            Text = "HOLD TIME\nEnds automatically",
+        };
+        MgTypography.ApplyLabel(explanation);
+        explanation.SetTextColor(MgColors.Ink);
+        var explanationLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
+        explanationLayout.SetMargins(Dp(MgSpacing.Md), 0, 0, 0);
+        duration.AddView(explanation, explanationLayout);
+        panel.AddView(duration, MatchWrapWithTop(MgSpacing.Md));
     }
 
     private void AddInteractionProtocol(

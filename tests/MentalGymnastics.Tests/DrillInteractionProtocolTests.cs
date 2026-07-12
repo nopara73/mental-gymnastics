@@ -31,13 +31,15 @@ public sealed class DrillInteractionProtocolTests
         Assert.Equal("FOCUS", protocol.Steps[0].Label);
         Assert.Equal("WANDERED", protocol.Steps[1].Label);
         Assert.Equal("RESUME", protocol.Steps[2].Label);
-        Assert.Contains("tap anywhere", protocol.DeviceInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tap without moving your gaze", protocol.DeviceInstruction, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tap anywhere once", protocol.ActionInstruction, StringComparison.Ordinal);
         Assert.Contains("no second action", protocol.ActionInstruction, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("No return timer or second tap", protocol.Steps[2].Instruction, StringComparison.Ordinal);
+        Assert.Contains("brief flash", protocol.Steps[2].Instruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no second tap", protocol.Steps[2].Instruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("brief screen pulse", protocol.ScreenBehavior, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("position", protocol.AttentionInstruction, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("position", protocol.Steps[0].Instruction, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(DrillInteractionAcknowledgement.Haptic, protocol.Acknowledgement);
+        Assert.Equal(DrillInteractionAcknowledgement.VisualAndHaptic, protocol.Acknowledgement);
     }
 
     [Theory]
