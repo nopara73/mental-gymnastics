@@ -44,7 +44,7 @@ public sealed class FormalTransferWorkflowTests : IDisposable
         var preflight = TrainingPresentationMapper.FromPreflight(prepared);
         Assert.Equal("Hold target during WM or DE task.", preflight.Work!.Exercise.PrimaryMaterial);
         Assert.Contains(preflight.Work.Exercise.SetupItems, item =>
-            item == "SAME DEMAND  Target, drift marking, return standard.");
+            item == "SAME DEMAND  Target, drift marking, no target substitution.");
         Assert.Contains(preflight.Work.Exercise.SetupItems, item =>
             item == "NEW CONTEXT  Content and task format.");
 
@@ -60,13 +60,13 @@ public sealed class FormalTransferWorkflowTests : IDisposable
             started,
             saveActiveSnapshot: false);
 
+        AssertTransferContract(controller.CaptureState(), TransferTestCatalog.TransferTests.Single(item =>
+            item.SourceBranch == BranchCode.FH));
+
         var active = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
-        Assert.Contains(active.CurrentMaterials, material => material.Kind == "TransferTask");
-        Assert.Contains(active.CurrentMaterials, material => material.Kind == "SameDemand");
-        Assert.Contains(active.CurrentMaterials, material => material.Kind == "ChangedContext");
-        Assert.Contains(active.CurrentMaterials, material => material.Kind == "SourceBranchStandard");
+        AssertNoTransferContract(active);
         Assert.Contains(active.CurrentMaterials, material => material.Kind == "ComponentPayload");
         clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(5)));
         var components = await controller.RefreshAsync();
@@ -161,16 +161,18 @@ public sealed class FormalTransferWorkflowTests : IDisposable
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
 
         Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
-        Assert.Contains(audit.CurrentMaterials, material =>
-            material.Kind == "AuditPayload" &&
-            material.Value.Contains("UNSEEN PROBE", StringComparison.Ordinal));
-        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "SourceStructure");
-        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "TargetStructure");
-        Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "ExpectedFinding");
+        Assert.Empty(audit.CurrentMaterials);
         Assert.True(audit.Commands.Single(command => command.Command == RuntimeInputCommandKind.StartAudit).IsAvailable);
 
-        await controller.HandleCommandAsync(
+        var auditStarted = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.StartAudit));
+        Assert.Contains(auditStarted.CurrentMaterials, material =>
+            material.Kind == "AuditPayload" &&
+            material.Value.Contains("UNSEEN PROBE", StringComparison.Ordinal));
+        Assert.Contains(auditStarted.CurrentMaterials, material => material.Kind == "SourceStructure");
+        Assert.Contains(auditStarted.CurrentMaterials, material => material.Kind == "TargetStructure");
+        Assert.DoesNotContain(auditStarted.CurrentMaterials, material => material.Kind == "ExpectedFinding");
+
         var expectedFinding = runtimeSession.InputMaterials.Single(material =>
             material.Kind == GeneratedContentMaterialKind.ExpectedFinding).Value;
         await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
@@ -248,7 +250,7 @@ public sealed class FormalTransferWorkflowTests : IDisposable
         var firstWork = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         Assert.NotEqual(RuntimeSessionPhaseKind.InstructionPrep, firstWork.CurrentPhaseKind);
-        AssertTransferContract(firstWork, definition);
+        AssertNoTransferContract(firstWork);
     }
 
     public void Dispose()
@@ -329,6 +331,12 @@ public sealed class FormalTransferWorkflowTests : IDisposable
         Assert.Contains(state.CurrentMaterials, material =>
             material.Kind == "SourceBranchStandard" &&
             material.Value.Contains("visible in the transfer artifact", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AssertNoTransferContract(PreUiLiveSessionState state)
+    {
+        Assert.DoesNotContain(state.CurrentMaterials, material => material.Kind is
+            "TransferTask" or "SameDemand" or "ChangedContext" or "SourceBranchStandard");
     }
 
     private static string ComponentAnswers(IEnumerable<GeneratedContentMaterial> materials)

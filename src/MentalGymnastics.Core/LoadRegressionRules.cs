@@ -101,7 +101,6 @@ public static class LoadRegressionRuleCatalog
             [
                 LoadVariableKind.Duration,
                 LoadVariableKind.DistractorSalience,
-                LoadVariableKind.RecoveryWindow,
                 LoadVariableKind.TargetSubtlety,
             ],
             ForbiddenLoadIncreaseKind.AddComplexReasoningBeforeHoldStable,

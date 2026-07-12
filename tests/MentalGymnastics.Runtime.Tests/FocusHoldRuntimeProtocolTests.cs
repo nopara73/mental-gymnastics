@@ -6,14 +6,13 @@ namespace MentalGymnastics.Runtime.Tests;
 public sealed class FocusHoldRuntimeProtocolTests
 {
     [Fact]
-    public void TargetHoldRequiresStatedTargetAndRecordsDriftReturnAndTargetSubstitutionFacts()
+    public void TargetHoldRequiresStatedTargetAndRecordsEachDriftWithOneAction()
     {
         var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
         var protocol = FocusHoldRuntimeProtocol.Start(
             "fh1-session",
             FocusHoldSession(DrillId.FH1TargetHold, GlobalLevelId.L1),
-            clock,
-            new FocusHoldRuntimeProtocolOptions(RuntimeDuration.FromSeconds(10)));
+            clock);
 
         var rejectedStart = protocol.StartActiveSet();
 
@@ -24,29 +23,29 @@ public sealed class FocusHoldRuntimeProtocolTests
         var target = protocol.StateTarget("target-1", "breath at nostrils");
         var active = protocol.StartActiveSet();
         clock.AdvanceBy(RuntimeDuration.FromSeconds(30));
-        var drift = protocol.MarkDrift("drift-1");
+        var firstDrift = protocol.MarkDrift("drift-1");
         clock.AdvanceBy(RuntimeDuration.FromSeconds(7));
-        var returned = protocol.RecordReturn("drift-1");
+        var secondDrift = protocol.MarkDrift("drift-2");
         clock.AdvanceBy(RuntimeDuration.FromSeconds(8));
         var substitution = protocol.RecordTargetSubstitution("counting ambient sounds");
         var completed = protocol.CompleteSet("set-1");
 
         Assert.True(target.IsAccepted);
         Assert.True(active.IsAccepted);
-        Assert.True(drift.IsAccepted);
-        Assert.True(returned.IsAccepted);
+        Assert.True(firstDrift.IsAccepted);
+        Assert.True(secondDrift.IsAccepted);
         Assert.True(substitution.IsAccepted);
         Assert.True(completed.IsAccepted);
 
         Assert.Contains(target.Event!.Facts, fact => fact.Name == "target_statement" && fact.Value == "breath at nostrils");
         Assert.Contains(target.Event.Facts, fact => fact.Name == "target_statement_timing" && fact.Value == "before_set");
-        Assert.Contains(drift.Event!.Facts, fact => fact.Name == "drift_marking_required" && fact.Value == "true");
-        Assert.Contains(drift.Event.Facts, fact => fact.Name == "target_id" && fact.Value == "target-1");
-        Assert.Contains(returned.Event!.Facts, fact => fact.Name == "recovery_time" && fact.Value == "00:00:07");
-        Assert.Contains(returned.Event.Facts, fact => fact.Name == "return_within_window" && fact.Value == "true");
+        Assert.Contains(firstDrift.Event!.Facts, fact => fact.Name == "drift_marking_required" && fact.Value == "true");
+        Assert.Contains(firstDrift.Event.Facts, fact => fact.Name == "target_id" && fact.Value == "target-1");
+        Assert.Contains(firstDrift.Event.Facts, fact => fact.Name == "resume_instruction" && fact.Value == "continue_same_target");
+        Assert.Contains(secondDrift.Event!.Facts, fact => fact.Name == "drift_id" && fact.Value == "drift-2");
         Assert.Contains(substitution.Event!.Facts, fact => fact.Name == "error_kind" && fact.Value == "target_substitution");
         Assert.Contains(substitution.Event.Facts, fact => fact.Name == "failed_constraint" && fact.Value == "no_target_substitution");
-        Assert.Contains(completed.Event!.Facts, fact => fact.Name == "score" && fact.Value.Contains("marked_drifts=1", StringComparison.Ordinal));
+        Assert.Contains(completed.Event!.Facts, fact => fact.Name == "score" && fact.Value.Contains("marked_drifts=2", StringComparison.Ordinal));
         Assert.Contains(completed.Event.Facts, fact => fact.Name == "target_substitution_count" && fact.Value == "1");
 
         var scoringEvents = protocol.EventLog.Events
@@ -84,7 +83,8 @@ public sealed class FocusHoldRuntimeProtocolTests
                 evidence.Description.Contains("target_substitution_count=1", StringComparison.Ordinal));
         Assert.DoesNotContain(
             protocol.EventLog.Events.SelectMany(runtimeEvent => runtimeEvent.Facts),
-            fact => fact.Name is "gate_outcome" or "pass_state");
+            fact => fact.Name is "gate_outcome" or "pass_state" or "recovery_time" or "return_within_window");
+        Assert.DoesNotContain(protocol.EventLog.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted);
     }
 
     [Fact]
@@ -94,8 +94,7 @@ public sealed class FocusHoldRuntimeProtocolTests
         var protocol = FocusHoldRuntimeProtocol.Start(
             "fh2-session",
             FocusHoldSession(DrillId.FH2DistractorHold, GlobalLevelId.L3),
-            clock,
-            new FocusHoldRuntimeProtocolOptions(RuntimeDuration.FromSeconds(10)));
+            clock);
 
         Assert.True(protocol.StateTarget("target-1", "blue dot at center").IsAccepted);
         Assert.True(protocol.StartActiveSet().IsAccepted);

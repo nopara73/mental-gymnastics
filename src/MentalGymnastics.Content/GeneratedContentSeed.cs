@@ -21,7 +21,7 @@ public sealed class GeneratedContentSeed
 
 public sealed class GeneratedContentSeedPlan
 {
-    public const string AlgorithmVersion = "deterministic-seed-v1";
+    public const string AlgorithmVersion = "deterministic-seed-v3";
 
     internal GeneratedContentSeedPlan(
         GeneratedDrillContentRequest request,

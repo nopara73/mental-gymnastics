@@ -1,4 +1,5 @@
 using MentalGymnastics.App;
+using MentalGymnastics.Content;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
 using MentalGymnastics.Runtime;
@@ -82,13 +83,13 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal("Target Hold", presentation.PrimaryPrescribedWork!.Exercise.ExerciseName);
         Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
         Assert.Equal("Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
-        Assert.Contains("Hold one simple target", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
-        Assert.Contains("Mind wandered", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Keep attention on one visible shape", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Tap once for every noticed wander", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
         Assert.Contains("Practice one loop", presentation.PrimaryPrescribedWork.Exercise.Purpose);
         Assert.Contains("notice attention moved", presentation.PrimaryPrescribedWork.Exercise.Purpose);
         Assert.Contains("mark it", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("return to the same target", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("clean return", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
+        Assert.Contains("resume the same target", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("honest noticing", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
         Assert.Contains("not feeling calm", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
         Assert.Contains("After this is stable", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
         Assert.Contains("longer holds", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
@@ -207,11 +208,13 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
             material.Kind == MentalGymnastics.Content.GeneratedContentMaterialKind.ExceptionDefinition);
         Assert.True(generatedExceptionCount > 0);
         Assert.Equal(generatedExceptionCount, preflight.Work.Exercise.SetupItems.Count);
+        Assert.Equal(generatedExceptionCount, preflight.Work.Exercise.VisualExceptions?.Count);
         Assert.All(preflight.Work.Exercise.SetupItems, item =>
         {
             Assert.Contains(':', item);
             Assert.DoesNotContain("instead", item, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("cue is", item, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(VisualStimulusCodec.FormatVersion, item, StringComparison.Ordinal);
         });
     }
 
@@ -234,7 +237,8 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal("Level 1", preflight.Work.Exercise.BranchLevelLabel);
         Assert.DoesNotContain("Focus Hold", preflight.Work.Exercise.BranchLevelLabel);
         Assert.Contains("Practice one loop", preflight.Work.Exercise.Purpose);
-        Assert.Contains("clean return", preflight.Work.Exercise.PracticeGain);
+        Assert.Contains("honest noticing", preflight.Work.Exercise.PracticeGain);
+        Assert.Contains("does not time your return", preflight.Work.Exercise.EvidenceRecorded);
         Assert.Contains("After this is stable", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("longer holds", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("distraction", preflight.Work.Exercise.WhereItGoes);
@@ -243,14 +247,13 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Contains("transfer", preflight.Work.Exercise.WhereItGoes);
         Assert.DoesNotContain("Focus Shift", preflight.Work.Exercise.WhereItGoes);
         Assert.DoesNotContain("No promise this makes you smarter", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("Read the target", preflight.Work.Exercise.BeforeStartInstruction);
-        Assert.Contains("Counts if", preflight.Work.Exercise.SuccessCriteria);
-        Assert.Contains("finish 2 minutes", preflight.Work.Exercise.SuccessCriteria);
-        Assert.Contains("tap 5 times or fewer", preflight.Work.Exercise.SuccessCriteria);
-        Assert.Contains("Try again if", preflight.Work.Exercise.FailureCriteria);
-        Assert.Contains("miss a wander", preflight.Work.Exercise.FailureCriteria);
-        Assert.Contains("Tap Mind wandered", preflight.Work.Exercise.HonestyInstruction);
-        Assert.Contains("Keep the same target", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("Look at the visible shape normally", preflight.Work.Exercise.BeforeStartInstruction);
+        Assert.Contains("Counts when", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("No more than 5 marked drifts", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("Does not count", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("Target is stated before set", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("WANDERED", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("same shape", preflight.Work.Exercise.HonestyInstruction);
         Assert.Contains("saves wander taps", preflight.Work.Exercise.EvidenceRecorded);
         var primaryMaterial = Assert.IsType<string>(preflight.Work.Exercise.PrimaryMaterial);
         Assert.False(string.IsNullOrWhiteSpace(primaryMaterial));
@@ -288,7 +291,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
                 Progress: null,
                 IsTimed: false),
             ActiveCue: null,
-            [new PreUiLiveSessionMaterialState("TargetStatement", "Target", "Hold target phrase: blue square.")],
+            [new PreUiLiveSessionMaterialState("TargetStatement", "Target", "Visual target: medium blue square")],
             [
                 new PreUiLiveSessionCommandState(
                     RuntimeInputCommandKind.FinishPhase,
@@ -313,10 +316,12 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
 
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
-        Assert.Equal("Eyes open. Keep the target visible. Say it once.", presentation.CurrentInstruction);
+        Assert.Equal(
+            "Look at the visible shape normally. It remains visible throughout the hold.",
+            presentation.CurrentInstruction);
         Assert.DoesNotContain("Prep", presentation.CurrentInstruction);
         Assert.Equal("Target Hold", presentation.Work.Exercise.ExerciseName);
-        Assert.Equal("blue square", presentation.Work.Exercise.PrimaryMaterial);
+        Assert.Equal("medium blue square", presentation.Work.Exercise.PrimaryMaterial);
         Assert.Equal(RuntimeInputCommandKind.FinishPhase, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
     }
@@ -378,9 +383,64 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
 
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
-        Assert.Equal("Eyes open. Hold the target.", presentation.CurrentInstruction);
+        Assert.Equal(
+            "Stay with the same target. If you notice a wander, tap once and continue.",
+            presentation.CurrentInstruction);
         Assert.Equal(RuntimeInputCommandKind.MarkDrift, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
+    }
+
+    [Fact]
+    public void LivePresentationDecodesVisualStimuliAndPairsWithoutExposingDescriptorProse()
+    {
+        var cueStimulus = new VisualStimulusSpec(
+            VisualStimulusShape.Circle,
+            VisualStimulusColor.Green);
+        var secondTarget = new VisualStimulusSpec(
+            VisualStimulusShape.Square,
+            VisualStimulusColor.Blue,
+            VisualStimulusFill.Outline);
+        var pair = new VisualStimulusPairSpec(
+            cueStimulus,
+            cueStimulus with { Mark = VisualStimulusMark.Dot, MarkCount = 1 },
+            VisualStimulusFeature.Shape);
+        var encodedCue = VisualStimulusCodec.Encode(cueStimulus);
+        var encodedSecondTarget = VisualStimulusCodec.Encode(secondTarget);
+        var encodedPair = VisualStimulusCodec.EncodePair(pair);
+        var live = LiveState(
+            RuntimeSessionLifecycleStatus.Running,
+            RuntimePhaseSchedulerStatus.Running,
+            RuntimeSessionCompletionStatus.Completed) with
+        {
+            Branch = BranchCode.FS,
+            Drill = DrillId.FS1CueSwitch,
+            ActiveCue = new PreUiLiveSessionCueState(
+                "cue-visual",
+                RuntimeCueKind.FocusShift,
+                encodedCue,
+                RuntimeCueResponseExpectation.ResponseRequired,
+                TimeSpan.FromSeconds(5),
+                ExpectedResponse: null),
+            CurrentFocusTarget = encodedSecondTarget,
+            CurrentMaterials =
+            [
+                new PreUiLiveSessionMaterialState("TargetSet", "target-1", encodedCue),
+                new PreUiLiveSessionMaterialState("TargetSet", "target-2", encodedSecondTarget),
+                new PreUiLiveSessionMaterialState("DiscriminationPair", "pair-1", encodedPair),
+            ],
+        };
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal(cueStimulus, presentation.ActiveVisualStimulus);
+        Assert.Equal(secondTarget, presentation.CurrentFocusVisualStimulus);
+        Assert.Equal(2, presentation.VisualChoices?.Count);
+        Assert.Equal(encodedCue, presentation.VisualChoices?[0].ResponseValue);
+        Assert.Equal(secondTarget, presentation.VisualChoices?[1].Stimulus);
+        var decodedPair = Assert.Single(presentation.DiscriminationPairs!);
+        Assert.Equal("pair-1", decodedPair.PairId);
+        Assert.Equal(pair, decodedPair.Pair);
+        Assert.DoesNotContain("visual-stimulus-v1", presentation.CurrentInstruction, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -396,7 +456,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal(TrainingPresentationWorkSource.LiveSession, presentation.Work.Source);
         Assert.Equal(RuntimeSessionPhaseKind.CueResponse, presentation.CurrentPhaseKind);
         Assert.NotNull(presentation.ActiveCue);
-        Assert.True(presentation.ActiveCue!.HasHiddenExpectedResponse);
+        Assert.True(presentation.ActiveCue!.ExpectedActionIsHidden);
         Assert.Equal(RuntimeInputCommandKind.RespondToCue, presentation.PrimaryCommand?.Command);
         Assert.DoesNotContain(
             presentation.AvailableCommands,
@@ -545,9 +605,9 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
     }
 
     [Theory]
-    [InlineData(DrillId.FS2InvalidCueFilter, "Invalid cue. Do not tap.")]
-    [InlineData(DrillId.IR2ExceptionRule, "No-go. Do not tap.")]
-    public void NoTouchCuesStateThatNoTouchIsRequired(DrillId drill, string expectedInstruction)
+    [InlineData(DrillId.FS2InvalidCueFilter, "Apply the cue rule. Tap a target only when the cue requires a switch.")]
+    [InlineData(DrillId.IR2ExceptionRule, "Apply the rule. Tap the response pad only when the stimulus calls for GO.")]
+    public void NoTouchCuesKeepTheExpectedActionHidden(DrillId drill, string expectedInstruction)
     {
         var live = LiveStateForDrill(drill, RuntimeSessionPhaseKind.CueResponse) with
         {
@@ -563,13 +623,13 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
         Assert.Equal(expectedInstruction, presentation.CurrentInstruction);
-        Assert.False(presentation.ActiveCue!.RequiresResponse);
+        Assert.True(presentation.ActiveCue!.ExpectedActionIsHidden);
     }
 
     [Theory]
-    [InlineData(DrillId.FS1CueSwitch, "Valid cue. Tap the named target.")]
-    [InlineData(DrillId.IR1GoNoGoRule, "Go. Tap now.")]
-    public void ActionCuesStateTheRequiredTouch(DrillId drill, string expectedInstruction)
+    [InlineData(DrillId.FS1CueSwitch, "Apply the cue rule. Tap a target only when the cue requires a switch.")]
+    [InlineData(DrillId.IR1GoNoGoRule, "Apply the rule. Tap the response pad only when the stimulus calls for GO.")]
+    public void ActionCuesAlsoKeepTheExpectedActionHidden(DrillId drill, string expectedInstruction)
     {
         var live = LiveStateForDrill(drill, RuntimeSessionPhaseKind.CueResponse) with
         {
@@ -585,7 +645,26 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
         Assert.Equal(expectedInstruction, presentation.CurrentInstruction);
-        Assert.True(presentation.ActiveCue!.RequiresResponse);
+        Assert.True(presentation.ActiveCue!.ExpectedActionIsHidden);
+    }
+
+    [Fact]
+    public void WaitingCuePresentationShowsThatTheSessionIsStillRunning()
+    {
+        var live = LiveStateForDrill(DrillId.FS1CueSwitch, RuntimeSessionPhaseKind.CueResponse);
+        live = live with
+        {
+            ActiveCue = null,
+            TimeUntilNextCue = TimeSpan.FromSeconds(42),
+            Commands = live.Commands
+                .Where(command => command.Command != RuntimeInputCommandKind.FinishPhase)
+                .ToArray(),
+        };
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal("Ready. Next cue in 42s.", presentation.CurrentInstruction);
+        Assert.Equal(TimeSpan.FromSeconds(42), presentation.TimeUntilNextCue);
     }
 
     public void Dispose()

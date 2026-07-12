@@ -53,12 +53,11 @@ public sealed class ExecutableStandardCatalogTests
                 [
                     new(TrainingStandardMeasurements.ActiveDurationSeconds, 180),
                     new(TrainingStandardMeasurements.MarkedDriftCount, 5),
-                    new(TrainingStandardMeasurements.UnreturnedDriftCount, 0),
-                    new(TrainingStandardMeasurements.LateReturnCount, 0),
                     new(TrainingStandardMeasurements.TargetSubstitutionCount, 0),
                 ],
                 [
                     new(TrainingStandardConstraints.TargetStatedBeforeSet, true),
+                    new(TrainingStandardConstraints.DriftMarked, true),
                 ],
                 outputComplete: true,
                 rubricOutcome: null));

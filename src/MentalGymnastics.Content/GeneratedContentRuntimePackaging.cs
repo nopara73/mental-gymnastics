@@ -24,6 +24,40 @@ public enum GeneratedRuntimePhaseCompletionRule
     ManualOrTimed,
 }
 
+public static class GeneratedRuntimeComponentPhaseIdentity
+{
+    private const string ComponentWorkPrefix = "component-work:";
+
+    public static string ForMaterial(string materialName)
+    {
+        if (string.IsNullOrWhiteSpace(materialName))
+        {
+            throw new ArgumentException("Component phase material name is required.", nameof(materialName));
+        }
+
+        return ComponentWorkPrefix + materialName.Trim();
+    }
+
+    public static bool TryGetMaterialName(string? phaseId, out string materialName)
+    {
+        materialName = string.Empty;
+        if (string.IsNullOrWhiteSpace(phaseId) ||
+            !phaseId.StartsWith(ComponentWorkPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var candidate = phaseId[ComponentWorkPrefix.Length..].Trim();
+        if (candidate.Length == 0)
+        {
+            return false;
+        }
+
+        materialName = candidate;
+        return true;
+    }
+}
+
 public sealed class GeneratedRuntimePhaseDefinition
 {
     public GeneratedRuntimePhaseDefinition(
@@ -321,7 +355,7 @@ public static class GeneratedContentRuntimePackager
                 TimeSpan.FromMinutes(20);
             var delay = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength) ??
                 TimeSpan.FromMinutes(5);
-            phases.Add(ManualOrTimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, taskLength));
+            AddTransferIntegrationComponentPhases(phases, materials, taskLength);
             phases.Add(ManualPhase("audit", GeneratedRuntimePhaseKind.Audit));
             phases.Add(TimedPhase("delay-window", GeneratedRuntimePhaseKind.DelayWindow, delay));
             phases.Add(ManualPhase("reconstruction-input", GeneratedRuntimePhaseKind.ReconstructionInput));
@@ -333,7 +367,7 @@ public static class GeneratedContentRuntimePackager
         {
             var taskLength = FirstDuration(materials, GeneratedContentMaterialKind.TaskLength) ??
                 TimeSpan.FromMinutes(12);
-            phases.Add(ManualOrTimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, taskLength));
+            AddTransferIntegrationComponentPhases(phases, materials, taskLength);
             var delay = FirstDuration(materials, GeneratedContentMaterialKind.DelayLength);
             if (delay.HasValue)
             {
@@ -381,6 +415,19 @@ public static class GeneratedContentRuntimePackager
             phases.Add(ManualPhase("source-review", GeneratedRuntimePhaseKind.EncodeWindow));
             phases.Add(TimedPhase("audit-delay", GeneratedRuntimePhaseKind.DelayWindow, delay));
             phases.Add(ManualPhase("seeded-audit", GeneratedRuntimePhaseKind.Audit));
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Drill == DrillId.DE1PairDiscrimination)
+        {
+            var timeLimit = FirstDuration(materials, GeneratedContentMaterialKind.TimePressure) ??
+                throw new InvalidOperationException(
+                    "DE-1 runtime packages require a parseable generated comparison time limit.");
+            phases.Add(ManualOrTimedPhase(
+                "active-work",
+                GeneratedRuntimePhaseKind.ActiveWork,
+                timeLimit));
             phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
             return Array.AsReadOnly(phases.ToArray());
         }
@@ -487,6 +534,63 @@ public static class GeneratedContentRuntimePackager
         AddComponentEvidencePhase(phases, materials);
         phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
         return Array.AsReadOnly(phases.ToArray());
+    }
+
+    private static void AddTransferIntegrationComponentPhases(
+        ICollection<GeneratedRuntimePhaseDefinition> phases,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        TimeSpan totalDuration)
+    {
+        var components = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload)
+            .OrderBy(material => IsFocusHoldComponent(material) ? 1 : 0)
+            .ToArray();
+        if (components.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Transfer Integration runtime packages require at least one component payload.");
+        }
+
+        var durations = PartitionDuration(totalDuration, components.Length);
+        for (var index = 0; index < components.Length; index++)
+        {
+            phases.Add(ManualOrTimedPhase(
+                GeneratedRuntimeComponentPhaseIdentity.ForMaterial(components[index].Name),
+                GeneratedRuntimePhaseKind.ActiveWork,
+                durations[index]));
+        }
+    }
+
+    private static IReadOnlyList<TimeSpan> PartitionDuration(TimeSpan totalDuration, int partCount)
+    {
+        if (totalDuration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(totalDuration),
+                totalDuration,
+                "Transfer Integration task duration must be positive.");
+        }
+
+        if (partCount <= 0 || totalDuration.Ticks < partCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(partCount),
+                partCount,
+                "Transfer Integration component count must fit within the task duration.");
+        }
+
+        var baseTicks = totalDuration.Ticks / partCount;
+        var remainingTicks = totalDuration.Ticks % partCount;
+        return Enumerable.Range(0, partCount)
+            .Select(index => TimeSpan.FromTicks(baseTicks + (index < remainingTicks ? 1 : 0)))
+            .ToArray();
+    }
+
+    private static bool IsFocusHoldComponent(GeneratedContentMaterial material)
+    {
+        return material.Value.Contains(
+            "component branch FH:",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AddComponentEvidencePhase(

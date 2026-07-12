@@ -32,15 +32,16 @@ public sealed class FocusHoldGeneratedContentTests
         Assert.DoesNotContain(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.DistractorPrompt);
 
-        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TargetSubtlety, "simple phrase");
+        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TargetSubtlety, "simple visual target");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HoldDuration, "3 minutes");
-        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.RecoveryWindow, "10 seconds");
+        Assert.DoesNotContain(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.RecoveryWindow);
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HonestyConstraint, TargetAndDriftConstraint);
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HonestyConstraint, NoSubstitutionConstraint);
 
         var targetStatement = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement);
-        Assert.Contains("hold", targetStatement.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("Visual target:", targetStatement.Value, StringComparison.Ordinal);
         Assert.False(
             targetStatement.Value.EndsWith(".", StringComparison.Ordinal),
             "Target material should name the target without sentence punctuation.");
@@ -48,7 +49,9 @@ public sealed class FocusHoldGeneratedContentTests
         var evidenceShape = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.DriftMarkingEvidenceShape);
         Assert.Contains("drift", evidenceShape.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("return", evidenceShape.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("once", evidenceShape.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("continue", evidenceShape.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("return time", evidenceShape.Value, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "target-statement" &&
@@ -78,9 +81,10 @@ public sealed class FocusHoldGeneratedContentTests
         Assert.Equal(PromptContentKind.CueSequence, generated.Result.ContentKind);
         Assert.False(generated.GrantsAdvancement);
 
-        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TargetSubtlety, "simple phrase");
+        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TargetSubtlety, "simple visual target");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HoldDuration, "5 minutes");
-        AssertMaterial(generated.Materials, GeneratedContentMaterialKind.RecoveryWindow, "10 seconds");
+        Assert.DoesNotContain(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.RecoveryWindow);
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.DistractorFrequency, "periodic");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.DistractorSalience, "low");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HonestyConstraint, TargetAndDriftConstraint);
@@ -103,6 +107,8 @@ public sealed class FocusHoldGeneratedContentTests
         {
             Assert.NotEqual(targetStatement.Value, distractor.Value);
             Assert.DoesNotContain(distractor.Value, targetStatement.Value, StringComparison.Ordinal);
+            Assert.DoesNotContain(":", distractor.Value, StringComparison.Ordinal);
+            Assert.DoesNotContain("tap", distractor.Value, StringComparison.OrdinalIgnoreCase);
         });
 
         var noResponseRule = Assert.Single(generated.Materials, material =>
@@ -138,13 +144,12 @@ public sealed class FocusHoldGeneratedContentTests
     }
 
     [Fact]
-    public void FocusHoldTargetsUseSimpleVisualVocabulary()
+    public void FocusHoldTargetsUseSimpleVisualVocabularyWithoutUntestedPositionWords()
     {
         var allowedSizes = new HashSet<string>(["small", "medium", "large"], StringComparer.Ordinal);
-        var allowedColors = new HashSet<string>(["red", "blue", "green", "black"], StringComparer.Ordinal);
-        var allowedPositions = new HashSet<string>(["left", "center", "right"], StringComparer.Ordinal);
-        var allowedShapes = new HashSet<string>(["dot", "line", "square", "circle"], StringComparer.Ordinal);
-        string[] forbiddenTerms = ["anchor", "lantern", "quiet", "steady", "clear"];
+        var allowedColors = new HashSet<string>(["red", "blue", "green", "black", "amber", "violet"], StringComparer.Ordinal);
+        var allowedShapes = new HashSet<string>(["dot", "line", "square", "circle", "triangle"], StringComparer.Ordinal);
+        string[] forbiddenTerms = ["left", "center", "right", "anchor", "lantern", "quiet", "steady", "clear"];
         var usedContentIds = new List<string>();
 
         for (var index = 0; index < 12; index++)
@@ -158,11 +163,10 @@ public sealed class FocusHoldGeneratedContentTests
                 material.Kind == GeneratedContentMaterialKind.TargetStatement).Value);
             var tokens = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-            Assert.Equal(4, tokens.Length);
+            Assert.Equal(3, tokens.Length);
             Assert.Contains(tokens[0], allowedSizes);
             Assert.Contains(tokens[1], allowedColors);
-            Assert.Contains(tokens[2], allowedPositions);
-            Assert.Contains(tokens[3], allowedShapes);
+            Assert.Contains(tokens[2], allowedShapes);
             Assert.All(forbiddenTerms, term =>
                 Assert.DoesNotContain(term, target, StringComparison.OrdinalIgnoreCase));
         }
@@ -187,7 +191,7 @@ public sealed class FocusHoldGeneratedContentTests
             new GeneratedContentSeed("fh-seed-alpha")));
     }
 
-    private const string TargetAndDriftConstraint = "Target is stated before set; every drift is marked.";
+    private const string TargetAndDriftConstraint = "Target is stated before set; every noticed drift is marked once.";
 
     private const string NoSubstitutionConstraint = "No target substitution.";
 
@@ -206,8 +210,7 @@ public sealed class FocusHoldGeneratedContentTests
             PromptFreshnessPolicy.FreshEquivalentRequired,
             [
                 new LoadVariable("duration", "3 minutes"),
-                new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
+                new LoadVariable("target subtlety", "simple visual target"),
             ],
             [
                 new CriticalConstraint(TargetAndDriftConstraint),
@@ -229,8 +232,7 @@ public sealed class FocusHoldGeneratedContentTests
             PromptFreshnessPolicy.FreshEquivalentRequired,
             [
                 new LoadVariable("duration", "5 minutes"),
-                new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
+                new LoadVariable("target subtlety", "simple visual target"),
                 new LoadVariable("distractor frequency", "periodic"),
                 new LoadVariable("distractor salience", "low"),
             ],
@@ -262,7 +264,8 @@ public sealed class FocusHoldGeneratedContentTests
 
     private static string DisplayTargetValue(string value)
     {
-        return StripPrefix(value, "Hold target phrase:")
+        return StripPrefix(value, "Visual target:")
+            ?? StripPrefix(value, "Hold target phrase:")
             ?? StripPrefix(value, "Hold target word:")
             ?? value;
     }

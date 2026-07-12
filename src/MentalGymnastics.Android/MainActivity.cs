@@ -31,6 +31,9 @@ public class MainActivity : Activity
     private bool initialLoadCompleted;
     private bool activeSessionRestoreChecked;
     private bool isActivityResumed;
+    private bool immersivePracticeRequested;
+    private bool immersiveValidatedForCurrentResume;
+    private bool suspendedForWindowFocusLoss;
     private Task lifecycleSuspensionTask = Task.CompletedTask;
     private Exception? lifecycleSuspensionException;
 #if DEBUG
@@ -42,10 +45,11 @@ public class MainActivity : Activity
         base.OnCreate(savedInstanceState);
         ActionBar?.Hide();
 #pragma warning disable CA1422
-        Window?.SetStatusBarColor(global::Android.Graphics.Color.Rgb(24, 27, 32));
+        Window?.SetStatusBarColor(global::Android.Graphics.Color.Rgb(244, 248, 250));
+        Window?.SetNavigationBarColor(global::Android.Graphics.Color.Rgb(244, 248, 250));
         if (Window?.DecorView is { } decorView)
         {
-            decorView.SystemUiFlags = global::Android.Views.SystemUiFlags.LightStatusBar;
+            decorView.SystemUiFlags = NormalSystemUiFlags();
         }
 #pragma warning restore CA1422
 
@@ -69,6 +73,7 @@ public class MainActivity : Activity
         shell.StopTodayRequested += HandleStopTodayRequested;
         shell.GlobalReviewCompletionRequested += HandleGlobalReviewCompletionRequested;
         shell.LiveSessionCommandRequested += HandleLiveSessionCommandRequested;
+        shell.ImmersivePracticeChanged += HandleImmersivePracticeChanged;
         shell.LocalBackupExportRequested += HandleLocalBackupExportRequested;
         shell.LocalDataValidateRequested += HandleLocalDataValidateRequested;
         shell.LocalBackupValidateRequested += HandleLocalBackupValidateRequested;
@@ -92,6 +97,7 @@ public class MainActivity : Activity
             shell.StopTodayRequested -= HandleStopTodayRequested;
             shell.GlobalReviewCompletionRequested -= HandleGlobalReviewCompletionRequested;
             shell.LiveSessionCommandRequested -= HandleLiveSessionCommandRequested;
+            shell.ImmersivePracticeChanged -= HandleImmersivePracticeChanged;
             shell.LocalBackupExportRequested -= HandleLocalBackupExportRequested;
             shell.LocalDataValidateRequested -= HandleLocalDataValidateRequested;
             shell.LocalBackupValidateRequested -= HandleLocalBackupValidateRequested;
@@ -100,6 +106,7 @@ public class MainActivity : Activity
         }
 
         StopLiveRefresh();
+        ApplyImmersiveSystemChrome(false);
         loadCancellation?.Cancel();
         loadCancellation?.Dispose();
         loadCancellation = null;
@@ -138,12 +145,42 @@ public class MainActivity : Activity
         if (hasFocus)
         {
             initialWindowFocus.TrySetResult(true);
+            if (suspendedForWindowFocusLoss &&
+                isActivityResumed &&
+                loadCancellation is { } focusCancellation)
+            {
+                suspendedForWindowFocusLoss = false;
+                _ = ResumeOrRestoreActiveSessionAsync(focusCancellation.Token);
+                return;
+            }
+
+            if (isActivityResumed &&
+                immersiveValidatedForCurrentResume &&
+                immersivePracticeRequested)
+            {
+                ApplyImmersiveSystemChrome(true);
+            }
+
+            return;
+        }
+
+        if (isActivityResumed && immersivePracticeRequested)
+        {
+            suspendedForWindowFocusLoss = true;
+            immersiveValidatedForCurrentResume = false;
+            shell?.SuppressImmersivePracticeUntilFreshSnapshot();
+            ApplyImmersiveSystemChrome(false);
+            SuspendActiveSessionForLifecycle();
         }
     }
 
     protected override void OnPause()
     {
         isActivityResumed = false;
+        suspendedForWindowFocusLoss = false;
+        immersiveValidatedForCurrentResume = false;
+        shell?.SuppressImmersivePracticeUntilFreshSnapshot();
+        ApplyImmersiveSystemChrome(false);
 #if DEBUG
         if (!IsScreenshotStepRequested)
 #endif
@@ -152,6 +189,106 @@ public class MainActivity : Activity
         }
 
         base.OnPause();
+    }
+
+    private void HandleImmersivePracticeChanged(bool active)
+    {
+        immersivePracticeRequested = active;
+        if (!isActivityResumed)
+        {
+            if (!active)
+            {
+                ApplyImmersiveSystemChrome(false);
+            }
+
+            return;
+        }
+
+        immersiveValidatedForCurrentResume = true;
+        ApplyImmersiveSystemChrome(active);
+    }
+
+    private void ApplyImmersiveSystemChrome(bool immersive)
+    {
+        if (Window is not { } window)
+        {
+            return;
+        }
+
+        if (immersive)
+        {
+            window.AddFlags(global::Android.Views.WindowManagerFlags.KeepScreenOn);
+        }
+        else
+        {
+            window.ClearFlags(global::Android.Views.WindowManagerFlags.KeepScreenOn);
+        }
+
+#pragma warning disable CA1422
+        if (OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            window.DecorView.SystemUiFlags = immersive
+                ? global::Android.Views.SystemUiFlags.LayoutStable |
+                  global::Android.Views.SystemUiFlags.LayoutFullscreen |
+                  global::Android.Views.SystemUiFlags.LayoutHideNavigation
+                : NormalSystemUiFlags();
+            ApplyModernSystemChrome(window, immersive);
+            return;
+        }
+
+        window.DecorView.SystemUiFlags = immersive
+            ? global::Android.Views.SystemUiFlags.ImmersiveSticky |
+              global::Android.Views.SystemUiFlags.Fullscreen |
+              global::Android.Views.SystemUiFlags.HideNavigation |
+              global::Android.Views.SystemUiFlags.LayoutStable |
+              global::Android.Views.SystemUiFlags.LayoutFullscreen |
+              global::Android.Views.SystemUiFlags.LayoutHideNavigation
+            : NormalSystemUiFlags();
+#pragma warning restore CA1422
+    }
+
+    private static global::Android.Views.SystemUiFlags NormalSystemUiFlags()
+    {
+        var flags = global::Android.Views.SystemUiFlags.LayoutStable |
+                    global::Android.Views.SystemUiFlags.LightStatusBar;
+        if (OperatingSystem.IsAndroidVersionAtLeast(26))
+        {
+            flags |= global::Android.Views.SystemUiFlags.LightNavigationBar;
+        }
+
+        return flags;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("android30.0")]
+    private static void ApplyModernSystemChrome(
+        global::Android.Views.Window window,
+        bool immersive)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(35))
+        {
+            window.SetDecorFitsSystemWindows(!immersive);
+        }
+        if (window.InsetsController is not { } controller)
+        {
+            return;
+        }
+
+        controller.SystemBarsBehavior = (int)
+            global::Android.Views.WindowInsetsControllerBehavior.ShowTransientBarsBySwipe;
+        if (immersive)
+        {
+            controller.Hide(global::Android.Views.WindowInsets.Type.SystemBars());
+        }
+        else
+        {
+            controller.Show(global::Android.Views.WindowInsets.Type.SystemBars());
+            var lightSystemBars =
+                (int)global::Android.Views.WindowInsetsControllerAppearance.LightStatusBars |
+                (int)global::Android.Views.WindowInsetsControllerAppearance.LightNavigationBars;
+            controller.SetSystemBarsAppearance(
+                lightSystemBars,
+                lightSystemBars);
+        }
     }
 
     protected override void OnSaveInstanceState(Bundle outState)
@@ -769,7 +906,11 @@ public class MainActivity : Activity
             }
             else
             {
-                RunOnUiThread(() => shell?.RenderLiveSession(snapshot));
+                RunOnUiThread(() =>
+                {
+                    shell?.RenderLiveSession(snapshot);
+                    ShowLiveCommandFeedback(snapshot);
+                });
                 if (liveRefreshTimer is null)
                 {
                     StartLiveRefresh();
@@ -787,6 +928,90 @@ public class MainActivity : Activity
         {
             liveSessionGate.Release();
         }
+    }
+
+    private void ShowLiveCommandFeedback(AndroidLiveSessionSnapshot snapshot)
+    {
+        var outcome = snapshot.LiveSession.LastCommand;
+        if (outcome is null)
+        {
+            return;
+        }
+
+        var message = outcome.IsAccepted
+            ? AcceptedCommandFeedback(outcome.Command)
+            : $"Not recorded. {RejectedCommandFeedback(outcome.InvalidReason, outcome.CueInvalidReason)}";
+        if (message is null)
+        {
+            return;
+        }
+
+        global::Android.Widget.Toast.MakeText(
+            this,
+            message,
+            outcome.IsAccepted
+                ? global::Android.Widget.ToastLength.Short
+                : global::Android.Widget.ToastLength.Long)?.Show();
+    }
+
+    private static string? AcceptedCommandFeedback(RuntimeInputCommandKind command)
+    {
+        return command switch
+        {
+            RuntimeInputCommandKind.MarkTargetChange => "Target change recorded.",
+            RuntimeInputCommandKind.MarkError => "Error recorded.",
+            _ => null,
+        };
+    }
+
+    private static string RejectedCommandFeedback(
+        RuntimeInputCommandInvalidReason? invalidReason,
+        RuntimeCueResponseInvalidReason? cueInvalidReason)
+    {
+        if (cueInvalidReason.HasValue)
+        {
+            return cueInvalidReason.Value switch
+            {
+                RuntimeCueResponseInvalidReason.UnknownCue => "That cue is no longer active.",
+                RuntimeCueResponseInvalidReason.CueNotPresented => "Wait for a cue before responding.",
+                RuntimeCueResponseInvalidReason.CueAlreadyResponded => "That cue was already answered.",
+                RuntimeCueResponseInvalidReason.SchedulerPaused => "Resume before responding to cues.",
+                _ => "The cue could not accept that response.",
+            };
+        }
+
+        return invalidReason switch
+        {
+            RuntimeInputCommandInvalidReason.CommandAfterTerminalSession =>
+                "This exercise has already ended.",
+            RuntimeInputCommandInvalidReason.SessionPaused =>
+                "Resume the exercise before doing that.",
+            RuntimeInputCommandInvalidReason.SessionNotRunning =>
+                "The exercise is not running yet.",
+            RuntimeInputCommandInvalidReason.NoActivePhase =>
+                "There is no active step to receive that action.",
+            RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase =>
+                "That action is not available in this step.",
+            RuntimeInputCommandInvalidReason.NoCorrectableEvent =>
+                "There is no recent response to correct.",
+            RuntimeInputCommandInvalidReason.CorrectionWindowExpired =>
+                "The correction window has closed.",
+            RuntimeInputCommandInvalidReason.InvalidCommandPayload =>
+                "That response is incomplete or invalid.",
+            RuntimeInputCommandInvalidReason.CommandNotSupportedByDrill =>
+                "This exercise does not use that action.",
+            RuntimeInputCommandInvalidReason.NoOpenDrift =>
+                "There is no wander report waiting for that action.",
+            RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn =>
+                "The wander was already recorded.",
+            RuntimeInputCommandInvalidReason.InvalidPhaseCompletion =>
+                "This timed step has not finished yet.",
+            RuntimeInputCommandInvalidReason.PauseNotAllowed =>
+                "This step cannot be paused.",
+            RuntimeInputCommandInvalidReason.IllegalLifecycleTransition =>
+                "That action no longer matches the exercise state.",
+            _ => "The exercise state changed; follow the current prompt.",
+        };
     }
 
     private void StartLiveRefresh()

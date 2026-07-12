@@ -168,7 +168,7 @@ The screen reads as a clear next-work screen. The user is told to start `Target 
 The screen reads as a short preparation screen, not a hidden rulebook. `Read` and `Hold` are plain markers. The user sees the target `red circle`, knows to say it once in the head, and knows the timer begins after that. `Counts`, `Try again`, and `Honesty` are direct enough for a first user; they explain success without moralizing.
 
 03 before-start action:
-The lower preparation screen continues the same thought and exposes what is tracked before the start button. The user can see that the app tracks wander taps, return time, target changes, finish/stop, then sees the clear action `Start 3-minute hold`. There is no runtime terminology and no second competing primary action.
+At this checkpoint, the lower preparation screen exposed wander taps, return time, target changes, and finish/stop. The return-time interaction was removed by the 2026-07-12 ergonomics correction; current setup describes one wander tap and immediate resumption of the same target.
 
 04 live get-ready:
 The screen now says what to do: say the target once before the timer starts. `Your target` is visible, with `red circle`. The only actions are `Start holding` and `Not now`, so the user is not asked to interpret a protocol state. The small counters are subordinate and do not compete with the instruction.

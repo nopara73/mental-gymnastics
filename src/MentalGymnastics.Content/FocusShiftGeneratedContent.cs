@@ -45,24 +45,38 @@ public static class FocusShiftGeneratedContentGenerator
     private const int DefaultCueSwitchCount = 4;
     private const int DefaultInvalidCueFilterCount = 6;
 
-    private static readonly string[] TargetColors = ["red", "blue", "green", "black"];
+    private static readonly VisualStimulusColor[] TargetColors =
+    [
+        VisualStimulusColor.Red,
+        VisualStimulusColor.Blue,
+        VisualStimulusColor.Green,
+        VisualStimulusColor.Black,
+    ];
 
-    private static readonly string[] TargetShapes = ["dot", "circle", "square", "line"];
+    private static readonly VisualStimulusShape[] TargetShapes =
+    [
+        VisualStimulusShape.Dot,
+        VisualStimulusShape.Circle,
+        VisualStimulusShape.Square,
+        VisualStimulusShape.Bar,
+    ];
 
     private static readonly TargetTemplate[] Targets = TargetColors
         .SelectMany(color => TargetShapes.Select(shape => new TargetTemplate(
-            $"{color} {shape}",
-            $"{color} {shape}")))
+            new VisualStimulusSpec(shape, color))))
         .ToArray();
 
-    private static readonly string[] InvalidCueValues =
+    private static readonly VisualStimulusSpec[] InvalidCueStimuli =
     [
-        "blue?",
-        "green?",
-        "switch-now",
-        "wait",
-        "almost",
-        "wrong-tone",
+        new(VisualStimulusShape.Dot, VisualStimulusColor.Amber),
+        new(VisualStimulusShape.Circle, VisualStimulusColor.Violet),
+        new(VisualStimulusShape.Square, VisualStimulusColor.Gray),
+        new(VisualStimulusShape.Bar, VisualStimulusColor.Amber),
+        new(VisualStimulusShape.Triangle, VisualStimulusColor.Violet),
+        new(
+            VisualStimulusShape.Arrow,
+            VisualStimulusColor.Gray,
+            Direction: VisualStimulusDirection.North),
     ];
 
     public static FocusShiftGeneratedContent Generate(
@@ -225,7 +239,7 @@ public static class FocusShiftGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.TargetSet,
                 $"target-{(i + 1).ToString(CultureInfo.InvariantCulture)}",
-                targets[i].Name));
+                targets[i].Encoded));
         }
     }
 
@@ -242,7 +256,7 @@ public static class FocusShiftGeneratedContentGenerator
             seedPlan.RequestFingerprint,
             "invalid-cue",
             seedPlan.FreshnessOrdinal,
-            InvalidCueValues.Length);
+            InvalidCueStimuli.Length);
 
         for (var i = 0; i < cueStepCount; i++)
         {
@@ -252,11 +266,12 @@ public static class FocusShiftGeneratedContentGenerator
 
             if (isInvalidCue)
             {
-                var invalidCue = InvalidCueValues[(invalidCueOffset + i) % InvalidCueValues.Length];
+                var invalidCue = VisualStimulusCodec.Encode(
+                    InvalidCueStimuli[(invalidCueOffset + i) % InvalidCueStimuli.Length]);
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.CueStep,
                     $"cue-step-{stepNumber}",
-                    $"invalid cue {invalidCue}; stay on {targets[activeTargetIndex].Name}"));
+                    invalidCue));
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.InvalidCue,
                     $"invalid-cue-{stepNumber}",
@@ -264,17 +279,17 @@ public static class FocusShiftGeneratedContentGenerator
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.ExpectedActiveTarget,
                     $"expected-target-{stepNumber}",
-                    $"no switch: {targets[activeTargetIndex].Name}"));
+                    targets[activeTargetIndex].Encoded));
                 continue;
             }
 
             activeTargetIndex = (activeTargetIndex + 1) % targets.Count;
             var target = targets[activeTargetIndex];
-            var validCue = target.CueToken;
+            var validCue = target.Encoded;
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.CueStep,
                 $"cue-step-{stepNumber}",
-                $"valid cue {validCue}; switch to {target.Name}"));
+                validCue));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ValidCue,
                 $"valid-cue-{stepNumber}",
@@ -282,7 +297,7 @@ public static class FocusShiftGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedActiveTarget,
                 $"expected-target-{stepNumber}",
-                target.Name));
+                target.Encoded));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ResponseWindow,
                 $"response-window-{stepNumber}",
@@ -302,7 +317,7 @@ public static class FocusShiftGeneratedContentGenerator
                 : "fs-cue-switch");
         yield return new GeneratedContentPayloadFact(
             "target-set",
-            string.Join("|", targets.Select(target => target.Name)));
+            string.Join("|", targets.Select(target => target.Encoded)));
         yield return new GeneratedContentPayloadFact(
             "sequence-accuracy-evidence",
             "valid cue responses, expected active target after each cue, missed cues, and anticipatory switches");
@@ -333,7 +348,7 @@ public static class FocusShiftGeneratedContentGenerator
             seedPlan.RequestFingerprint,
             "target-set",
             seedPlan.FreshnessOrdinal,
-            target => target.Name);
+            target => target.Encoded);
         var targets = new List<TargetTemplate>();
 
         for (var i = 0; i < targetCount; i++)
@@ -400,7 +415,8 @@ public static class FocusShiftGeneratedContentGenerator
             ?.Value ?? defaultValue;
     }
 
-    private sealed record TargetTemplate(
-        string Name,
-        string CueToken);
+    private sealed record TargetTemplate(VisualStimulusSpec Stimulus)
+    {
+        public string Encoded => VisualStimulusCodec.Encode(Stimulus);
+    }
 }

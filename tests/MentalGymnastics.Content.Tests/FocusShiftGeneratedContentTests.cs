@@ -38,6 +38,13 @@ public sealed class FocusShiftGeneratedContentTests
             material.Kind == GeneratedContentMaterialKind.CueStep) >= 4);
         Assert.True(generated.Materials.Count(material =>
             material.Kind == GeneratedContentMaterialKind.ValidCue) >= 4);
+        AssertDecodableStimuli(
+            generated.Materials,
+            GeneratedContentMaterialKind.TargetSet,
+            GeneratedContentMaterialKind.CueStep,
+            GeneratedContentMaterialKind.ValidCue,
+            GeneratedContentMaterialKind.ExpectedActiveTarget);
+        AssertCueMaterialAlignment(generated.Materials);
         var expectedTargets = generated.Materials
             .Where(material => material.Kind == GeneratedContentMaterialKind.ExpectedActiveTarget)
             .Select(material => material.Value)
@@ -104,17 +111,32 @@ public sealed class FocusShiftGeneratedContentTests
             .Where(material => material.Kind == GeneratedContentMaterialKind.ValidCue)
             .Select(material => material.Value)
             .ToHashSet(StringComparer.Ordinal);
+        var targetValues = generated.Materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.TargetSet)
+            .Select(material => material.Value)
+            .ToHashSet(StringComparer.Ordinal);
         var invalidCueValues = generated.Materials
             .Where(material => material.Kind == GeneratedContentMaterialKind.InvalidCue)
             .Select(material => material.Value)
             .ToArray();
 
+        AssertDecodableStimuli(
+            generated.Materials,
+            GeneratedContentMaterialKind.TargetSet,
+            GeneratedContentMaterialKind.CueStep,
+            GeneratedContentMaterialKind.ValidCue,
+            GeneratedContentMaterialKind.InvalidCue,
+            GeneratedContentMaterialKind.ExpectedActiveTarget);
+        AssertCueMaterialAlignment(generated.Materials);
+        Assert.All(validCueValues, validCue => Assert.Contains(validCue, targetValues));
         Assert.All(validCueValues, validCue =>
             Assert.DoesNotContain("valid cue", validCue, StringComparison.OrdinalIgnoreCase));
         Assert.All(invalidCueValues, invalidCue =>
             Assert.DoesNotContain("lure", invalidCue, StringComparison.OrdinalIgnoreCase));
         Assert.All(invalidCueValues, invalidCue =>
             Assert.DoesNotContain(invalidCue, validCueValues));
+        Assert.All(invalidCueValues, invalidCue =>
+            Assert.DoesNotContain(invalidCue, targetValues));
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "invalid-cue-policy" &&
             fact.Value.Contains("must not trigger switch", StringComparison.OrdinalIgnoreCase));
@@ -160,9 +182,8 @@ public sealed class FocusShiftGeneratedContentTests
             [
                 new LoadVariable("duration", "3 minutes"),
                 new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
             ],
-            [new CriticalConstraint("Target is stated before set; every drift is marked.")]);
+            [new CriticalConstraint("Target is stated before set; every noticed drift is marked once.")]);
 
         Assert.Throws<ArgumentException>(() => FocusShiftGeneratedContentGenerator.Generate(
             request,
@@ -239,5 +260,57 @@ public sealed class FocusShiftGeneratedContentTests
         return materials
             .Select(material => (material.Kind, material.Name, material.Value))
             .ToArray();
+    }
+
+    private static void AssertDecodableStimuli(
+        IEnumerable<GeneratedContentMaterial> materials,
+        params GeneratedContentMaterialKind[] kinds)
+    {
+        var selected = materials
+            .Where(material => kinds.Contains(material.Kind))
+            .ToArray();
+        Assert.NotEmpty(selected);
+        Assert.All(selected, material =>
+        {
+            Assert.True(
+                VisualStimulusCodec.TryDecode(material.Value, out var stimulus),
+                $"{material.Kind} {material.Name} must contain canonical visual stimulus material.");
+            Assert.NotNull(stimulus);
+        });
+    }
+
+    private static void AssertCueMaterialAlignment(
+        IReadOnlyCollection<GeneratedContentMaterial> materials)
+    {
+        var targetValues = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.TargetSet)
+            .Select(material => material.Value)
+            .ToHashSet(StringComparer.Ordinal);
+        var cueSteps = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.CueStep)
+            .ToArray();
+
+        Assert.All(cueSteps, cueStep =>
+        {
+            var step = cueStep.Name["cue-step-".Length..];
+            var cue = Assert.Single(materials, material =>
+                (material.Kind is GeneratedContentMaterialKind.ValidCue or GeneratedContentMaterialKind.InvalidCue) &&
+                (string.Equals(material.Name, $"valid-cue-{step}", StringComparison.Ordinal) ||
+                    string.Equals(material.Name, $"invalid-cue-{step}", StringComparison.Ordinal)));
+            Assert.Equal(cue.Value, cueStep.Value);
+
+            var expectedTarget = Assert.Single(materials, material =>
+                material.Kind == GeneratedContentMaterialKind.ExpectedActiveTarget &&
+                string.Equals(material.Name, $"expected-target-{step}", StringComparison.Ordinal));
+            Assert.Contains(expectedTarget.Value, targetValues);
+            if (cue.Kind == GeneratedContentMaterialKind.ValidCue)
+            {
+                Assert.Contains(cue.Value, targetValues);
+            }
+            else
+            {
+                Assert.DoesNotContain(cue.Value, targetValues);
+            }
+        });
     }
 }

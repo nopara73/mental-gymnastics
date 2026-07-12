@@ -58,11 +58,21 @@ Generated content must be reproducible from explicit local inputs:
 - System time must not be used inside generation. Callers may supply dates or ids where persistence needs them.
 - Network state, AI provider responses, account state, telemetry, analytics, and device state must not affect generated output.
 
+## Stimulus Modality and Presentation Semantics
+
+Generated material must preserve the modality that the drill actually tests. A visual object is not interchangeable with prose that names the object: showing `large green square` tests reading and verbal retention, while showing the corresponding shape tests perception, switching, inhibition, or discrimination. Descriptor prose may be the visible stimulus only when words, labels, or semantic content are themselves the documented tested material.
+
+Visual material for FS, IR, and DE therefore uses a structured visual-stimulus specification rather than display-ready descriptor strings. The specification carries only the features needed by the generated instance, such as shape, color, fill, size, direction, mark, position, orientation, or border. A feature may enter the material only when it is either part of the tested identity or a controlled similarity, interference, or discrimination variable. Untested features must remain neutral; they must not be named as if the practitioner must remember them.
+
+The serialized visual-stimulus codec is a deterministic handoff format, not user-facing copy. App-facing presentation must decode it and Android must render the described object. The raw codec, enum names, canonical ids, or a prose paraphrase of the object must never be substituted for the stimulus on setup, live, response, correction, or review surfaces. Natural-language descriptions remain appropriate for accessibility metadata, and concise setup language may name the rule or relevant feature without duplicating the live stimulus as a reading task.
+
+Position has the same rule as every other visual feature. Terms such as `left`, `right`, `top`, or `bottom` are valid only when spatial position is an executable load or tested distinction and the object is actually rendered in that position. A position word embedded in an otherwise visual descriptor is neither a spatial stimulus nor useful metadata.
+
 ## Branch and Drill Requirements
 
 | Branch | Drill | Required generated content | Must preserve | Freshness requirement |
 | --- | --- | --- | --- | --- |
-| FH | FH-1 Target Hold | Target statement, target type, target subtlety tag, hold duration metadata, recovery-window metadata, and expected drift-marking evidence shape. | Target is stated before the set, target cannot be substituted, every drift is marked, and return timing remains visible. | Fresh variants change target material or target type while preserving duration, subtlety, drift marking, and return standard. |
+| FH | FH-1 Target Hold | Target statement, target type, target subtlety tag, hold duration metadata, and expected standalone wander-marking evidence shape. | Target is stated before the set, target cannot be substituted, and every noticed wander is marked once before attention resumes. | Fresh variants change target material or target type while preserving duration, subtlety, and wander-marking standard. |
 | FH | FH-2 Distractor Hold | FH target material plus distractor prompts with ids, salience tags, timing offsets or positions, frequency, and expected no-response behavior. | Distractors are irrelevant unless the drill explicitly says otherwise; responding to distractors remains detectable. | Fresh variants change distractor material, order, or salience within the same load. |
 | FS | FS-1 Cue Switch | Target set, valid cue sequence, cue ids, cue timing or position metadata, expected active target after each cue, and response windows. | Switching occurs only on valid cues; anticipatory switching and missed cues remain observable. | Known cue sequences may be reusable only when Core freshness policy allows; fresh variants change target pair, cue order, or timing while preserving density and target count. |
 | FS | FS-2 Invalid Cue Filter | Target set, valid cues, invalid cues, invalid cue ratio, rule contrast metadata, expected switch/no-switch state, and response windows. | Invalid cues must not trigger a switch; treating all cues as valid remains observable. | Fresh variants change cue values or order while preserving valid/invalid ratio, rule contrast, and cue density. |
@@ -83,7 +93,11 @@ Generated content must be reproducible from explicit local inputs:
 
 ### Target Hold Payloads
 
-Target hold payloads must include the target statement and metadata needed to preserve target subtlety, duration, drift marking, and return timing. They must not make the target easier during a session or replace drift evidence with subjective attention reports.
+Target hold payloads must include the target statement and metadata needed to preserve target subtlety, duration, and standalone wander marking. They must not add return-timing material, make the target easier during a session, or replace drift evidence with a retrospective subjective attention report.
+
+For the current visual Focus Hold targets, generated material names only the tested visual attributes: size, color, and shape. It must not synthesize left/center/right wording or position the target away from center unless a future executable standard and load variable explicitly test spatial position. Android renders the shape itself as the visible target; its textual descriptor is accessibility metadata, not a second on-screen memorization cue.
+
+FH-2's current distractor renderer is textual. Its generated distractors therefore use honest words, numbers, or symbols. It must not label text as a color, shape, sound, or action stimulus, and it must not show action words such as `tap` that conflict with the whole-screen wander action. A future non-text distractor must carry an explicit presentation kind and receive a real renderer before it can enter the cue stream.
 
 ### Distractor Payloads
 
@@ -91,7 +105,7 @@ Distractor payloads must include distractor ids, salience, frequency, timing or 
 
 ### Cue Sequence Payloads
 
-Cue sequence payloads must include cue ids, cue kind, timing or position, expected response, invalid cue markers, response windows, and target state transitions. Runtime owns cue presentation and response evaluation; generated content owns the sequence material.
+Cue sequence payloads must include cue ids, cue kind, timing or position, expected response, invalid cue markers, response windows, and target state transitions. FS targets, valid cues, invalid cues, and expected active targets use structured visual-stimulus specifications so switching is performed between rendered objects. Invalid-cue lures must stay in the same visible modality as valid cues unless a documented rule intentionally tests a cross-modal distinction. Runtime owns cue presentation and response evaluation; generated content owns the sequence material.
 
 ### Memory and Transform Payloads
 
@@ -99,11 +113,11 @@ Memory payloads must include encode material, item order, delay, reconstruction 
 
 ### Rule Stream Payloads
 
-Go/no-go and exception-rule payloads must include the pre-stated rule, cue or item stream, exception set, pace, expected action per item, and evidence keys for premature responses, no-go failures, exception failures, and post-error cascades.
+Go/no-go and exception-rule payloads must include the pre-stated rule, cue or item stream, exception set, pace, expected action per item, and evidence keys for premature responses, no-go failures, exception failures, and post-error cascades. IR cues and exception identities use structured visual-stimulus specifications. Stable machine ids may associate an exception with its expected action, but the practitioner-facing declaration and cue stream must present the rendered exception object rather than require entry or memorization of an encoded descriptor.
 
 ### Discrimination and Audit Payloads
 
-Discrimination payloads must include item pairs, relevant difference, similarity level, match truth, and expected false-positive/false-negative scoring. Seeded audit payloads must include locked source output, seeded error ids, criticality, expected findings, and non-error distractors.
+Discrimination payloads must include structured visual item pairs, the explicitly relevant feature, similarity level, match truth derived from that feature, and expected false-positive/false-negative scoring. Both objects must be rendered so the practitioner compares the visible feature itself; prose labels for the two objects are not equivalent discrimination material. Irrelevant pair features may vary only as controlled lures, and their values must not leak the correct answer. Seeded audit payloads must include locked source output, seeded error ids, criticality, expected findings, and non-error distractors.
 
 ### Rule and Mapping Payloads
 
@@ -135,5 +149,7 @@ When executable generation is added, tests should prove:
 - Fresh equivalent variants change content id and concrete material while preserving branch, level, drill, content kind, equivalence class, load variables, critical constraints, and evidence shape.
 - Used content ids are excluded when fresh content is required.
 - Known cue or inhibition content is reusable only when Core freshness policy permits.
+- Structured visual material round-trips deterministically, rejects malformed or non-canonical encodings, and preserves the tested feature semantics used to derive expected answers.
+- FS, IR, and DE presentation handoffs expose renderable visual stimuli without exposing codec strings or replacing objects with descriptor prose.
 - Generated content cannot remove drift marking, permit target substitution, allow unallowed rereading, allow hidden notes, allow premature responses, allow unmarked guesses, lower source standards, remove branch-specific evidence, or replace evidence with novelty.
 - Runtime and Persistence can consume generated instance facts without redefining generation, progression, storage, or live execution rules.

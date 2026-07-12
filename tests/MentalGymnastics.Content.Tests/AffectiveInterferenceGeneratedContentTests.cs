@@ -60,6 +60,7 @@ public sealed class AffectiveInterferenceGeneratedContentTests
         Assert.Contains("defined pressure source", pressureSource.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("clean evidence collection", pressureSource.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("90 seconds", pressureSource.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("visible countdown", pressureSource.Value, StringComparison.OrdinalIgnoreCase);
 
         var noLoweringMarker = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.NoStandardLoweringMarker);
@@ -151,6 +152,16 @@ public sealed class AffectiveInterferenceGeneratedContentTests
             material.Kind == GeneratedContentMaterialKind.TargetSet);
         Assert.Contains(generated.Materials, material =>
             material.Kind is GeneratedContentMaterialKind.ValidCue or GeneratedContentMaterialKind.InvalidCue);
+        Assert.All(
+            generated.Materials.Where(material => material.Kind is
+                GeneratedContentMaterialKind.TargetSet or
+                GeneratedContentMaterialKind.CueStep or
+                GeneratedContentMaterialKind.ValidCue or
+                GeneratedContentMaterialKind.InvalidCue or
+                GeneratedContentMaterialKind.ExpectedActiveTarget),
+            material => Assert.True(
+                VisualStimulusCodec.TryDecode(material.Value, out _),
+                $"Wrapped FS material {material.Kind} {material.Name} must preserve its visual specification."));
 
         var sourceTask = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.SourceTask);

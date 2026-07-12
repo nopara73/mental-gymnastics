@@ -37,8 +37,8 @@ Every row has generated content, a branch-specific Runtime protocol, an exact Co
 
 | Branch | Level | Primary execution | Required evidence emphasis | Executable |
 | --- | --- | --- | --- | --- |
-| FH | L1 | FH-1 Target Hold | Duration, marked drift, return window, no target change | Yes |
-| FH | L2 | FH-1 Target Hold | Six-minute/two-set dose, total drift, average return | Yes |
+| FH | L1 | FH-1 Target Hold | Duration, standalone marked wander, no target change | Yes |
+| FH | L2 | FH-1 Target Hold | Six-minute/two-set dose, total marked wander, same-target continuity | Yes |
 | FH | L3 | FH-2 Distractor Hold | Distractor inhibition, drift threshold, duration | Yes |
 | FH | L4 | FH transfer hold | Source hold plus passing WM/DE component | Yes |
 | FH | L5 | TI-integrated hold | Twelve-minute integration and no critical breach | Yes |
@@ -119,7 +119,7 @@ Every row has generated content, a branch-specific Runtime protocol, an exact Co
 - Persistence: previous-schema initialization, daily-prescription integrity, atomic completion, and backup/restore coverage pass; Release device backup validation and restore also pass.
 - Android: full trimming build succeeds with 0 warnings and 0 errors. Signed APK SHA-256: `F5EF17BB7583F55A0D1B93088B488C3ECC4BDD09E310BBB133B5AACBD684DA19`.
 - Interaction audit: all 16 drill response states expose their required semantic controls with in-bounds actions or a valid scroll path. Honest omission, invalid/no-go taps, immediate pair commitment, pressure recovery, delayed report-last, and component evidence were exercised on device.
-- Release FH workflow: a clean install opens Today, setup says `Eyes open`, keeps the target visible, and presents the complete Start button at `[32,1679][1048,1826]` without scrolling. One large lower pad toggles `WANDERED` / `BACK ON TARGET`; the tap emits Android `TEXTURE_TICK` haptic feedback.
+- Release FH workflow was corrected on 2026-07-12: setup remains explicit, while active work is a chrome-free full-screen target. The whole surface records one wander tap and immediately returns to the same target; there is no visible timer, labeled pad, or second return action.
 - Device workflows: first day, preflight, live work, confirmed stop, truthful result, terminal day, process interruption, due global review, cadence reset, Map, Record, Review, Local Data, backup validation, and restore pass.
 - Responsive/accessibility: standard and narrow phones, landscape, 800dp tablet, and 150% text were inspected. The complete `0 of 1` label remains visible and no incoherent overlap was found.
 - Lifecycle rule: Runtime-restorable phases resume the same attempt. An honesty-sensitive active phase that cannot be reconstructed is recorded as the day's stopped attempt instead of being replayed or counted twice.

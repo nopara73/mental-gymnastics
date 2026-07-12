@@ -137,7 +137,9 @@ public sealed record TrainingExercisePresentation(
     string EvidenceRecorded,
     string? PrimaryMaterial,
     IReadOnlyList<string> SetupItems,
-    DrillInteractionProtocol InteractionProtocol);
+    DrillInteractionProtocol InteractionProtocol,
+    IReadOnlyList<VisualStimulusSpec>? VisualTargets = null,
+    IReadOnlyList<VisualStimulusExceptionSpec>? VisualExceptions = null);
 
 public sealed record TrainingPresentationWorkSummary(
     TrainingPresentationWorkSource Source,
@@ -226,10 +228,9 @@ public sealed record SessionPreflightPresentationReadModel(
 public sealed record LiveCuePresentationSummary(
     RuntimeCueKind Kind,
     string Cue,
-    RuntimeCueResponseExpectation ResponseExpectation,
     TimeSpan ResponseWindow,
-    bool RequiresResponse,
-    bool HasHiddenExpectedResponse);
+    TimeSpan? Remaining,
+    bool ExpectedActionIsHidden);
 
 public sealed record LiveCueCorrectionPresentation(
     long SourceEventSequenceNumber,
@@ -237,11 +238,21 @@ public sealed record LiveCueCorrectionPresentation(
     string Cue,
     string SubmittedResponse,
     IReadOnlyList<string> ResponseOptions,
-    TimeSpan Remaining);
+    TimeSpan Remaining,
+    VisualStimulusSpec? Stimulus = null);
 
 public sealed record LiveCommandPresentationSummary(
     RuntimeInputCommandKind Command,
     string Label);
+
+public sealed record LiveVisualChoicePresentation(
+    string TargetId,
+    string ResponseValue,
+    VisualStimulusSpec Stimulus);
+
+public sealed record LiveDiscriminationPairPresentation(
+    string PairId,
+    VisualStimulusPairSpec Pair);
 
 public sealed record LiveEvidencePresentationSummary(
     int RuntimeEventCount,
@@ -256,11 +267,7 @@ public sealed record LiveEvidencePresentationSummary(
     int CorrectionCount,
     bool HasFailureMarks,
     bool ExpectedEvidenceComplete,
-    int ReturnCount = 0,
-    int LateReturnCount = 0,
-    int TargetChangeCount = 0,
-    int OpenDriftCount = 0,
-    TimeSpan? MaximumReturnTime = null);
+    int TargetChangeCount = 0);
 
 public sealed record LiveSessionPresentationReadModel(
     TrainingPresentationWorkSummary Work,
@@ -280,7 +287,12 @@ public sealed record LiveSessionPresentationReadModel(
     bool GrantsAdvancementInApp,
     DrillId? SourceDrill = null,
     LiveCueCorrectionPresentation? PendingCorrection = null,
-    string? CurrentFocusTarget = null);
+    string? CurrentFocusTarget = null,
+    TimeSpan? TimeUntilNextCue = null,
+    VisualStimulusSpec? ActiveVisualStimulus = null,
+    VisualStimulusSpec? CurrentFocusVisualStimulus = null,
+    IReadOnlyList<LiveVisualChoicePresentation>? VisualChoices = null,
+    IReadOnlyList<LiveDiscriminationPairPresentation>? DiscriminationPairs = null);
 
 public sealed record TrainingStateTransitionPresentation(
     BranchCode Branch,
@@ -421,7 +433,9 @@ public static class TrainingPresentationMapper
                     runtimeSession?.InputMaterials ?? []),
                 SetupItemsFor(
                     preparation.Selection.SelectedWork.Drill,
-                    runtimeSession?.InputMaterials ?? []));
+                    runtimeSession?.InputMaterials ?? []),
+                VisualTargetsFor(runtimeSession?.InputMaterials ?? []),
+                VisualExceptionsFor(runtimeSession?.InputMaterials ?? []));
         var blockers = preparation.Selection.Blockers
             .Where(_ => !preparation.CanStartRuntimeSession)
             .Select(BlockerSummaryFor)
@@ -476,7 +490,51 @@ public static class TrainingPresentationMapper
             PendingCorrection: live.PendingCorrection is null
                 ? null
                 : CorrectionSummaryFor(live.PendingCorrection),
-            CurrentFocusTarget: live.CurrentFocusTarget);
+            CurrentFocusTarget: live.CurrentFocusTarget,
+            TimeUntilNextCue: live.TimeUntilNextCue,
+            ActiveVisualStimulus: ActiveVisualStimulusFor(live),
+            CurrentFocusVisualStimulus: VisualStimulusFor(live.CurrentFocusTarget),
+            VisualChoices: VisualChoicesFor(live.CurrentMaterials),
+            DiscriminationPairs: DiscriminationPairsFor(live.CurrentMaterials));
+    }
+
+    private static VisualStimulusSpec? ActiveVisualStimulusFor(PreUiLiveSessionState live)
+    {
+        return VisualStimulusFor(live.ActiveCue?.Cue);
+    }
+
+    private static VisualStimulusSpec? VisualStimulusFor(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               VisualStimulusCodec.TryDecode(value, out var stimulus)
+            ? stimulus
+            : null;
+    }
+
+    private static IReadOnlyList<LiveVisualChoicePresentation> VisualChoicesFor(
+        IReadOnlyList<PreUiLiveSessionMaterialState> materials)
+    {
+        return materials
+            .Where(material => string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal))
+            .Select(material => VisualStimulusCodec.TryDecode(material.Value, out var stimulus)
+                ? new LiveVisualChoicePresentation(material.Name, material.Value, stimulus!)
+                : null)
+            .Where(choice => choice is not null)
+            .Select(choice => choice!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<LiveDiscriminationPairPresentation> DiscriminationPairsFor(
+        IReadOnlyList<PreUiLiveSessionMaterialState> materials)
+    {
+        return materials
+            .Where(material => string.Equals(material.Kind, "DiscriminationPair", StringComparison.Ordinal))
+            .Select(material => VisualStimulusCodec.TryDecodePair(material.Value, out var pair)
+                ? new LiveDiscriminationPairPresentation(material.Name, pair!)
+                : null)
+            .Where(pair => pair is not null)
+            .Select(pair => pair!)
+            .ToArray();
     }
 
     public static ResultPresentationReadModel FromResult(
@@ -658,7 +716,9 @@ public static class TrainingPresentationMapper
         SelectedTrainingWork selectedWork,
         TrainingPresentationWorkSource source,
         string? primaryMaterial = null,
-        IReadOnlyList<string>? setupItems = null)
+        IReadOnlyList<string>? setupItems = null,
+        IReadOnlyList<VisualStimulusSpec>? visualTargets = null,
+        IReadOnlyList<VisualStimulusExceptionSpec>? visualExceptions = null)
     {
         var drill = DrillFor(selectedWork.Drill);
 
@@ -685,7 +745,9 @@ public static class TrainingPresentationMapper
                 selectedWork.HonestyConstraint,
                 selectedWork.LoadVariables,
                 primaryMaterial,
-                setupItems),
+                setupItems,
+                visualTargets,
+                visualExceptions),
             HasExecutableStandard(selectedWork.Branch, selectedWork.Level, selectedWork.Drill));
     }
 
@@ -742,7 +804,9 @@ public static class TrainingPresentationMapper
                 drill.HonestyConstraint,
                 effectiveLoadVariables,
                 PrimaryMaterialValue(live.Drill, live.CurrentMaterials),
-                setupItems: null),
+                setupItems: null,
+                VisualTargetsFor(live.CurrentMaterials),
+                VisualExceptionsFor(live.CurrentMaterials)),
             HasExecutableStandard(live.Branch, live.Level, live.Drill));
     }
 
@@ -1097,11 +1161,7 @@ public static class TrainingPresentationMapper
             evidence.CorrectionCount,
             evidence.GuessCount > 0 || evidence.ErrorCount > 0,
             evidence.EvidenceFactCount >= evidence.ExpectedEvidenceFactCount,
-            evidence.ReturnCount,
-            evidence.LateReturnCount,
-            evidence.TargetChangeCount,
-            evidence.OpenDriftCount,
-            evidence.MaximumReturnTime);
+            evidence.TargetChangeCount);
     }
 
     private static bool HasFailureEvidence(CurrentTrainingStateReadModel state)
@@ -1139,10 +1199,9 @@ public static class TrainingPresentationMapper
         return new LiveCuePresentationSummary(
             cue.Kind,
             cue.Cue,
-            cue.ResponseExpectation,
             cue.ResponseWindow,
-            cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired,
-            HasHiddenExpectedResponse: cue.ExpectedResponse is not null);
+            cue.Remaining,
+            ExpectedActionIsHidden: true);
     }
 
     private static LiveCueCorrectionPresentation CorrectionSummaryFor(
@@ -1154,7 +1213,10 @@ public static class TrainingPresentationMapper
             correction.Cue,
             correction.SubmittedResponse,
             correction.ResponseOptions,
-            correction.Remaining);
+            correction.Remaining,
+            VisualStimulusCodec.TryDecode(correction.Cue, out var stimulus)
+                ? stimulus
+                : null);
     }
 
     private static string LiveInstructionFor(PreUiLiveSessionState live)
@@ -1167,30 +1229,23 @@ public static class TrainingPresentationMapper
         if (live.ActiveCue is { } cue)
         {
             if (live.Drill == DrillId.AI2DisruptionRecovery &&
-                cue.Kind == RuntimeCueKind.Interruption &&
-                cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired)
+                cue.Kind == RuntimeCueKind.Interruption)
             {
-                return "The source rule still applies.";
+                return "Interruption. Resume from the last stable step, then confirm.";
             }
 
             var effectiveDrill = live.SourceDrill ?? live.Drill;
             if (effectiveDrill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter)
             {
-                return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
-                    ? "Valid cue. Tap the named target."
-                    : "Invalid cue. Do not tap.";
+                return "Apply the cue rule. Tap a target only when the cue requires a switch.";
             }
 
             if (effectiveDrill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
             {
-                return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
-                    ? "Go. Tap now."
-                    : "No-go. Do not tap.";
+                return "Apply the rule. Tap the response pad only when the stimulus calls for GO.";
             }
 
-            return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
-                ? "Respond now."
-                : "Do not respond.";
+            return "Apply the stated rule before choosing whether to respond.";
         }
 
         return live.CurrentPhaseKind switch
@@ -1210,7 +1265,7 @@ public static class TrainingPresentationMapper
             RuntimeSessionPhaseKind.DelayWindow => "Keep the material hidden.",
             RuntimeSessionPhaseKind.CueResponse => CommandIsAvailable(live, RuntimeInputCommandKind.FinishPhase)
                 ? "Cue set complete."
-                : "Wait for the next cue.",
+                : CueWaitInstruction(live.TimeUntilNextCue),
             RuntimeSessionPhaseKind.ReconstructionInput => live.Drill switch
             {
                 DrillId.WM2MentalTransform => "Enter the final result and explain the rule.",
@@ -1231,7 +1286,7 @@ public static class TrainingPresentationMapper
     {
         return drill switch
         {
-            DrillId.FH1TargetHold => "Eyes open. Keep the target visible. Say it once.",
+            DrillId.FH1TargetHold => "Look at the visible shape normally. It remains visible throughout the hold.",
             DrillId.FH2DistractorHold => "Eyes open. Keep the target visible. Ignore distractors.",
             DrillId.FS1CueSwitch => "Read the targets. Switch only on a valid cue.",
             DrillId.FS2InvalidCueFilter => "Read the targets. Invalid cues change nothing.",
@@ -1276,9 +1331,8 @@ public static class TrainingPresentationMapper
         var effectiveDrill = live.SourceDrill ?? live.Drill;
         return effectiveDrill switch
         {
-            DrillId.FH1TargetHold or DrillId.FH2DistractorHold => live.Evidence.OpenDriftCount > 0
-                ? "Eyes open. Return to the target now."
-                : "Eyes open. Hold the target.",
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
+                "Stay with the same target. If you notice a wander, tap once and continue.",
             DrillId.DE1PairDiscrimination => "Judge each pair on the named feature.",
             DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "State and lock the rule before cues begin.",
             DrillId.CO1RuleExtraction => "Commit one testable rule before unseen examples appear.",
@@ -1289,6 +1343,17 @@ public static class TrainingPresentationMapper
             DrillId.TI2GlobalReviewTask => "Answer every component. Keep the branch responses separate.",
             _ => "Complete the visible task to its stated standard.",
         };
+    }
+
+    private static string CueWaitInstruction(TimeSpan? timeUntilNextCue)
+    {
+        if (!timeUntilNextCue.HasValue)
+        {
+            return "Ready for the next cue.";
+        }
+
+        var seconds = Math.Max(0, (int)Math.Ceiling(timeUntilNextCue.Value.TotalSeconds));
+        return $"Ready. Next cue in {seconds}s.";
     }
 
     private static bool CommandIsAvailable(
@@ -1307,7 +1372,9 @@ public static class TrainingPresentationMapper
         string honestyConstraint,
         IReadOnlyList<LoadVariable> loadVariables,
         string? primaryMaterial,
-        IReadOnlyList<string>? setupItems = null)
+        IReadOnlyList<string>? setupItems = null,
+        IReadOnlyList<VisualStimulusSpec>? visualTargets = null,
+        IReadOnlyList<VisualStimulusExceptionSpec>? visualExceptions = null)
     {
         var drillDefinition = DrillFor(drill);
         var levelLabel = $"Level {LevelRank(level)}";
@@ -1316,38 +1383,44 @@ public static class TrainingPresentationMapper
         if (drill == DrillId.FH1TargetHold)
         {
             var duration = LoadVariableValue(loadVariables, "duration", "3 minutes");
+            var interaction = DrillInteractionProtocolCatalog.Get(drill);
             return new TrainingExercisePresentation(
                 drillDefinition.Name,
                 levelLabel,
-                $"Hold one simple target for {duration}. When attention leaves, tap Mind wandered and return.",
-                "Practice one loop: notice attention moved, mark it, return to the same target.",
-                "The point is a clean return, not feeling calm or forcing the mind blank.",
+                $"Keep attention on one visible shape for {duration}. Tap once for every noticed wander, then continue with the same shape.",
+                "Practice one loop: stay with the target; if you notice attention moved, mark it once and resume the same target.",
+                "The point is honest noticing while the hold continues, not feeling calm or forcing the mind blank.",
                 "After this is stable, later exercises add longer holds, distraction, memory, switching, and transfer.",
-                "Read the target. Say it once in your head. Start when you are ready to hold it.",
-                $"Counts if: finish {duration}, tap 5 times or fewer, return within 10 seconds, keep the same target.",
-                "Try again if: you stop early, switch targets, miss a wander, tap more than 5 times, or take too long to return.",
-                "Tap Mind wandered every time attention leaves. Keep the same target.",
-                "The app saves wander taps, return time, target changes, and whether you finished or stopped.",
+                "Look at the visible shape normally. The shape itself is the target.",
+                $"Counts when: {standard}",
+                $"Does not count when the attempt stops early or this honesty rule is broken: {honestyConstraint}",
+                interaction.ActionInstruction,
+                "The app saves wander taps, target changes, and whether you finished or stopped. It does not time your return.",
                 primaryMaterial,
                 setupItems ?? [],
-                DrillInteractionProtocolCatalog.Get(drill));
+                interaction,
+                visualTargets,
+                visualExceptions);
         }
 
+        var interactionProtocol = DrillInteractionProtocolCatalog.Get(drill);
         return new TrainingExercisePresentation(
             drillDefinition.Name,
             branchLevel,
             demand,
-            "Train a named capacity under a clear constraint.",
-            "Repeated clean attempts show whether the capacity is becoming stable.",
+            drillDefinition.Purpose,
+            $"This attempt trains the stated demand: {demand}",
             "Clean work earns harder constraints, stabilization, and transfer.",
-            "Before you start, read the rule or material and make sure you know the response the exercise asks for.",
-            $"Success means: {standard}",
-            "This will not count as successful if the success rule or honesty rule is broken.",
-            $"Keep it honest: {honestyConstraint}",
+            $"{interactionProtocol.AttentionInstruction} {interactionProtocol.DeviceInstruction}",
+            $"Counts when: {standard}",
+            $"Does not count when: {drillDefinition.FailureModes}",
+            interactionProtocol.ActionInstruction,
             "The session records observable results, missed steps, and failed constraints.",
             primaryMaterial,
             setupItems ?? [],
-            DrillInteractionProtocolCatalog.Get(drill));
+            interactionProtocol,
+            visualTargets,
+            visualExceptions);
     }
 
     private static string? PrimaryMaterialValue(
@@ -1363,14 +1436,24 @@ public static class TrainingPresentationMapper
 
         if (drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter)
         {
-            return JoinMaterialValues(
-                materials
+            return materials.Any(material =>
+                    string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal) &&
+                    VisualStimulusCodec.TryDecode(material.Value, out _))
+                ? "Match each cue to one visible target."
+                : JoinMaterialValues(materials
                     .Where(material => string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal))
                     .Select(material => material.Value));
         }
 
         if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery)
         {
+            if (materials.Any(material =>
+                    string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal) &&
+                    VisualStimulusCodec.TryDecode(material.Value, out _)))
+            {
+                return "Match each cue to one visible target. Invalid lures change nothing.";
+            }
+
             var sourceTargets = JoinMaterialValues(materials
                 .Where(material => string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal))
                 .Select(material => material.Value));
@@ -1414,14 +1497,24 @@ public static class TrainingPresentationMapper
 
         if (drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter)
         {
-            return JoinMaterialValues(
-                materials
+            return materials.Any(material =>
+                    material.Kind == GeneratedContentMaterialKind.TargetSet &&
+                    VisualStimulusCodec.TryDecode(material.Value, out _))
+                ? "Match each cue to one visible target."
+                : JoinMaterialValues(materials
                     .Where(material => material.Kind == GeneratedContentMaterialKind.TargetSet)
                     .Select(material => material.Value));
         }
 
         if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery)
         {
+            if (materials.Any(material =>
+                    material.Kind == GeneratedContentMaterialKind.TargetSet &&
+                    VisualStimulusCodec.TryDecode(material.Value, out _)))
+            {
+                return "Match each cue to one visible target. Invalid lures change nothing.";
+            }
+
             var sourceTargets = JoinMaterialValues(materials
                 .Where(material => material.Kind == GeneratedContentMaterialKind.TargetSet)
                 .Select(material => material.Value));
@@ -1514,6 +1607,58 @@ public static class TrainingPresentationMapper
         return items;
     }
 
+    private static IReadOnlyList<VisualStimulusSpec> VisualTargetsFor(
+        IReadOnlyList<GeneratedContentMaterial> materials)
+    {
+        return materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.TargetSet)
+            .Select(material => VisualStimulusCodec.TryDecode(material.Value, out var stimulus)
+                ? stimulus
+                : null)
+            .Where(stimulus => stimulus is not null)
+            .Select(stimulus => stimulus!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<VisualStimulusSpec> VisualTargetsFor(
+        IReadOnlyList<PreUiLiveSessionMaterialState> materials)
+    {
+        return materials
+            .Where(material => string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal))
+            .Select(material => VisualStimulusCodec.TryDecode(material.Value, out var stimulus)
+                ? stimulus
+                : null)
+            .Where(stimulus => stimulus is not null)
+            .Select(stimulus => stimulus!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<VisualStimulusExceptionSpec> VisualExceptionsFor(
+        IReadOnlyList<GeneratedContentMaterial> materials)
+    {
+        return materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.ExceptionDefinition)
+            .Select(material => VisualStimulusCodec.TryDecodeException(material.Value, out var exception)
+                ? exception
+                : null)
+            .Where(exception => exception is not null)
+            .Select(exception => exception!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<VisualStimulusExceptionSpec> VisualExceptionsFor(
+        IReadOnlyList<PreUiLiveSessionMaterialState> materials)
+    {
+        return materials
+            .Where(material => string.Equals(material.Kind, "ExceptionDefinition", StringComparison.Ordinal))
+            .Select(material => VisualStimulusCodec.TryDecodeException(material.Value, out var exception)
+                ? exception
+                : null)
+            .Where(exception => exception is not null)
+            .Select(exception => exception!)
+            .ToArray();
+    }
+
     private static string? WrappedSourceCriterion(string? value)
     {
         return MaterialSegment(value, "wrapped source criterion ", "; underlying branch demand") ??
@@ -1583,6 +1728,11 @@ public static class TrainingPresentationMapper
 
     private static string CompactException(string value)
     {
+        if (VisualStimulusCodec.TryDecodeException(value, out var exception) && exception is not null)
+        {
+            return $"Exception {exception.Ordinal}: {exception.ExpectedAction.ToString().ToLowerInvariant()}";
+        }
+
         var colon = value.IndexOf(':');
         var rule = colon >= 0 ? value[(colon + 1)..].Trim() : value.Trim();
         var detail = rule.IndexOf(';');
@@ -1647,7 +1797,8 @@ public static class TrainingPresentationMapper
 
     private static string DisplayTargetValue(string value)
     {
-        var target = StripPrefix(value, "Hold target phrase:")
+        var target = StripPrefix(value, "Visual target:")
+            ?? StripPrefix(value, "Hold target phrase:")
             ?? StripPrefix(value, "Hold target word:")
             ?? value;
 
@@ -1679,7 +1830,6 @@ public static class TrainingPresentationMapper
         }
 
         return FirstCommand(commands, RuntimeInputCommandKind.RespondToCue)
-            ?? FirstCommand(commands, RuntimeInputCommandKind.MarkReturn)
             ?? FirstCommand(commands, RuntimeInputCommandKind.MarkDrift)
             ?? FirstCommand(commands, RuntimeInputCommandKind.StartAudit)
             ?? FirstCommand(commands, RuntimeInputCommandKind.SubmitAnswer)
@@ -1881,9 +2031,7 @@ public static class TrainingPresentationMapper
         {
             FocusHoldStandardMeasurements.ActiveDurationSeconds =>
                 $"Hold ended before {DurationLabel(loadVariables)}.",
-            FocusHoldStandardMeasurements.MarkedDriftCount => "More than 5 wanders were marked.",
-            FocusHoldStandardMeasurements.UnreturnedDriftCount => "A wander was not followed by a return.",
-            FocusHoldStandardMeasurements.LateReturnCount => "A return took longer than 10 seconds.",
+            FocusHoldStandardMeasurements.MarkedDriftCount => "The marked-wander limit was exceeded.",
             FocusHoldStandardMeasurements.TargetSubstitutionCount => "The target changed.",
             FocusHoldStandardMeasurements.TargetStatedBeforeSet => "The target was not confirmed before the hold.",
             _ => failure.Detail,

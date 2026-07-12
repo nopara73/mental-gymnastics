@@ -82,6 +82,7 @@ If an app workflow needs a record that Persistence cannot yet store, add that st
 3. Android renders the app-facing session state and forwards user actions to app integration.
 4. App integration forwards commands to Runtime and exposes results; it does not interpret invalid commands as success.
 5. During lifecycle interruption, app integration may save `RuntimeSessionSnapshot` and `RuntimeCueSchedulerSnapshot` facts to local JSON persistence; resume must call Runtime restore, and unsafe snapshots must not become completed evidence.
+6. For TI component phases, app integration exposes only the component payload identified by Runtime's active phase id. Frontends must not keep their own component index or reveal future component payloads during execution.
 
 ### Complete Session
 

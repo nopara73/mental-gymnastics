@@ -33,32 +33,33 @@ public sealed class FocusHoldGeneratedContent
 
 public static class FocusHoldGeneratedContentGenerator
 {
-    private const string TargetAndDriftConstraint = "Target is stated before set; every drift is marked.";
+    private const string TargetAndDriftConstraint = "Target is stated before set; every noticed drift is marked once.";
     private const string NoSubstitutionConstraint = "No target substitution.";
     private const string NoDistractorResponseConstraint = "Do not respond to distractor unless drill says so.";
-    private const string DefaultTargetSubtlety = "simple phrase";
-    private const string DefaultRecoveryWindow = "10 seconds";
+    private const string DefaultTargetSubtlety = "simple visual target";
     private const string DefaultTargetHoldDuration = "3 minutes";
     private const string DefaultDistractorHoldDuration = "5 minutes";
     private const string DefaultDistractorFrequency = "periodic";
     private const string DefaultDistractorSalience = "low";
 
-    private static readonly string[] TargetColors = ["red", "blue", "green", "black"];
+    private static readonly string[] TargetColors = ["red", "blue", "green", "black", "amber", "violet"];
 
     private static readonly string[] TargetSizes = ["small", "medium", "large"];
 
-    private static readonly string[] TargetPositions = ["left", "center", "right"];
-
-    private static readonly string[] TargetShapes = ["dot", "line", "square", "circle"];
+    private static readonly string[] TargetShapes = ["dot", "line", "square", "circle", "triangle"];
 
     private static readonly string[] DistractorPrompts =
     [
-        "irrelevant word: mirror",
-        "irrelevant number: 47",
-        "irrelevant color: amber",
-        "irrelevant action: tap",
-        "irrelevant shape: triangle",
-        "irrelevant sound label: chime",
+        "mirror",
+        "47",
+        "orbit",
+        "#",
+        "206",
+        "cedar",
+        "?",
+        "81",
+        "north",
+        "+",
     ];
 
     public static FocusHoldGeneratedContent Generate(
@@ -131,7 +132,6 @@ public static class FocusHoldGeneratedContentGenerator
                 ? DefaultDistractorHoldDuration
                 : DefaultTargetHoldDuration);
         var targetSubtlety = LoadValueOrDefault(request, "target subtlety", DefaultTargetSubtlety);
-        var recoveryWindow = LoadValueOrDefault(request, "recovery window", DefaultRecoveryWindow);
 
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.TargetStatement,
@@ -150,13 +150,9 @@ public static class FocusHoldGeneratedContentGenerator
             "duration",
             duration));
         materials.Add(new GeneratedContentMaterial(
-            GeneratedContentMaterialKind.RecoveryWindow,
-            "recovery-window",
-            recoveryWindow));
-        materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.DriftMarkingEvidenceShape,
-            "drift-return-evidence",
-            $"mark every drift immediately; record return time within {recoveryWindow}; target substitution prohibited"));
+            "drift-evidence",
+            "mark every noticed drift once; continue with the same target; target substitution prohibited"));
 
         if (request.Drill == DrillId.FH2DistractorHold)
         {
@@ -235,8 +231,7 @@ public static class FocusHoldGeneratedContentGenerator
         var salience = LoadValueOrDefault(request, "distractor salience", DefaultDistractorSalience);
         var duration = LoadValueOrDefault(request, "duration", DefaultDistractorHoldDuration);
         var distractorCount = DistractorCountFor(frequency);
-        var targetCombinationCount = TargetColors.Length * TargetSizes.Length *
-            TargetPositions.Length * TargetShapes.Length;
+        var targetCombinationCount = TargetColors.Length * TargetSizes.Length * TargetShapes.Length;
         var distractorCycle = seedPlan.FreshnessOrdinal / targetCombinationCount;
         var firstIndex = GeneratedContentStableHash.OrdinalIndex(
             seedPlan.RequestFingerprint,
@@ -286,7 +281,7 @@ public static class FocusHoldGeneratedContentGenerator
         yield return new GeneratedContentPayloadFact("target-type", target.Type);
         yield return new GeneratedContentPayloadFact(
             "evidence-shape",
-            "drift marks and return times");
+            "one mark per noticed drift");
 
         foreach (var distractor in materials
             .Where(material => material.Kind == GeneratedContentMaterialKind.DistractorPrompt))
@@ -297,8 +292,7 @@ public static class FocusHoldGeneratedContentGenerator
 
     private static TargetTemplate SelectTarget(GeneratedContentSeedPlan seedPlan)
     {
-        var combinationCount = TargetColors.Length * TargetSizes.Length *
-            TargetPositions.Length * TargetShapes.Length;
+        var combinationCount = TargetColors.Length * TargetSizes.Length * TargetShapes.Length;
         var combinationIndex = GeneratedContentStableHash.OrdinalIndex(
             seedPlan.RequestFingerprint,
             "target",
@@ -308,12 +302,10 @@ public static class FocusHoldGeneratedContentGenerator
         combinationIndex /= TargetColors.Length;
         var size = TargetSizes[combinationIndex % TargetSizes.Length];
         combinationIndex /= TargetSizes.Length;
-        var position = TargetPositions[combinationIndex % TargetPositions.Length];
-        combinationIndex /= TargetPositions.Length;
         var shape = TargetShapes[combinationIndex % TargetShapes.Length];
         return new TargetTemplate(
-            "visual phrase",
-            $"Hold target phrase: {size} {color} {position} {shape}");
+            "visual shape",
+            $"Visual target: {size} {color} {shape}");
     }
 
     private static string SelectDistractorPrompt(TargetTemplate target, int index)

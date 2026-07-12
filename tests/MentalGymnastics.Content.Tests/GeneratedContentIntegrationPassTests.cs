@@ -50,6 +50,13 @@ public sealed class GeneratedContentIntegrationPassTests
             cue.ResponseExpectation == GeneratedRuntimeCueResponseExpectation.NoResponseExpected);
         Assert.Contains(package.ExpectedEvidenceFacts, fact =>
             fact.Value.Contains("invalid", StringComparison.OrdinalIgnoreCase));
+        var selectedInvalidCue = selection.Materials.First(material =>
+            material.Kind == GeneratedContentMaterialKind.InvalidCue);
+        var packagedInvalidCue = Assert.Single(package.InputMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.InvalidCue &&
+            string.Equals(material.Name, selectedInvalidCue.Name, StringComparison.Ordinal));
+        Assert.Equal(selectedInvalidCue.Value, packagedInvalidCue.Value);
+        Assert.True(VisualStimulusCodec.TryDecode(packagedInvalidCue.Value, out _));
 
         var handoff = GeneratedContentPersistenceHandoffMapper.Create(
             selection.Result,
@@ -77,6 +84,11 @@ public sealed class GeneratedContentIntegrationPassTests
         Assert.Equal(selection.Result.ContentId, persistenceRecord.ContentIdentity.ContentId);
         Assert.Contains(persistenceRecord.AuditMaterials, material =>
             material.Kind == GeneratedContentMaterialKind.InvalidCue.ToString());
+        var persistedInvalidCue = Assert.Single(persistenceRecord.AuditMaterials, material =>
+            material.Kind == GeneratedContentMaterialKind.InvalidCue.ToString() &&
+            string.Equals(material.Name, selectedInvalidCue.Name, StringComparison.Ordinal));
+        Assert.Equal(selectedInvalidCue.Value, persistedInvalidCue.Value);
+        Assert.True(VisualStimulusCodec.TryDecode(persistedInvalidCue.Value, out _));
     }
 
     [Fact]

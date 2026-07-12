@@ -126,7 +126,7 @@ public sealed class ProgramCatalogTests
             standard => standard.Branch == BranchCode.FH && standard.Level == GlobalLevelId.L1);
         Assert.Equal("Hold one simple target for 3 minutes.", focusHoldL1.Demand);
         Assert.Equal(
-            "No more than 5 marked drifts; each return within 10 seconds; no target change.",
+            "No more than 5 marked drifts; every noticed drift marked; no target change.",
             focusHoldL1.Standard);
 
         var transferIntegrationL5 = ProgramCatalog.Standards.Single(

@@ -4,6 +4,7 @@ using Android.Text;
 using Android.Views;
 using Android.Widget;
 using MentalGymnastics.App;
+using MentalGymnastics.Content;
 using MentalGymnastics.Core;
 using MentalGymnastics.Runtime;
 
@@ -26,13 +27,15 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     private readonly TimerRingView timer;
     private readonly TextView instruction;
     private readonly LinearLayout focusTargetBand;
-    private readonly TextView focusTargetValue;
+    private readonly VisualStimulusView focusTargetStimulus;
     private readonly LinearLayout cueBand;
     private readonly TextView cueMode;
     private readonly TextView cueText;
+    private readonly VisualStimulusView cueStimulus;
     private readonly LinearLayout correctionBand;
     private readonly TextView correctionTitle;
     private readonly TextView correctionCue;
+    private readonly VisualStimulusView correctionStimulus;
     private readonly TextView correctionResponse;
     private readonly LinearLayout correctionChoices;
     private readonly TargetMaterialView target;
@@ -122,12 +125,13 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         focusTargetBand.AddView(
             focusTargetLabel,
             new LayoutParams(MgSpacing.Dp(context, 112), LayoutParams.WrapContent));
-        focusTargetValue = new TextView(context)
+        focusTargetStimulus = new VisualStimulusView(context)
         {
-            Gravity = GravityFlags.End | GravityFlags.CenterVertical,
+            ImportantForAccessibility = ImportantForAccessibility.No,
         };
-        MgTypography.ApplyHeading(focusTargetValue);
-        focusTargetBand.AddView(focusTargetValue, new LayoutParams(0, LayoutParams.WrapContent, 1));
+        focusTargetBand.AddView(
+            focusTargetStimulus,
+            new LayoutParams(0, MgSpacing.Dp(context, 104), 1));
         AddView(focusTargetBand, MatchWrapWithTop(MgSpacing.Sm));
 
         cueBand = new LinearLayout(context)
@@ -150,6 +154,16 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         };
         MgTypography.ApplyTitle(cueText);
         cueBand.AddView(cueText, MatchWrapWithTop(MgSpacing.Xs));
+        cueStimulus = new VisualStimulusView(context)
+        {
+            Visibility = ViewStates.Gone,
+        };
+        cueBand.AddView(cueStimulus, new LayoutParams(
+            LayoutParams.MatchParent,
+            MgSpacing.Dp(context, 176))
+        {
+            TopMargin = MgSpacing.Dp(context, MgSpacing.Xs),
+        });
         AddView(cueBand, MatchWrapWithTop(MgSpacing.Md));
 
         correctionBand = new LinearLayout(context)
@@ -174,6 +188,16 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         correctionCue = new TextView(context);
         MgTypography.ApplyTitle(correctionCue);
         correctionBand.AddView(correctionCue, MatchWrapWithTop(MgSpacing.Xs));
+        correctionStimulus = new VisualStimulusView(context)
+        {
+            Visibility = ViewStates.Gone,
+        };
+        correctionBand.AddView(correctionStimulus, new LayoutParams(
+            LayoutParams.MatchParent,
+            MgSpacing.Dp(context, 144))
+        {
+            TopMargin = MgSpacing.Dp(context, MgSpacing.Xs),
+        });
         correctionResponse = new TextView(context);
         MgTypography.ApplyBody(correctionResponse);
         correctionResponse.SetTextColor(MgColors.InkMuted);
@@ -184,7 +208,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         };
         correctionBand.AddView(correctionChoices, MatchWrapWithTop(MgSpacing.Sm));
 
-        target = new TargetMaterialView(context, compact: true);
+        target = new TargetMaterialView(context, compact: false);
         AddView(target, MatchWrapWithTop(MgSpacing.Md));
 
         materialList = new LinearLayout(context)
@@ -243,7 +267,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         {
             Orientation = Orientation.Vertical,
         };
-        AddView(secondaryCommands, MatchWrapWithTop(MgSpacing.Sm));
+        AddView(secondaryCommands, MatchWrapWithTop(MgSpacing.Lg));
 
         evidenceStrip = new LinearLayout(context)
         {
@@ -388,27 +412,44 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var isFocusHold = effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold;
         var usesCompactFocusLayout = isFocusHold && hasIntegratedComponents;
         workLabel.Text = presentation.Work.Exercise.BranchLevelLabel;
+        workLabel.Visibility = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep
+            ? ViewStates.Visible
+            : ViewStates.Gone;
         timer.Update(presentation.Timer, presentation.LifecycleStatus);
-        UpdateTimerSize(drill, presentation.CurrentPhaseKind, hasIntegratedComponents);
+        UpdateTimerSize(effectiveDrill, presentation.CurrentPhaseKind, hasIntegratedComponents);
         instruction.Text = usesCompactFocusLayout
             ? CompactFocusInstruction(presentation)
             : presentation.CurrentInstruction;
         var isPrep = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
-        timer.Visibility = !isPrep && presentation.Timer.IsTimed && !usesCompactFocusLayout
+        var isRest = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Rest;
+        timer.Visibility = isRest && presentation.Timer.IsTimed
             ? ViewStates.Visible
             : ViewStates.Gone;
-        evidenceStrip.Visibility = isPrep ? ViewStates.Gone : ViewStates.Visible;
+        var isReview = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Review;
+        instruction.Visibility = presentation.CurrentPhaseKind is
+            RuntimeSessionPhaseKind.InstructionPrep or
+            RuntimeSessionPhaseKind.Review or
+            RuntimeSessionPhaseKind.Recovery or
+            RuntimeSessionPhaseKind.Rest
+                ? ViewStates.Visible
+                : ViewStates.Gone;
+        evidenceStrip.Visibility = isReview || presentation.IsTerminal
+            ? ViewStates.Visible
+            : ViewStates.Gone;
+        var activeFocusStimulus = presentation.CurrentFocusVisualStimulus;
         var showsShiftTarget = effectiveDrill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter &&
             presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse &&
-            !string.IsNullOrWhiteSpace(presentation.CurrentFocusTarget);
+            activeFocusStimulus is not null;
         focusTargetBand.Visibility = showsShiftTarget ? ViewStates.Visible : ViewStates.Gone;
-        focusTargetValue.Text = showsShiftTarget ? presentation.CurrentFocusTarget : string.Empty;
+        focusTargetStimulus.Update(showsShiftTarget ? activeFocusStimulus : null);
+        focusTargetBand.ContentDescription = showsShiftTarget
+            ? $"Active target: {VisualStimulusView.Describe(activeFocusStimulus!)}"
+            : null;
 
         UpdateCue(presentation);
         UpdateCueChoices(presentation);
         UpdatePendingCorrection(presentation);
 
-        var isReview = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Review;
         var showsFocusTarget = isFocusHold && presentation.CurrentPhaseKind is
             RuntimeSessionPhaseKind.InstructionPrep or
             RuntimeSessionPhaseKind.ActiveWork or
@@ -596,11 +637,11 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             throw new InvalidOperationException("Live work must identify its effective drill.");
         var inputKind = DrillInteractionProtocolCatalog.Get(effectiveDrill).InputKind;
         var isDisruptionConfirmation = primary.Command == RuntimeInputCommandKind.RespondToCue &&
-            presentation.ActiveCue is { Kind: RuntimeCueKind.Interruption, RequiresResponse: true };
+            presentation.ActiveCue is { Kind: RuntimeCueKind.Interruption };
         var usesPad = isDisruptionConfirmation || inputKind switch
         {
-            DrillInteractionInputKind.FocusReturnPad => primary.Command is
-                RuntimeInputCommandKind.MarkDrift or RuntimeInputCommandKind.MarkReturn,
+            DrillInteractionInputKind.FocusWanderSurface =>
+                primary.Command == RuntimeInputCommandKind.MarkDrift,
             DrillInteractionInputKind.GoNoGoPad => primary.Command == RuntimeInputCommandKind.RespondToCue,
             _ => false,
         };
@@ -612,34 +653,31 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         var label = DisplayLabel(primary, presentation, primary: true);
-        var isWithholdPad = primary.Command == RuntimeInputCommandKind.RespondToCue &&
-            presentation.ActiveCue?.RequiresResponse == false;
         var height = InteractivePadHeight(
             isDisruptionConfirmation ? DrillInteractionInputKind.GoNoGoPad : inputKind,
-            inputKind == DrillInteractionInputKind.FocusReturnPad &&
+            inputKind == DrillInteractionInputKind.FocusWanderSurface &&
                 presentation.CurrentMaterials.Any(material => material.Kind == "ComponentPayload"));
         var layout = sourceActionButton.LayoutParameters ?? MatchWrap();
         layout.Height = MgSpacing.Dp(Context!, height);
         sourceActionButton.LayoutParameters = layout;
         sourceActionButton.Text = label;
-        sourceActionButton.ContentDescription = isWithholdPad
-            ? "Withhold. Do not tap. Touching this pad records an error."
-            : label.Replace('\n', ' ');
+        sourceActionButton.ContentDescription = label.Replace('\n', ' ');
         sourceActionButton.Gravity = GravityFlags.Center;
         sourceActionButton.SetSingleLine(false);
         sourceActionButton.Enabled = true;
         sourceActionButton.Visibility = ViewStates.Visible;
-        sourceActionButton.SetTextColor(isWithholdPad ? MgColors.InkMuted : Color.White);
-        sourceActionButton.Background = isWithholdPad
-            ? MgTheme.Outline(Context!, MgColors.Maintenance, cornerRadius: 8)
-            : MgTheme.ActionGradient(Context!, cornerRadius: 8);
+        sourceActionButton.SetTextColor(Color.White);
+        sourceActionButton.Background = MgTheme.ActionGradient(Context!, cornerRadius: 8);
         return true;
     }
 
     private void UpdatePrimaryButtonSize(LiveSessionPresentationReadModel presentation)
     {
         var inputKind = presentation.Work.Exercise.InteractionProtocol.InputKind;
-        var height = InteractivePadHeight(inputKind, compact: false);
+        var height = presentation.CurrentPhaseKind is
+            RuntimeSessionPhaseKind.InstructionPrep or RuntimeSessionPhaseKind.Review
+                ? 64
+                : InteractivePadHeight(inputKind, compact: false);
         var layout = primaryButton.LayoutParameters ?? MatchWrap();
         var heightPixels = MgSpacing.Dp(Context!, height);
         if (layout.Height != heightPixels)
@@ -655,7 +693,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     private void UpdateSecondaryCommands(LiveSessionPresentationReadModel presentation)
     {
         var commands = SelectSecondaryCommands(presentation);
-        var signature = string.Join(
+        var signature = $"stop-confirmation:{stopConfirmationArmed}|" + string.Join(
             '|',
             commands.Select(command => $"{command.Command}:{command.Label}:{presentation.CurrentPhaseKind}"));
         if (string.Equals(signature, secondarySignature, StringComparison.Ordinal))
@@ -672,6 +710,14 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         secondaryCommands.Visibility = ViewStates.Visible;
+        if (stopConfirmationArmed &&
+            presentation.CurrentPhaseKind != RuntimeSessionPhaseKind.InstructionPrep &&
+            commands.Any(command => command.Command == RuntimeInputCommandKind.Abandon))
+        {
+            RenderStopConfirmation();
+            return;
+        }
+
         var row = new LinearLayout(Context)
         {
             Orientation = Orientation.Horizontal,
@@ -679,11 +725,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         for (var index = 0; index < commands.Length; index++)
         {
             var command = commands[index];
-            var label = command.Command == RuntimeInputCommandKind.Abandon &&
-                stopConfirmationArmed &&
-                presentation.CurrentPhaseKind != RuntimeSessionPhaseKind.InstructionPrep
-                    ? "Confirm stop"
-                    : DisplayLabel(command, presentation, primary: false);
+            var label = DisplayLabel(command, presentation, primary: false);
             var button = new Button(Context)
             {
                 Text = label,
@@ -713,6 +755,121 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         secondaryCommands.AddView(row, MatchWrap());
+    }
+
+    private void RenderStopConfirmation()
+    {
+        var warning = new LinearLayout(Context)
+        {
+            Orientation = Orientation.Vertical,
+            Background = MgTheme.TintedSurface(
+                Context!,
+                MgColors.BlockedTint,
+                MgColors.Blocked,
+                cornerRadius: 8),
+        };
+        warning.SetPadding(
+            MgSpacing.Dp(Context!, MgSpacing.Md),
+            MgSpacing.Dp(Context!, MgSpacing.Md),
+            MgSpacing.Dp(Context!, MgSpacing.Md),
+            MgSpacing.Dp(Context!, MgSpacing.Md));
+
+        var title = new TextView(Context)
+        {
+            Text = "End today's training?",
+        };
+        MgTypography.ApplyHeading(title);
+        title.SetTextColor(MgColors.Blocked);
+        warning.AddView(title, MatchWrap());
+
+        var detail = new TextView(Context)
+        {
+            Text = "This saves a stopped attempt, skips any remaining blocks, and closes training for today.",
+        };
+        MgTypography.ApplyBody(detail);
+        warning.AddView(detail, MatchWrapWithTop(MgSpacing.Xs));
+
+        var actions = new LinearLayout(Context)
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        var keepTraining = new Button(Context)
+        {
+            Text = "Keep training",
+            ContentDescription = "Keep training and close this warning",
+        };
+        keepTraining.SetAllCaps(false);
+        keepTraining.SetTextColor(Color.White);
+        keepTraining.Background = MgTheme.ActionGradient(Context!, cornerRadius: 8);
+        keepTraining.Click += (_, _) =>
+        {
+            stopConfirmationArmed = false;
+            secondarySignature = string.Empty;
+            if (snapshot?.Presentation is { } presentation)
+            {
+                UpdateSecondaryCommands(presentation);
+            }
+
+            ScrollPracticeToTop();
+        };
+        actions.AddView(
+            keepTraining,
+            new LayoutParams(0, MgSpacing.Dp(Context!, 52), 1));
+
+        var endToday = new Button(Context)
+        {
+            Text = "End today",
+            ContentDescription = "End today's training and save a stopped attempt",
+        };
+        endToday.SetAllCaps(false);
+        endToday.SetTextColor(MgColors.Blocked);
+        endToday.Background = MgTheme.Outline(Context!, MgColors.Blocked, cornerRadius: 8);
+        endToday.Click += (_, _) => SendCommand(RuntimeInputCommandKind.Abandon);
+        var endLayout = new LayoutParams(0, MgSpacing.Dp(Context!, 52), 1);
+        endLayout.SetMargins(MgSpacing.Dp(Context!, MgSpacing.Xs), 0, 0, 0);
+        actions.AddView(endToday, endLayout);
+        warning.AddView(actions, MatchWrapWithTop(MgSpacing.Md));
+
+        secondaryCommands.AddView(warning, MatchWrap());
+        ScrollStopConfirmationIntoView();
+    }
+
+    private void ScrollStopConfirmationIntoView()
+    {
+        secondaryCommands.Post(() =>
+        {
+            if (FindAncestorScrollView() is { } scroll)
+            {
+                scroll.FullScroll(FocusSearchDirection.Down);
+            }
+        });
+    }
+
+    private void ScrollPracticeToTop()
+    {
+        Post(() =>
+        {
+            if (FindAncestorScrollView() is { } scroll)
+            {
+                scroll.SmoothScrollTo(0, 0);
+            }
+        });
+    }
+
+    private ScrollView? FindAncestorScrollView()
+    {
+        var current = Parent;
+        while (current is not null)
+        {
+            if (current is ScrollView scroll)
+            {
+                return scroll;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
     }
 
     private void UpdateMaterialList(LiveSessionPresentationReadModel presentation)
@@ -787,7 +944,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             {
                 Text = MaterialGroupValue(group),
             };
-            value.SetTextIsSelectable(true);
+            value.SetTextIsSelectable(false);
             MgTypography.ApplyBody(value);
             block.AddView(value, MatchWrapWithTop(MgSpacing.Xs));
             materialList.AddView(block, MatchWrapWithTop(materialList.ChildCount == 0 ? 0 : MgSpacing.Sm));
@@ -822,6 +979,14 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var components = presentation.CurrentMaterials
             .Where(material => string.Equals(material.Kind, "ComponentPayload", StringComparison.Ordinal))
             .ToArray();
+        if (presentation.Work.Drill is DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask &&
+            components.Length == 1 &&
+            presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.ActiveWork)
+        {
+            RenderCurrentTransferIntegrationComponent(components[0]);
+            return;
+        }
+
         var signature = "global-review:" + string.Join(
             '|',
             transferContract
@@ -842,19 +1007,49 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         AddComponentTiles(presentation, components, transferContract.Length > 0);
     }
 
+    private void RenderCurrentTransferIntegrationComponent(
+        PreUiLiveSessionMaterialState component)
+    {
+        var signature = $"current-component:{component.Name}:{component.Value}";
+        if (string.Equals(signature, materialSignature, StringComparison.Ordinal))
+        {
+            materialList.Visibility = ViewStates.Visible;
+            return;
+        }
+
+        materialSignature = signature;
+        materialList.RemoveAllViews();
+        materialList.Visibility = ViewStates.Visible;
+        var summary = GlobalReviewComponentSummary(component.Value);
+        var isHeldTarget = string.Equals(summary.Branch, "FH", StringComparison.Ordinal);
+        var prompt = new TextView(Context)
+        {
+            Text = isHeldTarget
+                ? "Report the target you held from setup."
+                : summary.Challenge,
+            ContentDescription = isHeldTarget
+                ? "Report the target held from setup"
+                : summary.Challenge,
+            Gravity = GravityFlags.Center,
+        };
+        MgTypography.ApplyTitle(prompt);
+        materialList.AddView(prompt, MatchWrap());
+    }
+
     private void AddComponentTiles(
         LiveSessionPresentationReadModel presentation,
         IReadOnlyList<PreUiLiveSessionMaterialState> components,
         bool hasPriorContent)
     {
         var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
+        var isSetup = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
         var hasExpandedComponent = components.Any(component =>
             expandedComponents.Contains(component.Name));
         var compactFocusComponents =
             effectiveDrill is (DrillId.FH1TargetHold or DrillId.FH2DistractorHold) &&
             components.Count is > 0 and <= 3 &&
             !hasExpandedComponent;
-        var columns = compactFocusComponents ? components.Count : 2;
+        var columns = isSetup ? 1 : compactFocusComponents ? components.Count : 2;
         for (var index = 0; index < components.Count; index += columns)
         {
             var row = new LinearLayout(Context)
@@ -874,17 +1069,14 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 var component = components[componentIndex];
                 var summary = GlobalReviewComponentSummary(component.Value);
                 var isHeldTarget = string.Equals(summary.Branch, "FH", StringComparison.Ordinal);
-                var isSetup = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
-                var expanded = isHeldTarget
-                    ? isSetup
-                    : expandedComponents.Contains(component.Name);
+                var expanded = isSetup || expandedComponents.Contains(component.Name);
                 var tile = new LinearLayout(Context)
                 {
                     Orientation = Orientation.Vertical,
                     Background = MgTheme.MutedSurface(Context!, cornerRadius: 8),
                     ContentDescription = $"{summary.Branch}, {summary.Role}. {summary.Criterion}",
-                    Clickable = !isHeldTarget,
-                    Focusable = !isHeldTarget,
+                    Clickable = !isSetup && !isHeldTarget,
+                    Focusable = !isSetup && !isHeldTarget,
                 };
                 tile.SetPadding(
                     MgSpacing.Dp(Context!, MgSpacing.Sm),
@@ -895,7 +1087,9 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 {
                     Text = isHeldTarget
                         ? $"{summary.Branch}    {(isSetup ? "HOLD" : "HELD")}"
-                        : $"{summary.Branch}    {(expanded ? "-" : "+")}",
+                        : isSetup
+                            ? summary.Branch
+                            : $"{summary.Branch}    {(expanded ? "-" : "+")}",
                 };
                 MgTypography.ApplyLabel(header);
                 header.SetTextColor(MgColors.TrainingDark);
@@ -944,7 +1138,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                     }
                 }
 
-                if (!isHeldTarget)
+                if (!isSetup && !isHeldTarget)
                 {
                     tile.Click += (_, _) =>
                     {
@@ -980,6 +1174,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var screenHeight = Context?.Resources?.Configuration?.ScreenHeightDp ?? 720;
         var size = hasIntegratedComponents
             ? 96
+            : drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold
+                ? 104
             : drill == DrillId.TI2GlobalReviewTask && phase == RuntimeSessionPhaseKind.ActiveWork
             ? 96
             : screenHeight < 600
@@ -1001,7 +1197,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     private int InteractivePadHeight(DrillInteractionInputKind inputKind, bool compact)
     {
         if (inputKind is not
-            (DrillInteractionInputKind.FocusReturnPad or DrillInteractionInputKind.GoNoGoPad))
+            (DrillInteractionInputKind.FocusWanderSurface or DrillInteractionInputKind.GoNoGoPad))
         {
             return 56;
         }
@@ -1019,10 +1215,10 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         if (screenHeight < 720)
         {
-            return inputKind == DrillInteractionInputKind.FocusReturnPad ? 176 : 144;
+            return inputKind == DrillInteractionInputKind.FocusWanderSurface ? 176 : 144;
         }
 
-        return inputKind == DrillInteractionInputKind.FocusReturnPad ? 220 : 160;
+        return inputKind == DrillInteractionInputKind.FocusWanderSurface ? 220 : 160;
     }
 
     private void RenderStructureMapping(LiveSessionPresentationReadModel presentation)
@@ -1168,6 +1364,12 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         return $"{presentation.CurrentInstruction.Trim().TrimEnd('.')}  ·  {time}";
     }
 
+    private static string FormatCueTime(TimeSpan value)
+    {
+        var seconds = Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
+        return $"{seconds}s";
+    }
+
     private static PreUiLiveSessionMaterialState[] TransferContractMaterials(
         LiveSessionPresentationReadModel presentation)
     {
@@ -1270,10 +1472,9 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
     private void RenderPairDiscrimination(LiveSessionPresentationReadModel presentation)
     {
-        var pairs = presentation.CurrentMaterials
-            .Where(material => string.Equals(material.Kind, "DiscriminationPair", StringComparison.Ordinal))
-            .ToArray();
-        var signature = $"pair:{pairIndex}:{guessedPairIndexes.Contains(pairIndex)}:{string.Join('|', pairs.Select(pair => pair.Value))}";
+        var pairs = presentation.DiscriminationPairs ?? [];
+        var signature = $"pair:{pairIndex}:{guessedPairIndexes.Contains(pairIndex)}:" +
+            string.Join('|', pairs.Select(pair => pair.PairId + ':' + pair.Pair));
         if (string.Equals(signature, materialSignature, StringComparison.Ordinal))
         {
             return;
@@ -1281,7 +1482,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         materialSignature = signature;
         materialList.RemoveAllViews();
-        if (pairs.Length == 0 || pairIndex >= pairs.Length)
+        if (pairs.Count == 0 || pairIndex >= pairs.Count)
         {
             var ready = new TextView(Context)
             {
@@ -1293,27 +1494,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             return;
         }
 
-        var progress = new TextView(Context)
-        {
-            Text = $"PAIR {pairIndex + 1} OF {pairs.Length}",
-            Gravity = GravityFlags.Center,
-        };
-        MgTypography.ApplyLabel(progress);
-        progress.SetTextColor(MgColors.InkMuted);
-        materialList.AddView(progress, MatchWrap());
-
-        var comparison = new TextView(Context)
-        {
-            Text = DiscriminationPairDisplay(pairs[pairIndex].Value),
-            Gravity = GravityFlags.Center,
-            Background = MgTheme.MutedSurface(Context!, cornerRadius: 8),
-        };
-        comparison.SetPadding(
-            MgSpacing.Dp(Context!, MgSpacing.Md),
-            MgSpacing.Dp(Context!, MgSpacing.Md),
-            MgSpacing.Dp(Context!, MgSpacing.Md),
-            MgSpacing.Dp(Context!, MgSpacing.Md));
-        MgTypography.ApplyHeading(comparison);
+        var comparison = new VisualStimulusPairView(Context!);
+        comparison.Update(pairs[pairIndex].Pair);
         materialList.AddView(comparison, MatchWrapWithTop(MgSpacing.Sm));
 
         var uncertainty = new Button(Context)
@@ -1335,7 +1517,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 RuntimeInputCommandKind.MarkGuess);
             CommandRequested?.Invoke(
                 RuntimeInputCommandKind.MarkGuess,
-                pairs[pairIndex].Name,
+                pairs[pairIndex].PairId,
                 null);
             materialSignature = string.Empty;
             RenderPairDiscrimination(presentation);
@@ -1351,8 +1533,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         {
             Orientation = Orientation.Horizontal,
         };
-        AddPairChoice(choices, "Same", "same", pairs[pairIndex], presentation, first: true);
-        AddPairChoice(choices, "Different", "different", pairs[pairIndex], presentation, first: false);
+        AddPairChoice(choices, "Same", "same", pairs[pairIndex].PairId, presentation, first: true);
+        AddPairChoice(choices, "Different", "different", pairs[pairIndex].PairId, presentation, first: false);
         materialList.AddView(choices, MatchWrapWithTop(MgSpacing.Sm));
     }
 
@@ -1360,7 +1542,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         LinearLayout row,
         string label,
         string value,
-        PreUiLiveSessionMaterialState pair,
+        string pairId,
         LiveSessionPresentationReadModel presentation,
         bool first)
     {
@@ -1377,11 +1559,11 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         {
             button.Enabled = false;
             PerformAcknowledgement(presentation.Work.Exercise.InteractionProtocol, RuntimeInputCommandKind.SubmitAnswer);
-            var response = $"{pair.Name}={value}";
+            var response = $"{pairId}={value}";
             pairIndex++;
             materialSignature = string.Empty;
             RenderPairDiscrimination(presentation);
-            CommandRequested?.Invoke(RuntimeInputCommandKind.SubmitAnswer, pair.Name, response);
+            CommandRequested?.Invoke(RuntimeInputCommandKind.SubmitAnswer, pairId, response);
         };
         var layout = new LayoutParams(0, MgSpacing.Dp(Context!, 52), 1);
         if (!first)
@@ -1392,25 +1574,6 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         row.AddView(button, layout);
     }
 
-    private static string DiscriminationPairDisplay(string raw)
-    {
-        var visible = raw.Split("; expected", 2, StringSplitOptions.TrimEntries)[0];
-        visible = visible.Contains(':') ? visible[(visible.IndexOf(':') + 1)..].Trim() : visible;
-        var parts = visible.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var pair = parts.FirstOrDefault() ?? visible;
-        var feature = parts.FirstOrDefault(part =>
-            part.StartsWith("relevant feature", StringComparison.OrdinalIgnoreCase));
-        pair = pair.Replace(" vs right ", Environment.NewLine + "vs" + Environment.NewLine, StringComparison.OrdinalIgnoreCase)
-            .Replace("left ", string.Empty, StringComparison.OrdinalIgnoreCase);
-        if (feature is null)
-        {
-            return pair;
-        }
-
-        var featureValue = feature.Replace("relevant feature", string.Empty, StringComparison.OrdinalIgnoreCase).Trim(' ', '\'');
-        return $"{pair}{Environment.NewLine}{Environment.NewLine}Compare: {featureValue}";
-    }
-
     private void UpdateEvidence(LiveSessionPresentationReadModel presentation)
     {
         var evidence = presentation.Evidence;
@@ -1418,9 +1581,9 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         if (effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
             SetEvidence(0, evidence.DriftCount.ToString(), "wanders", MgColors.Ink);
-            SetEvidence(1, evidence.ReturnCount.ToString(), "returns", MgColors.Ink);
-            SetEvidence(2, evidence.LateReturnCount.ToString(), "late", evidence.LateReturnCount > 0 ? MgColors.Blocked : MgColors.Ink);
-            SetEvidence(3, evidence.TargetChangeCount.ToString(), "changes", evidence.TargetChangeCount > 0 ? MgColors.Blocked : MgColors.Ink);
+            SetEvidence(1, evidence.TargetChangeCount.ToString(), "changes", evidence.TargetChangeCount > 0 ? MgColors.Blocked : MgColors.Ink);
+            SetEvidence(2, evidence.RuntimeEventCount.ToString(), "events", MgColors.Ink);
+            SetEvidence(3, evidence.EvidenceFactCount.ToString(), "facts", MgColors.Ink);
             return;
         }
 
@@ -1448,29 +1611,48 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             return;
         }
 
-        var respond = cue.RequiresResponse;
         var drill = presentation.SourceDrill ?? presentation.Work.Drill;
         var isDisruption = cue.Kind == RuntimeCueKind.Interruption &&
-            cue.RequiresResponse &&
             presentation.Work.Drill == DrillId.AI2DisruptionRecovery;
-        var activeStyle = respond;
         cueBand.Visibility = ViewStates.Visible;
         cueBand.Background = MgTheme.TintedSurface(
             Context!,
-            activeStyle ? MgColors.TrainingTint : MgColors.MaintenanceTint,
-            activeStyle ? MgColors.Training : MgColors.Maintenance,
+            MgColors.TrainingTint,
+            MgColors.Training,
             cornerRadius: 8);
-        cueMode.Text = isDisruption
-            ? "DISRUPTION"
+        var remaining = cue.Remaining.HasValue
+            ? $"  ·  {FormatCueTime(cue.Remaining.Value)}"
+            : string.Empty;
+        cueMode.Text = (isDisruption
+            ? "INTERRUPTION"
             : drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter
-                ? respond ? "SWITCH" : "WITHHOLD"
+                ? "CUE"
                 : drill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule
-                    ? respond ? "GO" : "NO-GO"
-                    : respond ? "RESPOND" : "IGNORE";
-        cueMode.SetTextColor(respond ? MgColors.TrainingDark : MgColors.Ink);
-        cueText.Text = isDisruption
-            ? "Resume from the last stable step."
-            : drill == DrillId.IR2ExceptionRule ? CompactRuleCue(cue.Cue) : cue.Cue;
+                    ? "STIMULUS"
+                    : "CUE") + remaining;
+        cueMode.Visibility = ViewStates.Gone;
+        cueMode.SetTextColor(MgColors.TrainingDark);
+        if (!isDisruption && presentation.ActiveVisualStimulus is { } visualStimulus)
+        {
+            cueText.Text = string.Empty;
+            cueText.Visibility = ViewStates.Gone;
+            cueStimulus.Visibility = ViewStates.Visible;
+            cueStimulus.Update(visualStimulus);
+        }
+        else
+        {
+            cueStimulus.Visibility = ViewStates.Gone;
+            cueStimulus.Update(null);
+            cueText.Visibility = ViewStates.Visible;
+            cueText.Text = isDisruption
+                ? "Resume from the last stable step."
+                : drill is DrillId.FS1CueSwitch or
+                    DrillId.FS2InvalidCueFilter or
+                    DrillId.IR1GoNoGoRule or
+                    DrillId.IR2ExceptionRule
+                        ? "Visual stimulus unavailable."
+                        : cue.Cue;
+        }
 
         var cueId = snapshot?.LiveSession.ActiveCue?.CueId;
         if (snapshot?.LiveSession.ActiveCue?.IsControlledDistractor == true &&
@@ -1494,40 +1676,36 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             return;
         }
 
-        var requiresResponse = presentation.ActiveCue?.RequiresResponse == true;
-        var targets = presentation.CurrentMaterials
-            .Where(material => string.Equals(material.Kind, "TargetSet", StringComparison.Ordinal))
-            .Select(material => material.Value.Trim())
-            .Where(value => value.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (targets.Length < 2)
+        var targets = presentation.VisualChoices ?? [];
+        if (targets.Count < 2)
         {
             cueChoices.Visibility = ViewStates.Gone;
             return;
         }
 
         cueChoices.Visibility = ViewStates.Visible;
-        for (var index = 0; index < targets.Length; index++)
+        for (var index = 0; index < targets.Count; index++)
         {
-            var response = targets[index];
-            var button = new Button(Context)
+            var choice = targets[index];
+            var button = new FrameLayout(Context!)
             {
-                Text = SentenceCase(response),
-                ContentDescription = requiresResponse
-                    ? $"Switch to {response}"
-                    : $"Do not switch to {response}; tapping records an invalid switch",
+                ContentDescription =
+                    $"Choose {VisualStimulusView.Describe(choice.Stimulus)} only if the cue rule requires that switch",
+                Clickable = true,
+                Focusable = true,
+                HapticFeedbackEnabled = true,
             };
-            button.SetAllCaps(false);
-            button.SetSingleLine(false);
-            button.SetMinHeight(MgSpacing.Dp(Context!, 52));
-            button.SetTextSize(global::Android.Util.ComplexUnitType.Sp, MgTypography.BodySp);
-            button.SetTextColor(requiresResponse ? Color.White : MgColors.InkMuted);
-            button.Background = requiresResponse
-                ? MgTheme.ActionGradient(Context!, cornerRadius: 8)
-                : MgTheme.Outline(Context!, MgColors.Maintenance, cornerRadius: 8);
-            button.Click += (_, _) => SendCueResponse(response);
-            var layout = new LayoutParams(0, MgSpacing.Dp(Context!, 60), 1);
+            button.Background = MgTheme.Outline(Context!, MgColors.Training, cornerRadius: 8);
+            var stimulus = new VisualStimulusView(Context!)
+            {
+                ImportantForAccessibility = ImportantForAccessibility.No,
+            };
+            stimulus.Update(choice.Stimulus);
+            button.AddView(stimulus, new FrameLayout.LayoutParams(
+                LayoutParams.MatchParent,
+                LayoutParams.MatchParent));
+            button.Click += (_, _) => SendCueResponse(choice.ResponseValue);
+            var layout = new LayoutParams(0, MgSpacing.Dp(Context!, 120), 1);
             if (index > 0)
             {
                 layout.SetMargins(MgSpacing.Dp(Context!, MgSpacing.Xs), 0, 0, 0);
@@ -1549,9 +1727,27 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         correctionBand.Visibility = ViewStates.Visible;
         correctionTitle.Text = $"FIX LAST CUE  {Math.Max(1, (int)Math.Ceiling(correction.Remaining.TotalSeconds))}s";
-        correctionCue.Text = presentation.SourceDrill == DrillId.IR2ExceptionRule
-            ? CompactRuleCue(correction.Cue)
-            : correction.Cue;
+        if (correction.Stimulus is { } correctionVisual)
+        {
+            correctionCue.Text = string.Empty;
+            correctionCue.Visibility = ViewStates.Gone;
+            correctionStimulus.Visibility = ViewStates.Visible;
+            correctionStimulus.Update(correctionVisual);
+        }
+        else
+        {
+            correctionStimulus.Visibility = ViewStates.Gone;
+            correctionStimulus.Update(null);
+            correctionCue.Visibility = ViewStates.Visible;
+            var correctionDrill = presentation.SourceDrill ?? presentation.Work.Drill;
+            correctionCue.Text = correctionDrill is
+                DrillId.FS1CueSwitch or
+                DrillId.FS2InvalidCueFilter or
+                DrillId.IR1GoNoGoRule or
+                DrillId.IR2ExceptionRule
+                    ? "Visual stimulus unavailable."
+                    : correction.Cue;
+        }
         correctionResponse.Text = string.Equals(
             correction.SubmittedResponse,
             "omitted",
@@ -1914,7 +2110,9 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             return;
         }
 
-        BeginStructuredForm(signature, "RESPONSES BY BRANCH");
+        BeginStructuredForm(
+            signature,
+            orderedComponents.Length == 1 ? "YOUR RESPONSE" : "RESPONSES BY BRANCH");
         foreach (var component in orderedComponents)
         {
             var branch = ComponentBranch(component);
@@ -1946,33 +2144,177 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         LiveSessionPresentationReadModel presentation,
         DrillId drill)
     {
-        var exceptions = presentation.CurrentMaterials
-            .Where(material => material.Kind == "ExceptionDefinition")
+        var exceptions = (presentation.Work.Exercise.VisualExceptions ?? [])
+            .OrderBy(exception => exception.Ordinal)
             .ToArray();
         var signature = $"rule-declaration:{drill}:" +
-            string.Join('|', exceptions.Select(item => item.Name));
+            string.Join('|', exceptions.Select(item => item.Ordinal));
         if (string.Equals(signature, structuredSignature, StringComparison.Ordinal))
         {
             structuredResponse.Visibility = ViewStates.Visible;
             return;
         }
 
-        BeginStructuredForm(signature, "LOCK THE RULE", preserveFields: false);
-        AddStructuredTextField(
+        BeginStructuredForm(signature, "LOCK THE RULE");
+        AddRuleDeclarationChoice(
             presentation,
+            drill,
             "RULE",
             "BASE RULE",
             drill == DrillId.IR1GoNoGoRule
-                ? "Respond to GO; withhold on NO-GO"
-                : "Tap round; withhold angular");
-        for (var index = 0; index < exceptions.Length; index++)
+                ? "Tap GO · withhold NO-GO"
+                : "Tap round · withhold angular",
+            drill == DrillId.IR1GoNoGoRule
+                ? "respond go withhold no-go"
+                : "tap round withhold angular");
+        foreach (var exception in exceptions)
         {
-            AddStructuredTextField(
+            var label = new TextView(Context)
+            {
+                Text = $"EXCEPTION {exception.Ordinal}",
+            };
+            MgTypography.ApplyLabel(label);
+            label.SetTextColor(MgColors.TrainingDark);
+            structuredResponse.AddView(label, MatchWrapWithTop(MgSpacing.Md));
+
+            var stimulusPanel = new FrameLayout(Context!)
+            {
+                Background = MgTheme.MutedSurface(Context!, cornerRadius: 8),
+            };
+            var stimulus = new VisualStimulusView(Context!);
+            stimulus.Update(exception.Stimulus);
+            stimulusPanel.AddView(stimulus, new FrameLayout.LayoutParams(
+                LayoutParams.MatchParent,
+                LayoutParams.MatchParent));
+            structuredResponse.AddView(
+                stimulusPanel,
+                new LayoutParams(LayoutParams.MatchParent, MgSpacing.Dp(Context!, 144))
+                {
+                    TopMargin = MgSpacing.Dp(Context!, MgSpacing.Xs),
+                });
+
+            AddRuleDeclarationActionRow(
                 presentation,
-                $"EXCEPTION-{index + 1}",
-                $"EXCEPTION {index + 1}",
-                "Symbol and override action");
+                drill,
+                $"EXCEPTION-{exception.Ordinal}");
         }
+    }
+
+    private void AddRuleDeclarationChoice(
+        LiveSessionPresentationReadModel presentation,
+        DrillId drill,
+        string key,
+        string heading,
+        string label,
+        string value)
+    {
+        var headingView = new TextView(Context)
+        {
+            Text = heading,
+        };
+        MgTypography.ApplyLabel(headingView);
+        headingView.SetTextColor(MgColors.TrainingDark);
+        structuredResponse.AddView(headingView, MatchWrapWithTop(MgSpacing.Sm));
+
+        var selected = structuredChoices.TryGetValue(key, out var current) && current == value;
+        var button = new Button(Context)
+        {
+            Text = selected ? $"✓  {label}" : label,
+            ContentDescription = selected ? $"Selected: {label}" : label,
+        };
+        button.SetAllCaps(false);
+        button.SetTextColor(selected ? Color.White : MgColors.Ink);
+        button.Background = selected
+            ? MgTheme.ActionGradient(Context!, cornerRadius: 8)
+            : MgTheme.Outline(Context!, MgColors.Training, cornerRadius: 8);
+        button.Click += (_, _) => SelectRuleDeclarationChoice(
+            presentation,
+            drill,
+            key,
+            value);
+        structuredResponse.AddView(
+            button,
+            new LayoutParams(LayoutParams.MatchParent, MgSpacing.Dp(Context!, 56))
+            {
+                TopMargin = MgSpacing.Dp(Context!, MgSpacing.Xs),
+            });
+    }
+
+    private void AddRuleDeclarationActionRow(
+        LiveSessionPresentationReadModel presentation,
+        DrillId drill,
+        string key)
+    {
+        var row = new LinearLayout(Context)
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        AddRuleDeclarationAction(
+            presentation,
+            drill,
+            row,
+            key,
+            "Tap",
+            VisualStimulusResponseAction.Tap.ToString().ToLowerInvariant(),
+            first: true);
+        AddRuleDeclarationAction(
+            presentation,
+            drill,
+            row,
+            key,
+            "Withhold",
+            VisualStimulusResponseAction.Withhold.ToString().ToLowerInvariant(),
+            first: false);
+        structuredResponse.AddView(row, MatchWrapWithTop(MgSpacing.Xs));
+    }
+
+    private void AddRuleDeclarationAction(
+        LiveSessionPresentationReadModel presentation,
+        DrillId drill,
+        LinearLayout row,
+        string key,
+        string label,
+        string value,
+        bool first)
+    {
+        var selected = structuredChoices.TryGetValue(key, out var current) && current == value;
+        var button = new Button(Context)
+        {
+            Text = selected ? $"✓  {label}" : label,
+            ContentDescription = selected
+                ? $"Selected {label} for {key}"
+                : $"Choose {label} for {key}",
+        };
+        button.SetAllCaps(false);
+        button.SetTextColor(selected ? Color.White : MgColors.Ink);
+        button.Background = selected
+            ? MgTheme.ActionGradient(Context!, cornerRadius: 8)
+            : MgTheme.Outline(Context!, MgColors.Training, cornerRadius: 8);
+        button.Click += (_, _) => SelectRuleDeclarationChoice(
+            presentation,
+            drill,
+            key,
+            value);
+        var layout = new LayoutParams(0, MgSpacing.Dp(Context!, 52), 1);
+        if (!first)
+        {
+            layout.SetMargins(MgSpacing.Dp(Context!, MgSpacing.Xs), 0, 0, 0);
+        }
+
+        row.AddView(button, layout);
+    }
+
+    private void SelectRuleDeclarationChoice(
+        LiveSessionPresentationReadModel presentation,
+        DrillId drill,
+        string key,
+        string value)
+    {
+        incompleteSubmissionArmed = false;
+        structuredChoices[key] = value;
+        structuredSignature = string.Empty;
+        EnsureRuleDeclarationForm(presentation, drill);
+        UpdatePrimaryButton(presentation);
     }
 
     private void EnsureGlobalReviewAuditForm(LiveSessionPresentationReadModel presentation)
@@ -2419,6 +2761,19 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     private static IReadOnlyList<string> RequiredStructuredChoiceKeys(
         LiveSessionPresentationReadModel presentation)
     {
+        var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
+        if (effectiveDrill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule &&
+            presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.ActiveWork &&
+            presentation.CurrentMaterials.Any(material => material.Kind == "RuleStatement"))
+        {
+            return [
+                "RULE",
+                .. (presentation.Work.Exercise.VisualExceptions ?? [])
+                    .OrderBy(exception => exception.Ordinal)
+                    .Select(exception => $"EXCEPTION-{exception.Ordinal}"),
+            ];
+        }
+
         var unseen = presentation.CurrentMaterials
             .Where(material => material.Kind == "UnseenExample")
             .Select(material => TrailingIndex(material.Name))
@@ -2545,18 +2900,22 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             .ToArray();
         var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
         var focusRecoveryCommand = presentation.ActiveCue is
-            { Kind: RuntimeCueKind.Interruption, RequiresResponse: true } &&
+            { Kind: RuntimeCueKind.Interruption } &&
             (effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
-                ? candidates.FirstOrDefault(command => command.Command == RuntimeInputCommandKind.MarkReturn) ??
-                    candidates.FirstOrDefault(command => command.Command == RuntimeInputCommandKind.MarkDrift)
+                ? candidates.FirstOrDefault(command => command.Command == RuntimeInputCommandKind.MarkDrift)
                 : null;
         var semantic = focusRecoveryCommand ?? candidates
             .Where(command => SecondaryRank(command) < 8)
             .OrderBy(SecondaryRank)
             .FirstOrDefault();
-        var lifecycle = candidates.FirstOrDefault(command => command.Command is
-            RuntimeInputCommandKind.Pause or RuntimeInputCommandKind.Resume);
-        var stop = candidates.FirstOrDefault(command => command.Command == RuntimeInputCommandKind.Abandon);
+        var isSetup = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
+        var lifecycle = isSetup
+            ? candidates.FirstOrDefault(command => command.Command is
+                RuntimeInputCommandKind.Pause or RuntimeInputCommandKind.Resume)
+            : null;
+        var stop = isSetup
+            ? candidates.FirstOrDefault(command => command.Command == RuntimeInputCommandKind.Abandon)
+            : null;
 
         return new[] { semantic, lifecycle, stop }
             .Where(command => command is not null)
@@ -2578,25 +2937,23 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         {
             RuntimeInputCommandKind.FinishPhase => FinishPhaseLabel(drill, effectiveDrill, phase, primary),
             RuntimeInputCommandKind.RespondToCue when presentation.ActiveCue is
-                { Kind: RuntimeCueKind.Interruption, RequiresResponse: true } =>
+                { Kind: RuntimeCueKind.Interruption } =>
                 "RESUMED\nTap after continuing",
             RuntimeInputCommandKind.RespondToCue when (presentation.SourceDrill ?? drill) is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => "Switch",
-            RuntimeInputCommandKind.RespondToCue when
-                ((presentation.SourceDrill ?? drill) is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule) &&
-                presentation.ActiveCue?.RequiresResponse == false => "WITHHOLD\nDo not tap",
-            RuntimeInputCommandKind.RespondToCue when (presentation.SourceDrill ?? drill) is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "TAP\nGO",
+            RuntimeInputCommandKind.RespondToCue when (presentation.SourceDrill ?? drill) is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule =>
+                "RESPONSE PAD\nTap only when the rule says GO",
             RuntimeInputCommandKind.RespondToCue => "Respond",
-            RuntimeInputCommandKind.MarkDrift => "WANDERED\nTap this pad",
-            RuntimeInputCommandKind.MarkReturn => "BACK ON TARGET\nTap after returning",
+            RuntimeInputCommandKind.MarkDrift => "WANDERED\nTap when noticed",
             RuntimeInputCommandKind.SubmitAnswer => SubmitLabel(drill, phase),
             RuntimeInputCommandKind.MarkGuess when drill is
                 DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess when drill == DrillId.DE2SeededAudit => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess => "I guessed",
+            RuntimeInputCommandKind.MarkTargetChange => "I changed the target",
             RuntimeInputCommandKind.MarkError => "Report error",
             RuntimeInputCommandKind.Correct => "Correct last response",
             RuntimeInputCommandKind.Abandon when phase == RuntimeSessionPhaseKind.InstructionPrep => "Cancel setup",
-            RuntimeInputCommandKind.Abandon => "Stop",
+            RuntimeInputCommandKind.Abandon => "End today's training…",
             _ => command.Label,
         };
     }
@@ -2605,7 +2962,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     {
         return drill switch
         {
-            DrillId.FH1TargetHold or DrillId.FH2DistractorHold => "Start holding",
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold => "Begin hold",
             DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => "Start cues",
             DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "State rule",
             DrillId.WM1DelayedReconstruction => "Show items",
@@ -2959,26 +3316,6 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
     private static string CompactSourceCriterion(string value)
     {
-        if (value.Contains("periodic irrelevant prompts", StringComparison.OrdinalIgnoreCase))
-        {
-            return "5:00 · ignore prompts · max 5 wanders";
-        }
-
-        if (value.Contains("invalid inhibition", StringComparison.OrdinalIgnoreCase))
-        {
-            return "90% valid · no invalid taps";
-        }
-
-        if (value.Contains("invalid cues must never", StringComparison.OrdinalIgnoreCase))
-        {
-            return "90% valid · no invalid taps";
-        }
-
-        if (value.Contains("correction within 2 items", StringComparison.OrdinalIgnoreCase))
-        {
-            return "88% correct · no rule drift · correct within 2";
-        }
-
         return CompactStandard(value);
     }
 
@@ -3135,7 +3472,66 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         LiveSessionPresentationReadModel presentation,
         PreUiLiveSessionMaterialState material)
     {
+        if ((material.Kind is
+                "TargetSet" or
+                "CueStep" or
+                "ValidCue" or
+                "InvalidCue" or
+                "ExpectedActiveTarget" or
+                "GoNoGoCue" or
+                "ExceptionDefinition" or
+                "DiscriminationPair" or
+                "ExpectedAction" or
+                "MatchTruth") ||
+            VisualStimulusCodec.TryDecode(material.Value, out _) ||
+            VisualStimulusCodec.TryDecodePair(material.Value, out _) ||
+            VisualStimulusCodec.TryDecodeException(material.Value, out _))
+        {
+            // These values are typed machine handoffs. Their decoded visual
+            // presentation is rendered by dedicated controls in the relevant
+            // phase; showing the serialized value would change the task into
+            // reading and memorizing implementation data.
+            return false;
+        }
+
         if (material.Kind == "BranchScoringKey")
+        {
+            return false;
+        }
+
+        if (presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Audit &&
+            presentation.AvailableCommands.Any(command =>
+                command.Command == RuntimeInputCommandKind.StartAudit))
+        {
+            return false;
+        }
+
+        if (presentation.Work.Drill == DrillId.WM1DelayedReconstruction &&
+            presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.EncodeWindow &&
+            material.Kind == "EncodeInstruction")
+        {
+            return false;
+        }
+
+        var isExecuting = presentation.CurrentPhaseKind is
+            RuntimeSessionPhaseKind.EncodeWindow or
+            RuntimeSessionPhaseKind.ActiveWork or
+            RuntimeSessionPhaseKind.DelayWindow or
+            RuntimeSessionPhaseKind.CueResponse or
+            RuntimeSessionPhaseKind.ReconstructionInput or
+            RuntimeSessionPhaseKind.Audit;
+        if (isExecuting && material.Kind is
+            "LoadVariable" or
+            "HonestyConstraint" or
+            "SourceBranchStandard" or
+            "TransferDistance" or
+            "SameDemand" or
+            "RetestRequirement" or
+            "TaskLength" or
+            "DomainDistance" or
+            "NoStandardLoweringMarker" or
+            "ComponentEvidenceRequirement" or
+            "BranchScoringKey")
         {
             return false;
         }
@@ -3155,7 +3551,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             }
         }
 
-        if (presentation.Work.Drill == DrillId.IR2ExceptionRule &&
+        if (presentation.Work.Drill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule &&
             presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse)
         {
             return false;
@@ -3170,7 +3566,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         if (presentation.Work.Drill == DrillId.WM2MentalTransform &&
             presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.ReconstructionInput &&
-            material.Kind is "RuleExplanationPrompt" or "HiddenNotePolicy")
+            material.Kind is "TransformRule" or "RuleExplanationPrompt" or "HiddenNotePolicy")
         {
             return false;
         }
@@ -3183,8 +3579,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         if (presentation.Work.Drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter &&
-            presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse &&
-            material.Kind == "ResponseWindow")
+            presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse)
         {
             return false;
         }
@@ -3198,14 +3593,6 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         return presentation.Work.Drill != DrillId.CO1RuleExtraction ||
             presentation.CurrentPhaseKind != RuntimeSessionPhaseKind.ActiveWork ||
             material.Kind != "RuleFamily";
-    }
-
-    private static string CompactRuleCue(string value)
-    {
-        var colon = value.IndexOf(':');
-        return colon >= 0 && colon < value.Length - 1
-            ? value[(colon + 1)..].Trim()
-            : value;
     }
 
     private static string NormalizedMaterialValue(string value)

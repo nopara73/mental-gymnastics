@@ -110,7 +110,7 @@ public static class TransferTestCatalog
         Transfer(
             BranchCode.FH,
             "Hold target during WM or DE task.",
-            "Target, drift marking, return standard.",
+            "Target, drift marking, no target substitution.",
             "Content and task format."),
         Transfer(
             BranchCode.FS,

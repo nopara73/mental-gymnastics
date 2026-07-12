@@ -129,7 +129,7 @@ public sealed class RuntimeInputCommandHandlerTests
     }
 
     [Fact]
-    public void FocusHoldReturnClosesOpenDriftAndRecordsRuntimeOwnedTiming()
+    public void LegacyFocusHoldReturnDoesNotBlockASecondWanderMark()
     {
         var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
         var handler = StartHandler(
@@ -150,10 +150,7 @@ public sealed class RuntimeInputCommandHandlerTests
         Assert.False(unavailableReturn.IsAvailable);
         Assert.Equal(RuntimeInputCommandInvalidReason.NoOpenDrift, unavailableReturn.InvalidReason);
         Assert.True(drift.IsAccepted);
-        Assert.False(driftWhileReturning.IsAvailable);
-        Assert.Equal(
-            RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn,
-            driftWhileReturning.InvalidReason);
+        Assert.True(driftWhileReturning.IsAvailable);
         Assert.True(availableReturn.IsAvailable);
         Assert.True(returned.IsAccepted);
         Assert.Equal(RuntimeEventKind.RecoveryCompleted, returned.Events.Single().Kind);
@@ -165,6 +162,48 @@ public sealed class RuntimeInputCommandHandlerTests
             fact.Name == "return_within_window" && fact.Value == "true");
         Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkDrift).IsAvailable);
         Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.MarkReturn).IsAvailable);
+    }
+
+    [Fact]
+    public void FocusHoldAcceptsConsecutiveWanderMarksWithoutARecoveryEvent()
+    {
+        var handler = StartHandler(
+            new ManualRuntimeClock(RuntimeInstant.Zero),
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+            ]));
+
+        var first = handler.Handle(RuntimeInputCommand.MarkDrift("drift-1"));
+        var second = handler.Handle(RuntimeInputCommand.MarkDrift("drift-2"));
+
+        Assert.True(first.IsAccepted);
+        Assert.True(second.IsAccepted);
+        Assert.Equal(2, handler.Events.Count(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.DriftMarked));
+        Assert.DoesNotContain(handler.Events, runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted);
+    }
+
+    [Fact]
+    public void TargetChangeCanBeReportedInReviewAfterTheHold()
+    {
+        var handler = StartHandler(
+            new ManualRuntimeClock(RuntimeInstant.Zero),
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("active", RuntimeSessionPhaseKind.ActiveWork),
+                RuntimeSessionPhaseDefinition.Manual("review", RuntimeSessionPhaseKind.Review),
+            ]));
+
+        Assert.True(handler.Handle(RuntimeInputCommand.FinishPhase()).IsAccepted);
+        Assert.Equal(RuntimeSessionPhaseKind.Review, handler.CurrentPhase?.Kind);
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.MarkTargetChange).IsAvailable);
+
+        var report = handler.Handle(RuntimeInputCommand.MarkTargetChange("different target"));
+
+        Assert.True(report.IsAccepted);
+        Assert.Equal(RuntimeEventKind.ErrorRecorded, report.Events.Single().Kind);
+        Assert.Contains(report.Events.Single().Facts, fact =>
+            fact.Name == "error_kind" && fact.Value == "target_substitution");
     }
 
     [Fact]
@@ -198,7 +237,7 @@ public sealed class RuntimeInputCommandHandlerTests
     }
 
     [Fact]
-    public void FocusHoldOpenDriftIsRecoveredFromRestoredEventLog()
+    public void RestoredFocusHoldAcceptsAnotherWanderWithoutReturnConfirmation()
     {
         var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
         var handler = StartHandler(
@@ -220,16 +259,13 @@ public sealed class RuntimeInputCommandHandlerTests
         var restored = RuntimeInputCommandHandler.Restore(snapshot, restoredClock);
 
         Assert.True(restored.Handle(RuntimeInputCommand.Resume()).IsAccepted);
-        Assert.True(restored.AvailabilityFor(RuntimeInputCommandKind.MarkReturn).IsAvailable);
         restoredClock.AdvanceBy(RuntimeDuration.FromSeconds(4));
-        var returned = restored.Handle(
-            RuntimeInputCommand.MarkReturn(RuntimeDuration.FromSeconds(10)));
+        var secondDrift = restored.Handle(RuntimeInputCommand.MarkDrift("drift-after-restore"));
 
-        Assert.True(returned.IsAccepted);
-        Assert.Contains(returned.Events.Single().Facts, fact =>
-            fact.Name == "drift_id" && fact.Value == "drift-restored");
-        Assert.Contains(returned.Events.Single().Facts, fact =>
-            fact.Name == "recovery_time" && fact.Value == "00:00:07");
+        Assert.True(secondDrift.IsAccepted);
+        Assert.Contains(secondDrift.Events.Single().Facts, fact =>
+            fact.Name == "drift_id" && fact.Value == "drift-after-restore");
+        Assert.Equal(2, restored.Events.Count(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.DriftMarked));
     }
 
     [Fact]

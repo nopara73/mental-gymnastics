@@ -591,13 +591,6 @@ public sealed class RuntimeInputCommandHandler
             return Rejected(RuntimeInputCommandInvalidReason.CommandNotSupportedByDrill);
         }
 
-        if (command.Kind == RuntimeInputCommandKind.MarkDrift &&
-            IsFocusHoldSession() &&
-            FindOpenDrift() is not null)
-        {
-            return Rejected(RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn);
-        }
-
         if (command.Kind == RuntimeInputCommandKind.MarkReturn)
         {
             return CaptureFocusReturn(command, phase);
@@ -674,13 +667,6 @@ public sealed class RuntimeInputCommandHandler
         if (command == RuntimeInputCommandKind.MarkReturn && FindOpenDrift() is null)
         {
             return Availability(command, false, RuntimeInputCommandInvalidReason.NoOpenDrift);
-        }
-
-        if (command == RuntimeInputCommandKind.MarkDrift &&
-            IsFocusHoldSession() &&
-            FindOpenDrift() is not null)
-        {
-            return Availability(command, false, RuntimeInputCommandInvalidReason.OpenDriftRequiresReturn);
         }
 
         if (command == RuntimeInputCommandKind.Correct)
@@ -969,7 +955,7 @@ public sealed class RuntimeInputCommandHandler
             RuntimeInputCommandKind.MarkReturn =>
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.Recovery,
             RuntimeInputCommandKind.MarkTargetChange =>
-                phase == RuntimeSessionPhaseKind.ActiveWork,
+                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.Review,
             RuntimeInputCommandKind.RespondToCue =>
                 phase == RuntimeSessionPhaseKind.CueResponse,
             RuntimeInputCommandKind.SubmitAnswer =>

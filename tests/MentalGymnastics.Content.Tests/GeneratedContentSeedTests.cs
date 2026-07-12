@@ -22,7 +22,7 @@ public sealed class GeneratedContentSeedTests
         Assert.Equal(first.Instance.ContentIdentity.ContentId, second.Instance.ContentIdentity.ContentId);
         Assert.Equal(first.PayloadSeed, second.PayloadSeed);
         Assert.Equal(0, first.VariantIndex);
-        Assert.Equal("deterministic-seed-v1", first.ContentVersion);
+        Assert.Equal("deterministic-seed-v3", first.ContentVersion);
         Assert.Equal(BranchCode.WM, first.Instance.Branch);
         Assert.Equal(GlobalLevelId.L1, first.Instance.Level);
         Assert.Equal(DrillId.WM1DelayedReconstruction, first.Instance.Drill);

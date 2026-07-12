@@ -1,4 +1,5 @@
 using MentalGymnastics.App;
+using MentalGymnastics.Content;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
 using MentalGymnastics.Runtime;
@@ -252,11 +253,25 @@ public sealed class MentalGymnasticsAndroidHost
         if (effectiveDrill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule &&
             state.CurrentPhaseId == "rule-declaration")
         {
-            var declaration = string.Join(
-                "; ",
-                state.CurrentMaterials
-                    .Where(material => material.Kind is "RuleStatement" or "ExceptionDefinition")
-                    .Select(material => material.Value));
+            var declarationParts = new List<string>
+            {
+                effectiveDrill == DrillId.IR1GoNoGoRule
+                    ? "RULE=respond go withhold no-go"
+                    : "RULE=tap round withhold angular",
+            };
+            foreach (var material in state.CurrentMaterials.Where(material =>
+                         material.Kind == "ExceptionDefinition"))
+            {
+                if (VisualStimulusCodec.TryDecodeException(material.Value, out var exception) &&
+                    exception is not null)
+                {
+                    declarationParts.Add(
+                        $"EXCEPTION-{exception.Ordinal}=" +
+                        exception.ExpectedAction.ToString().ToLowerInvariant());
+                }
+            }
+
+            var declaration = string.Join("; ", declarationParts);
             state = await AuditCommandAsync(
                 controller,
                 RuntimeInputCommandKind.SubmitAnswer,
@@ -308,6 +323,16 @@ public sealed class MentalGymnasticsAndroidHost
             AdvanceProtocolAuditClockToFirstCue(
                 clock,
                 RuntimeCueResponseExpectation.ResponseRequired,
+                RuntimeCueKind.Interruption);
+            state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (effectiveDrill == DrillId.FH2DistractorHold &&
+            state.CurrentPhaseKind == RuntimeSessionPhaseKind.ActiveWork &&
+            state.ActiveCue is null)
+        {
+            AdvanceProtocolAuditClockToFirstCue(
+                clock,
+                RuntimeCueResponseExpectation.NoResponseExpected,
                 RuntimeCueKind.Interruption);
             state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -443,21 +468,6 @@ public sealed class MentalGymnasticsAndroidHost
             saveActiveSnapshot);
 
         var state = liveSessionController.CaptureState();
-        if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep)
-        {
-            state = await liveSessionController.HandleCommandAsync(
-                new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase),
-                cancellationToken).ConfigureAwait(false);
-            if (state.LastCommand?.IsAccepted != true)
-            {
-                throw new InvalidOperationException("The exercise could not enter its first work phase.");
-            }
-        }
-        else
-        {
-            state = await liveSessionController.RefreshAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
 
         await dailyTrainingService.MarkActiveAsync(
             runtimeSession.SessionId,

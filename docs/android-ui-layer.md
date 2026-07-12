@@ -113,6 +113,14 @@ Live Session renders `PreUiLiveSessionState`: current phase, timer state, active
 
 The screen forwards commands such as finish phase, respond to cue, submit answer, mark drift, mark guess, mark error, correct, pause, resume, start audit, and abandon. It does not own command availability, timer state, cue identity, response windows, scoring, evidence classification, or completion.
 
+Live presentation follows an attention budget: setup may explain, review may measure, and executing phases show only the current stimulus, programmed interference, and immediate response. Direct and AI-wrapped focus holds use a dedicated full-screen target surface with whole-screen wander marking; they do not render a timer, labeled pad, evidence, or lifecycle chrome. TI screens render only the component payload selected by Runtime's active phase. Android must not reintroduce hidden/future materials through expandable dashboards.
+
+Structured visual material must remain visual all the way to the practitioner. Content owns the deterministic visual-stimulus specification and codec; App presentation mapping decodes that handoff into structured, renderable data; Android draws the specified shape, color, fill, size, direction, mark, position, orientation, and border that are relevant to the instance. FS targets and cues, IR cues and exceptions, and DE comparison pairs must use the shared visual renderer rather than a text view containing a description of the object.
+
+The serialized codec is never user-facing material. Android must not expose it in preflight lists, live cues, response choices, rule-declaration forms, corrections, review, errors, or accessibility text. If an app read model does not provide a decodable structured presentation for material that claims to be visual, fix the App/Content handoff rather than falling back to the raw string. Accessibility labels should be concise natural descriptions generated from the structured object; they do not justify adding a visible caption beside a visual stimulus.
+
+Android must not repair visual semantics with string manipulation. Removing a token such as `left`, shortening an encoded value, or parsing a descriptor ad hoc can either preserve an untested feature or delete a genuinely tested one. The renderer follows typed features, and position changes the actual layout only when the generated instance declares position as a tested or controlled feature. Descriptor prose is an acceptable visible stimulus only when reading or semantic language is the documented demand.
+
 Command buttons render runtime/app command availability. Timed phases cannot be manually advanced before Runtime reports that the scheduled duration has elapsed.
 
 ### Result
@@ -222,6 +230,7 @@ Prefer deterministic tests around workflow contracts rather than brittle visual 
 - Blocked preparation does not expose start actions.
 - UI-only actions cannot grant advancement or mutate branch-level state.
 - Live session commands are forwarded to Runtime through app integration, and invalid commands do not create evidence.
+- Structured FS, IR, and DE presentation renders the decoded visual objects and never exposes serialized visual-stimulus values or descriptor prose in their place.
 - Active session snapshots survive lifecycle events when Runtime permits restore.
 - Unsafe restore is visible and non-successful.
 - Result surfaces preserve failed, abandoned, timed-out, pass-once, stabilization, ownership, maintenance, warning, decay, and no-advancement distinctions.

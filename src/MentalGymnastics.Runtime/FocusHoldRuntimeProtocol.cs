@@ -10,31 +10,9 @@ public enum FocusHoldRuntimeProtocolInvalidReason
     ActiveSetAlreadyStarted,
     ActiveSetNotStarted,
     DriftAlreadyMarked,
-    UnknownDrift,
-    DriftAlreadyReturned,
     DistractorsNotSupportedByDrill,
     UnknownDistractor,
     DistractorAlreadyHandled,
-}
-
-public sealed class FocusHoldRuntimeProtocolOptions
-{
-    public FocusHoldRuntimeProtocolOptions(RuntimeDuration recoveryWindow)
-    {
-        if (recoveryWindow.Value <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(recoveryWindow),
-                recoveryWindow,
-                "Focus hold recovery window must be positive.");
-        }
-
-        RecoveryWindow = recoveryWindow;
-    }
-
-    public RuntimeDuration RecoveryWindow { get; }
-
-    public static FocusHoldRuntimeProtocolOptions Default { get; } = new(RuntimeDuration.FromSeconds(10));
 }
 
 public sealed record FocusHoldRuntimeProtocolResult(
@@ -45,25 +23,21 @@ public sealed record FocusHoldRuntimeProtocolResult(
 public sealed class FocusHoldRuntimeProtocol
 {
     private readonly IRuntimeClock _clock;
-    private readonly FocusHoldRuntimeProtocolOptions _options;
-    private readonly Dictionary<string, FocusHoldDriftState> _drifts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _drifts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, FocusHoldDistractorState> _distractors = new(StringComparer.Ordinal);
     private FocusHoldTargetState? _target;
     private bool _activeSetStarted;
     private bool _setCompleted;
     private int _targetSubstitutionCount;
-    private int _lateReturnCount;
     private int _distractorsIgnored;
     private int _distractorResponses;
 
     private FocusHoldRuntimeProtocol(
         IRuntimeClock clock,
-        RuntimeEventLog eventLog,
-        FocusHoldRuntimeProtocolOptions options)
+        RuntimeEventLog eventLog)
     {
         _clock = clock;
         EventLog = eventLog;
-        _options = options;
     }
 
     public RuntimeEventLog EventLog { get; }
@@ -73,8 +47,7 @@ public sealed class FocusHoldRuntimeProtocol
     public static FocusHoldRuntimeProtocol Start(
         string sessionId,
         RuntimeSessionDefinition sessionDefinition,
-        IRuntimeClock clock,
-        FocusHoldRuntimeProtocolOptions? options = null)
+        IRuntimeClock clock)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
         {
@@ -87,8 +60,7 @@ public sealed class FocusHoldRuntimeProtocol
 
         return new FocusHoldRuntimeProtocol(
             clock,
-            RuntimeEventLog.Start(sessionId, sessionDefinition, clock.Now),
-            options ?? FocusHoldRuntimeProtocolOptions.Default);
+            RuntimeEventLog.Start(sessionId, sessionDefinition, clock.Now));
     }
 
     public FocusHoldRuntimeProtocolResult StateTarget(
@@ -171,12 +143,11 @@ public sealed class FocusHoldRuntimeProtocol
             return activeResult;
         }
 
-        if (_drifts.ContainsKey(driftId))
+        if (!_drifts.Add(driftId))
         {
             return Rejected(FocusHoldRuntimeProtocolInvalidReason.DriftAlreadyMarked);
         }
 
-        _drifts.Add(driftId, new FocusHoldDriftState(driftId, _clock.Now));
         var runtimeEvent = EventLog.Append(
             RuntimeEventKind.DriftMarked,
             _clock.Now,
@@ -188,59 +159,7 @@ public sealed class FocusHoldRuntimeProtocol
                 new RuntimeEventFact("drift_id", driftId),
                 new RuntimeEventFact("drift_marked", "true"),
                 new RuntimeEventFact("drift_marking_required", "true"),
-                new RuntimeEventFact("recovery_window", FormatDuration(_options.RecoveryWindow)),
-                new RuntimeEventFact("target_substitution_allowed", "false"),
-            ]);
-
-        return Accepted(runtimeEvent);
-    }
-
-    public FocusHoldRuntimeProtocolResult RecordReturn(string driftId)
-    {
-        if (string.IsNullOrWhiteSpace(driftId))
-        {
-            throw new ArgumentException("Focus hold drift id is required.", nameof(driftId));
-        }
-
-        var activeResult = RequireActiveSet();
-        if (activeResult is not null)
-        {
-            return activeResult;
-        }
-
-        if (!_drifts.TryGetValue(driftId, out var drift))
-        {
-            return Rejected(FocusHoldRuntimeProtocolInvalidReason.UnknownDrift);
-        }
-
-        if (drift.ReturnedAt.HasValue)
-        {
-            return Rejected(FocusHoldRuntimeProtocolInvalidReason.DriftAlreadyReturned);
-        }
-
-        var recoveryTime = _clock.Now.ElapsedSince(drift.MarkedAt);
-        var withinWindow = recoveryTime.Value <= _options.RecoveryWindow.Value;
-        if (!withinWindow)
-        {
-            _lateReturnCount++;
-        }
-
-        drift.ReturnedAt = _clock.Now;
-        drift.RecoveryTime = recoveryTime;
-
-        var runtimeEvent = EventLog.Append(
-            RuntimeEventKind.RecoveryCompleted,
-            _clock.Now,
-            "active",
-            RuntimeSessionPhaseKind.ActiveWork,
-            [
-                ..ProtocolFacts(),
-                ..TargetFacts(),
-                new RuntimeEventFact("drift_id", driftId),
-                new RuntimeEventFact("recovery_time", FormatDuration(recoveryTime)),
-                new RuntimeEventFact("recovery_window", FormatDuration(_options.RecoveryWindow)),
-                new RuntimeEventFact("return_within_window", withinWindow ? "true" : "false"),
-                new RuntimeEventFact("return_timing_outcome", withinWindow ? "within_window" : "late"),
+                new RuntimeEventFact("resume_instruction", "continue_same_target"),
                 new RuntimeEventFact("target_substitution_allowed", "false"),
             ]);
 
@@ -410,20 +329,12 @@ public sealed class FocusHoldRuntimeProtocol
         }
 
         _setCompleted = true;
-        var returnsRecorded = _drifts.Values.Count(drift => drift.ReturnedAt.HasValue);
-        var maxReturn = _drifts.Values
-            .Where(drift => drift.RecoveryTime.HasValue)
-            .Select(drift => drift.RecoveryTime!.Value.Value)
-            .DefaultIfEmpty(TimeSpan.Zero)
-            .Max();
         var outputSample =
             $"set {setId}: target={_target!.Statement}; marked_drifts={_drifts.Count}; " +
-            $"returns_recorded={returnsRecorded}; late_returns={_lateReturnCount}; " +
             $"target_substitution_count={_targetSubstitutionCount}; " +
             $"distractors_ignored={_distractorsIgnored}; distractor_response_count={_distractorResponses}";
         var score =
-            $"marked_drifts={_drifts.Count}; returns_recorded={returnsRecorded}; " +
-            $"max_return={FormatDuration(new RuntimeDuration(maxReturn))}; late_returns={_lateReturnCount}; " +
+            $"marked_drifts={_drifts.Count}; " +
             $"target_substitution_count={_targetSubstitutionCount}; distractors_presented={_distractors.Count}; " +
             $"distractors_ignored={_distractorsIgnored}; distractor_response_count={_distractorResponses}";
 
@@ -439,8 +350,6 @@ public sealed class FocusHoldRuntimeProtocol
                 new RuntimeEventFact("output_sample", outputSample),
                 new RuntimeEventFact("score", score),
                 new RuntimeEventFact("marked_drift_count", _drifts.Count.ToString(CultureInfo.InvariantCulture)),
-                new RuntimeEventFact("returns_recorded", returnsRecorded.ToString(CultureInfo.InvariantCulture)),
-                new RuntimeEventFact("late_return_count", _lateReturnCount.ToString(CultureInfo.InvariantCulture)),
                 new RuntimeEventFact("target_substitution_count", _targetSubstitutionCount.ToString(CultureInfo.InvariantCulture)),
                 new RuntimeEventFact("distractors_presented", _distractors.Count.ToString(CultureInfo.InvariantCulture)),
                 new RuntimeEventFact("distractors_ignored", _distractorsIgnored.ToString(CultureInfo.InvariantCulture)),
@@ -630,23 +539,6 @@ public sealed class FocusHoldRuntimeProtocol
     }
 
     private sealed record FocusHoldTargetState(string Id, string Statement);
-
-    private sealed class FocusHoldDriftState
-    {
-        public FocusHoldDriftState(string id, RuntimeInstant markedAt)
-        {
-            Id = id;
-            MarkedAt = markedAt;
-        }
-
-        public string Id { get; }
-
-        public RuntimeInstant MarkedAt { get; }
-
-        public RuntimeInstant? ReturnedAt { get; set; }
-
-        public RuntimeDuration? RecoveryTime { get; set; }
-    }
 
     private sealed class FocusHoldDistractorState
     {

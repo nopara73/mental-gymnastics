@@ -1,5 +1,7 @@
 # Android UI/UX Overhaul Acceptance - 2026-07-11
 
+> **Correction (2026-07-12):** The first-person practice ergonomics claims in this document were re-audited and found to be too broad. See `docs/android-practice-ergonomics-correction-2026-07-12.md` for the observed defects, implemented corrections, current verification, and honest scope boundary.
+
 ## Outcome
 
 The full Android experience now follows the audit and implementation blueprint in
@@ -29,8 +31,8 @@ The app is organized around one visible training decision, one current action, o
 - Signed Release APK SHA-256: `F5EF17BB7583F55A0D1B93088B488C3ECC4BDD09E310BBB133B5AACBD684DA19`.
 - `git diff --check`: no whitespace errors; only repository line-ending notices.
 - Clean release launch produced a branded splash and interactive Today surface without a new app ANR.
-- Release FH flow verified on device: Today -> setup -> live hold -> Wandered haptic -> Back on target -> review. Setup explicitly says eyes open, keeps the target visible, and places the full Start action above system navigation without scrolling.
-- The live FH lower half is one stable touch pad. It toggles between `WANDERED` and `BACK ON TARGET`, leaves the target visible, and emits `TEXTURE_TICK` feedback on the wander mark.
+- The FH flow described in this 2026-07-11 acceptance record was superseded by the 2026-07-12 first-person ergonomics correction. Current active work is a target-only full-screen surface: one wander tap, haptic acknowledgment, immediate resume, and no separate return action or timer display.
+- See `docs/android-practice-ergonomics-correction-2026-07-12.md` for the current device evidence and honest boundary.
 - All 16 drill response states were captured and mechanically audited for semantic controls, viewport bounds, enabled actions, and valid scroll access. Focus return, honest omission, cue filtering, no-go, committed comparison, audit, rule, mapping, pressure recovery, and composite evidence interactions were exercised directly.
 - The complete-program simulation reaches all 40 owned levels and a passing global review in 727 calendar days, with 624 active days, 1,230 drill blocks, and a 15.4-minute active-day average.
 - Offline generation produces a distinct full material signature for every drill block on that path; a new content ID around repeated material is rejected by the test.
@@ -57,4 +59,4 @@ The overhaul passes the product contract:
 4. The result states what was observed and whether it counted.
 5. The next programmed action is direct.
 
-No known UI/UX release blocker remains in the audited Android surface.
+This was the 2026-07-11 acceptance conclusion. The 2026-07-12 corrective audit supersedes it for practice ergonomics.

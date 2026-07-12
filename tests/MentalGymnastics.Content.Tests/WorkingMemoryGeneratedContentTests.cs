@@ -212,7 +212,7 @@ public sealed class WorkingMemoryGeneratedContentTests
                 new LoadVariable("target subtlety", "simple phrase"),
             ],
             [
-                new CriticalConstraint("Target is stated before set; every drift is marked."),
+                new CriticalConstraint("Target is stated before set; every noticed drift is marked once."),
             ]);
 
         Assert.Throws<ArgumentException>(() => WorkingMemoryGeneratedContentGenerator.Generate(

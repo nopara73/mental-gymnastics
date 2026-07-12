@@ -15,7 +15,6 @@ public sealed class LoadRegressionRuleTests
             [
                 LoadVariableKind.Duration,
                 LoadVariableKind.DistractorSalience,
-                LoadVariableKind.RecoveryWindow,
                 LoadVariableKind.TargetSubtlety,
             ],
             LoadRuleFor(BranchCode.FH).PrimaryLoadVariables);

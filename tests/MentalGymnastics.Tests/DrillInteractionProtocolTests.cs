@@ -26,12 +26,18 @@ public sealed class DrillInteractionProtocolTests
     {
         var protocol = DrillInteractionProtocolCatalog.Get(DrillId.FH1TargetHold);
 
-        Assert.Equal(DrillInteractionInputKind.FocusReturnPad, protocol.InputKind);
+        Assert.Equal(DrillInteractionInputKind.FocusWanderSurface, protocol.InputKind);
         Assert.Contains("Eyes open", protocol.AttentionInstruction, StringComparison.Ordinal);
-        Assert.Equal("EYES OPEN", protocol.Steps[0].Label);
-        Assert.Contains("reach", protocol.DeviceInstruction, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Back on target", protocol.ActionInstruction, StringComparison.Ordinal);
-        Assert.Equal(DrillInteractionAcknowledgement.VisualAndHaptic, protocol.Acknowledgement);
+        Assert.Equal("FOCUS", protocol.Steps[0].Label);
+        Assert.Equal("WANDERED", protocol.Steps[1].Label);
+        Assert.Equal("RESUME", protocol.Steps[2].Label);
+        Assert.Contains("tap anywhere", protocol.DeviceInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tap anywhere once", protocol.ActionInstruction, StringComparison.Ordinal);
+        Assert.Contains("no second action", protocol.ActionInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No return timer or second tap", protocol.Steps[2].Instruction, StringComparison.Ordinal);
+        Assert.DoesNotContain("position", protocol.AttentionInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("position", protocol.Steps[0].Instruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DrillInteractionAcknowledgement.Haptic, protocol.Acknowledgement);
     }
 
     [Theory]

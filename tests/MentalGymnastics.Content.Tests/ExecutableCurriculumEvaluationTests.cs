@@ -248,11 +248,7 @@ public sealed class ExecutableCurriculumEvaluationTests
             parts.AddRange(ComponentAnswers(materials));
             if (drill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
             {
-                parts.AddRange(materials
-                    .Where(material => material.Kind is
-                        GeneratedContentMaterialKind.RuleStatement or
-                        GeneratedContentMaterialKind.ExceptionDefinition)
-                    .Select(material => material.Value));
+                parts.AddRange(RuleDeclarationAnswers(drill, materials));
             }
             if (drill == DrillId.DE1PairDiscrimination)
             {
@@ -327,6 +323,28 @@ public sealed class ExecutableCurriculumEvaluationTests
         }
 
         return string.Join("; ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static IEnumerable<string> RuleDeclarationAnswers(
+        DrillId drill,
+        IReadOnlyList<GeneratedContentMaterial> materials)
+    {
+        _ = materials.Single(material =>
+            material.Kind == GeneratedContentMaterialKind.RuleStatement);
+        yield return drill switch
+        {
+            DrillId.IR1GoNoGoRule => "RULE=respond go withhold no-go",
+            DrillId.IR2ExceptionRule => "RULE=tap round withhold angular",
+            _ => throw new ArgumentOutOfRangeException(nameof(drill), drill, "Unsupported inhibition drill."),
+        };
+
+        foreach (var material in materials.Where(material =>
+                     material.Kind == GeneratedContentMaterialKind.ExceptionDefinition))
+        {
+            var exception = VisualStimulusCodec.DecodeException(material.Value);
+            yield return $"EXCEPTION-{exception.Ordinal}=" +
+                exception.ExpectedAction.ToString().ToLowerInvariant();
+        }
     }
 
     private static IEnumerable<string> ComponentAnswers(

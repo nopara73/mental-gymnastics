@@ -4,6 +4,8 @@
 **Scope:** Entire Android product, App presentation boundary, and missing Core/Runtime behavior required for an honest user experience  
 **Objective:** Build a clear, visual, low-word-count training instrument that makes the current demand, evidence, result, and next action obvious without weakening standards or progression rules.
 
+> Historical note: the Target Hold return-timing interaction in this blueprint was superseded by `docs/android-practice-ergonomics-correction-2026-07-12.md`. Current FH work uses one standalone wander tap and no return timer or second action.
+
 ## Foundation
 
 This plan is governed by:

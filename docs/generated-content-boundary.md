@@ -223,7 +223,7 @@ The generated content test suite documents behavior future agents should preserv
 ### Material Validation and Branch Constraints
 
 - Generated material must include the content required by its branch and drill before Runtime can consume it.
-- FH content preserves target statement, drift marking, distractors where applicable, return timing, and no target substitution.
+- FH content preserves target statement, standalone wander marking, distractors where applicable, and no target substitution. It must not introduce a return timer or second return action.
 - FS content preserves valid cue handling, invalid cue filtering, cue density, target count, sequence accuracy, and no anticipatory switching.
 - WM content preserves encode windows, delay windows, expected reconstruction or transform output, no rereading, no invented items, and no hidden intermediate notes where prohibited.
 - IR content preserves go/no-go streams, exception rules, cue pace, premature-response evidence, rule statement before the set, and post-error cascade evidence.
@@ -231,6 +231,7 @@ The generated content test suite documents behavior future agents should preserv
 - CO content preserves rule examples, negative examples, unseen test cases, structure mappings, relation names, surface-match rejection, and unsupported inference evidence.
 - AI content preserves source branch standard visibility, pressure or disruption metadata, no lowered standard, interruption timing, restart constraints, and post-disruption evidence.
 - TI content preserves branch-specific evidence for each component, audit requirement, delayed reconstruction requirement, and the rule that a strong component cannot hide a weak one.
+- TI runtime packaging assigns each component payload its own ordered active-work phase, preserves total programmed duration exactly across those phases, and places a held-target component last so Android never invents a screen-local component cursor.
 
 ### Load, Difficulty, and Anti-Self-Deception
 

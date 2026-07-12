@@ -392,7 +392,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task CueScheduleDoesNotRunWhileUserReadsInstructionPrep()
+    public async Task StartingPreparedSessionWaitsInInstructionPrepUntilUserBeginsWork()
     {
         var configuration = Configuration();
         await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
@@ -410,6 +410,13 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             started,
             saveActiveSnapshot: false);
 
+        var initial = controller.CaptureState();
+
+        Assert.Equal(RuntimeSessionPhaseKind.InstructionPrep, initial.CurrentPhaseKind);
+        Assert.False(initial.Timer.IsTimed);
+        Assert.Equal(TimeSpan.Zero, initial.Timer.Elapsed);
+        Assert.Null(initial.ActiveCue);
+        Assert.True(CommandState(initial, RuntimeInputCommandKind.FinishPhase).IsAvailable);
         Assert.True(started.CueScheduler!.IsPaused);
 
         clock.AdvanceBy(RuntimeDuration.FromSeconds(30));
@@ -534,8 +541,13 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
 
         Assert.Equal(invalidCue.Id, withhold.ActiveCue?.CueId);
         Assert.Equal(RuntimeCueResponseExpectation.NoResponseExpected, withhold.ActiveCue?.ResponseExpectation);
+        Assert.Equal(invalidCue.ResponseWindow.Value, withhold.ActiveCue?.Remaining);
         Assert.False(string.IsNullOrWhiteSpace(withhold.CurrentFocusTarget));
         Assert.True(CommandState(withhold, RuntimeInputCommandKind.RespondToCue).IsAvailable);
+        var presentation = TrainingPresentationMapper.FromLiveSession(withhold);
+        Assert.True(presentation.ActiveCue?.ExpectedActionIsHidden);
+        Assert.DoesNotContain("invalid", presentation.CurrentInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("withhold", presentation.CurrentInstruction, StringComparison.OrdinalIgnoreCase);
 
         var tapped = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(
@@ -598,6 +610,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         var distracted = await controller.RefreshAsync();
 
         Assert.Equal(RuntimeCueResponseExpectation.NoResponseExpected, distracted.ActiveCue?.ResponseExpectation);
+        Assert.True(distracted.ActiveCue?.IsControlledDistractor);
         Assert.DoesNotContain(distracted.Commands, command =>
             command.Command == RuntimeInputCommandKind.RespondToCue && command.IsAvailable);
         Assert.DoesNotContain(
@@ -679,7 +692,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task LiveSessionControllerLabelsCommandsFromUserIntent()
+    public async Task LiveSessionControllerExposesOneWanderActionAndNeverASeparateReturn()
     {
         var configuration = Configuration();
         var workflow = new PreUiTrainingWorkflowService(configuration);
@@ -709,8 +722,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
 
         Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
         Assert.Equal("Mind wandered", CommandState(active, RuntimeInputCommandKind.MarkDrift).Label);
-        Assert.False(CommandState(active, RuntimeInputCommandKind.MarkReturn).IsAvailable);
-        Assert.Equal("Back on target", CommandState(active, RuntimeInputCommandKind.MarkReturn).Label);
+        Assert.DoesNotContain(active.Commands, command => command.Command == RuntimeInputCommandKind.MarkReturn);
         Assert.True(CommandState(active, RuntimeInputCommandKind.MarkTargetChange).IsAvailable);
         Assert.Equal("Target changed", CommandState(active, RuntimeInputCommandKind.MarkTargetChange).Label);
         Assert.DoesNotContain(
@@ -720,26 +732,34 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.DoesNotContain(active.Commands.Select(command => command.Label), label =>
             label is "Abandon" or "Submit" or "Drift");
 
-        var returning = await controller.HandleCommandAsync(
+        var firstWander = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift));
 
-        Assert.False(CommandState(returning, RuntimeInputCommandKind.MarkDrift).IsAvailable);
-        Assert.True(CommandState(returning, RuntimeInputCommandKind.MarkReturn).IsAvailable);
-        Assert.Equal(1, returning.Evidence.OpenDriftCount);
+        Assert.True(CommandState(firstWander, RuntimeInputCommandKind.MarkDrift).IsAvailable);
+        Assert.Equal(1, firstWander.Evidence.DriftCount);
+        Assert.DoesNotContain(firstWander.Commands, command => command.Command == RuntimeInputCommandKind.MarkReturn);
 
         clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
-        var returned = await controller.HandleCommandAsync(
+        var rejectedLegacyReturn = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
+        var secondWander = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift));
 
-        Assert.True(CommandState(returned, RuntimeInputCommandKind.MarkDrift).IsAvailable);
-        Assert.False(CommandState(returned, RuntimeInputCommandKind.MarkReturn).IsAvailable);
-        Assert.Equal(1, returned.Evidence.ReturnCount);
-        Assert.Equal(0, returned.Evidence.OpenDriftCount);
-        Assert.Equal(TimeSpan.FromSeconds(5), returned.Evidence.MaximumReturnTime);
-        Assert.Contains(started.CommandHandler!.Events, runtimeEvent =>
-            runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted &&
-            runtimeEvent.Facts.Any(fact =>
-                fact.Name == "recovery_time" && fact.Value == "00:00:05"));
+        Assert.False(rejectedLegacyReturn.LastCommand!.IsAccepted);
+        Assert.Equal(RuntimeInputCommandInvalidReason.CommandNotSupportedByDrill, rejectedLegacyReturn.LastCommand.InvalidReason);
+        Assert.Equal(2, secondWander.Evidence.DriftCount);
+        Assert.DoesNotContain(started.CommandHandler!.Events, runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted);
+
+        clock.AdvanceBy(new RuntimeDuration(secondWander.Timer.Remaining!.Value));
+        var review = await controller.RefreshAsync();
+
+        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
+        Assert.True(CommandState(review, RuntimeInputCommandKind.MarkTargetChange).IsAvailable);
+        var targetChange = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkTargetChange));
+        Assert.True(targetChange.LastCommand!.IsAccepted);
+        Assert.Equal(1, targetChange.Evidence.TargetChangeCount);
     }
 
     [Fact]
@@ -837,6 +857,13 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.All(
             completed.WorkflowResult.ProcessingResult.EvidenceArtifacts,
             artifact => Assert.Equal(SessionDate, artifact.Artifact.Date));
+        var evidenceDescriptions = string.Join(
+            "; ",
+            completed.WorkflowResult.ProcessingResult.EvidenceArtifacts
+                .SelectMany(artifact => artifact.Artifact.ObservableEvidence)
+                .Select(evidence => evidence.Description));
+        Assert.DoesNotContain("return_count=", evidenceDescriptions, StringComparison.Ordinal);
+        Assert.DoesNotContain("late_return_count=", evidenceDescriptions, StringComparison.Ordinal);
         Assert.True(completed.WorkflowResult.ProcessingResult.SessionHistory.CleanPerformance);
         Assert.True(completed.WorkflowResult.ProcessingResult.StandardEvaluationResult!.Passed);
         Assert.Contains(
@@ -902,17 +929,18 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.Equal(RuntimeSessionLifecycleStatus.Running, resumed.LifecycleStatus);
         Assert.Equal(TimeSpan.FromSeconds(20), resumed.Timer.Elapsed);
         Assert.Equal(1, resumed.Evidence.DriftCount);
+        Assert.DoesNotContain(resumed.Commands, command => command.Command == RuntimeInputCommandKind.MarkReturn);
         Assert.False(CommandState(resumed, RuntimeInputCommandKind.Pause).IsAvailable);
 
         restoreClock.AdvanceBy(RuntimeDuration.FromSeconds(5));
-        var returned = await resumedController.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
+        var secondWander = await resumedController.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift, "drift-after-resume"));
 
-        Assert.True(returned.LastCommand!.IsAccepted);
-        Assert.Equal(TimeSpan.FromSeconds(25), returned.Timer.Elapsed);
-        Assert.Equal(1, returned.Evidence.ReturnCount);
-        Assert.Equal(0, returned.Evidence.LateReturnCount);
-        Assert.Equal(TimeSpan.FromSeconds(7), returned.Evidence.MaximumReturnTime);
+        Assert.True(secondWander.LastCommand!.IsAccepted);
+        Assert.Equal(TimeSpan.FromSeconds(25), secondWander.Timer.Elapsed);
+        Assert.Equal(2, secondWander.Evidence.DriftCount);
+        Assert.DoesNotContain(started.CommandHandler!.Events, runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted);
     }
 
     [Fact]
@@ -1125,7 +1153,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task LiveSessionControllerPersistsFailedStandardWhenReturnIsLateAndTargetChanges()
+    public async Task LiveSessionControllerDoesNotScoreReturnTimeAndStillFailsATargetChange()
     {
         var configuration = Configuration();
         var workflow = new PreUiTrainingWorkflowService(configuration);
@@ -1151,8 +1179,6 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkDrift));
         clock.AdvanceBy(RuntimeDuration.FromSeconds(11));
         await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkReturn));
-        await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(
                 RuntimeInputCommandKind.MarkTargetChange,
                 value: "red circle"));
@@ -1169,9 +1195,6 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.NotNull(completed.WorkflowResult);
         Assert.False(completed.WorkflowResult!.ProcessingResult.SessionHistory.CleanPerformance);
         Assert.False(completed.WorkflowResult.ProcessingResult.StandardEvaluationResult!.Passed);
-        Assert.Contains(
-            completed.WorkflowResult.ProcessingResult.StandardEvaluationResult.Failures,
-            failure => failure.Detail == FocusHoldStandardMeasurements.LateReturnCount);
         Assert.Contains(
             completed.WorkflowResult.ProcessingResult.StandardEvaluationResult.Failures,
             failure => failure.Detail == FocusHoldStandardMeasurements.TargetSubstitutionCount);
@@ -1431,7 +1454,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, declaration.CurrentPhaseKind);
         Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "RuleStatement");
         Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "ExceptionDefinition");
-        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "SourceBranchStandard");
+        Assert.DoesNotContain(declaration.CurrentMaterials, material => material.Kind == "SourceBranchStandard");
         Assert.True(CommandState(declaration, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
         Assert.False(CommandState(declaration, RuntimeInputCommandKind.FinishPhase).IsAvailable);
 
@@ -1489,10 +1512,15 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
 
         var audit = await AdvancePhaseAsync(controller, clock, delay);
         Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
-        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "LockedOriginalOutput");
-        Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "AuditReference");
-        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "AuditInstruction");
-        Assert.DoesNotContain(audit.CurrentMaterials, IsHiddenAnswerMaterial);
+        Assert.Empty(audit.CurrentMaterials);
+        Assert.True(CommandState(audit, RuntimeInputCommandKind.StartAudit).IsAvailable);
+
+        var auditStarted = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.StartAudit));
+        Assert.Contains(auditStarted.CurrentMaterials, material => material.Kind == "LockedOriginalOutput");
+        Assert.DoesNotContain(auditStarted.CurrentMaterials, material => material.Kind == "AuditReference");
+        Assert.Contains(auditStarted.CurrentMaterials, material => material.Kind == "AuditInstruction");
+        Assert.DoesNotContain(auditStarted.CurrentMaterials, IsHiddenAnswerMaterial);
     }
 
     [Fact]
@@ -1576,30 +1604,52 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
 
         var active = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
-        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
-        Assert.Contains(active.CurrentMaterials, material => material.Kind == "ComponentPayload");
-        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "BranchScoringKey");
-        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "AuditPayload");
-        Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
-        Assert.DoesNotContain(active.CurrentMaterials, IsHiddenAnswerMaterial);
-        Assert.False(CommandState(active, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+        var componentCount = prepared.RuntimeSession!.InputMaterials.Count(material =>
+            material.Kind == GeneratedContentMaterialKind.ComponentPayload);
+        Assert.True(componentCount >= 3);
+        var componentNames = new HashSet<string>(StringComparer.Ordinal);
+        var componentState = active;
+        for (var index = 0; index < componentCount; index++)
+        {
+            Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, componentState.CurrentPhaseKind);
+            Assert.True(GeneratedRuntimeComponentPhaseIdentity.TryGetMaterialName(
+                componentState.CurrentPhaseId,
+                out var activeMaterialName));
+            var component = Assert.Single(componentState.CurrentMaterials);
+            Assert.Equal("ComponentPayload", component.Kind);
+            Assert.Equal(activeMaterialName, component.Name);
+            Assert.True(componentNames.Add(component.Name));
+            Assert.DoesNotContain(componentState.CurrentMaterials, material => material.Kind == "CompositeTaskPrompt");
+            Assert.DoesNotContain(componentState.CurrentMaterials, material => material.Kind == "ComponentEvidenceRequirement");
+            Assert.DoesNotContain(componentState.CurrentMaterials, material => material.Kind == "BranchScoringKey");
+            Assert.DoesNotContain(componentState.CurrentMaterials, material => material.Kind == "AuditPayload");
+            Assert.DoesNotContain(componentState.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+            Assert.DoesNotContain(componentState.CurrentMaterials, IsHiddenAnswerMaterial);
+            Assert.False(CommandState(componentState, RuntimeInputCommandKind.FinishPhase).IsAvailable);
 
-        await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
-            RuntimeInputCommandKind.SubmitAnswer,
-            value: "separate component evidence"));
-        var audit = await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+            var answered = await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.SubmitAnswer,
+                value: $"component-{index + 1}=separate evidence"));
+            Assert.True(answered.LastCommand!.IsAccepted);
+            Assert.True(CommandState(answered, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+            componentState = await controller.HandleCommandAsync(
+                new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        }
+
+        Assert.Equal(componentCount, componentNames.Count);
+        var audit = componentState;
         Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
-        Assert.Contains(audit.CurrentMaterials, material =>
-            material.Kind == "AuditPayload" &&
-            material.Value.Contains("locked component report", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
-        Assert.DoesNotContain(audit.CurrentMaterials, IsHiddenAnswerMaterial);
+        Assert.Empty(audit.CurrentMaterials);
         Assert.True(CommandState(audit, RuntimeInputCommandKind.StartAudit).IsAvailable);
         Assert.False(CommandState(audit, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
 
         var auditStarted = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.StartAudit));
+        Assert.Contains(auditStarted.CurrentMaterials, material =>
+            material.Kind == "AuditPayload" &&
+            material.Value.Contains("locked component report", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(auditStarted.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.DoesNotContain(auditStarted.CurrentMaterials, IsHiddenAnswerMaterial);
         Assert.True(CommandState(auditStarted, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
         await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
             RuntimeInputCommandKind.SubmitAnswer,

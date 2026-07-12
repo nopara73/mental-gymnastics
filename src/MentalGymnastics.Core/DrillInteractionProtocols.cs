@@ -2,7 +2,7 @@ namespace MentalGymnastics.Core;
 
 public enum DrillInteractionInputKind
 {
-    FocusReturnPad,
+    FocusWanderSurface,
     CueChoices,
     GoNoGoPad,
     MemoryResponse,
@@ -18,6 +18,7 @@ public enum DrillInteractionInputKind
 public enum DrillInteractionAcknowledgement
 {
     Visual,
+    Haptic,
     VisualAndHaptic,
 }
 
@@ -41,26 +42,26 @@ public static class DrillInteractionProtocolCatalog
     [
         Protocol(
             DrillId.FH1TargetHold,
-            DrillInteractionInputKind.FocusReturnPad,
-            "Eyes open. Keep the target on screen.",
-            "Rest the phone where one hand can reach the lower pad without searching.",
-            "Tap Wandered when you notice attention left. The tap vibrates. Return to the same target, then tap Back on target.",
-            "The target remains visible for the whole hold.",
-            DrillInteractionAcknowledgement.VisualAndHaptic,
-            ("EYES OPEN", "Keep the stated target in view."),
-            ("NOTICE", "Tap as soon as you notice a wander."),
-            ("RETURN", "Reacquire the same target, then confirm.")),
+            DrillInteractionInputKind.FocusWanderSurface,
+            "Eyes open. Look at the visible shape normally and keep that same shape as the only task.",
+            "Place the phone where you can tap anywhere on the screen without shifting your gaze.",
+            "If attention follows a thought, sound, feeling, or anything else, that is WANDERED: tap anywhere once. Then resume looking at the same shape; there is no second action to record.",
+            "Only the target remains visible for the whole hold. The timer and controls stay hidden.",
+            DrillInteractionAcknowledgement.Haptic,
+            ("FOCUS", "Look at the visible shape normally. Keep the shape itself as your only task."),
+            ("WANDERED", "If attention follows anything else, tap anywhere on the screen immediately, even if that puts you over the limit."),
+            ("RESUME", "Release the tap and continue with the same shape. No return timer or second tap.")),
         Protocol(
             DrillId.FH2DistractorHold,
-            DrillInteractionInputKind.FocusReturnPad,
-            "Eyes open. Keep the target on screen and let distractors pass without answering them.",
-            "Rest the phone where one hand can reach the lower pad without searching.",
-            "Tap Wandered only for loss of the target. The tap vibrates. Return to the same target, then tap Back on target.",
-            "The target and controlled distractors remain visible during the hold.",
-            DrillInteractionAcknowledgement.VisualAndHaptic,
-            ("EYES OPEN", "Keep the stated target foregrounded."),
+            DrillInteractionInputKind.FocusWanderSurface,
+            "Eyes open. Look at the target normally and let distractors pass without answering them.",
+            "Place the phone where you can tap anywhere on the screen without shifting your gaze.",
+            "When attention leaves the target, that is WANDERED: tap anywhere once, then resume the same target without another tap.",
+            "Only the target and the current controlled distractor remain visible during the hold. The timer and controls stay hidden.",
+            DrillInteractionAcknowledgement.Haptic,
+            ("FOCUS", "Keep the stated target foregrounded."),
             ("IGNORE", "Do not answer distractors."),
-            ("RETURN", "Mark, reacquire, and confirm.")),
+            ("WANDERED", "Tap anywhere once, then continue with the same target.")),
         Protocol(
             DrillId.FS1CueSwitch,
             DrillInteractionInputKind.CueChoices,

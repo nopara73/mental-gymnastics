@@ -4,17 +4,15 @@ public static class FocusHoldStandardMeasurements
 {
     public const string ActiveDurationSeconds = TrainingStandardMeasurements.ActiveDurationSeconds;
     public const string MarkedDriftCount = TrainingStandardMeasurements.MarkedDriftCount;
-    public const string UnreturnedDriftCount = TrainingStandardMeasurements.UnreturnedDriftCount;
-    public const string LateReturnCount = TrainingStandardMeasurements.LateReturnCount;
     public const string TargetSubstitutionCount = TrainingStandardMeasurements.TargetSubstitutionCount;
     public const string TargetStatedBeforeSet = TrainingStandardConstraints.TargetStatedBeforeSet;
+    public const string DriftMarked = TrainingStandardConstraints.DriftMarked;
 }
 
 public static class FocusHoldLevelOneStandard
 {
     public const int RequiredDurationSeconds = 180;
     public const int MaximumMarkedDrifts = 5;
-    public const int ReturnWindowSeconds = 10;
 
     public static EvaluatedStandard Create()
     {

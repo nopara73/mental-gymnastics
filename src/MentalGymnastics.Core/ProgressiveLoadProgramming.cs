@@ -181,11 +181,11 @@ public static class TrainingLoadProfileCatalog
 
     private static IReadOnlyList<LoadVariable> FocusHold(GlobalLevelId level) => level switch
     {
-        GlobalLevelId.L1 => [Load("duration", "3 minutes"), Load("target subtlety", "simple visual target"), Load("recovery window", "10 seconds")],
-        GlobalLevelId.L2 => [Load("duration", "6 minutes"), Load("target subtlety", "simple phrase"), Load("recovery window", "8 seconds")],
-        GlobalLevelId.L3 => [Load("duration", "5 minutes"), Load("target subtlety", "simple phrase"), Load("recovery window", "10 seconds"), Load("distractor frequency", "4"), Load("distractor salience", "low")],
-        GlobalLevelId.L4 => [Load("duration", "5 minutes"), Load("target subtlety", "unfamiliar simple content"), Load("recovery window", "8 seconds"), Load("distractor frequency", "4"), Load("distractor salience", "moderate")],
-        GlobalLevelId.L5 => [Load("duration", "12 minutes"), Load("target subtlety", "integrated task target"), Load("recovery window", "6 seconds"), Load("distractor frequency", "8"), Load("distractor salience", "high")],
+        GlobalLevelId.L1 => [Load("duration", "3 minutes"), Load("target subtlety", "simple visual target")],
+        GlobalLevelId.L2 => [Load("duration", "6 minutes"), Load("target subtlety", "simple visual target")],
+        GlobalLevelId.L3 => [Load("duration", "5 minutes"), Load("target subtlety", "simple visual target"), Load("distractor frequency", "4"), Load("distractor salience", "low")],
+        GlobalLevelId.L4 => [Load("duration", "5 minutes"), Load("target subtlety", "unfamiliar simple content"), Load("distractor frequency", "4"), Load("distractor salience", "moderate")],
+        GlobalLevelId.L5 => [Load("duration", "12 minutes"), Load("target subtlety", "integrated task target"), Load("distractor frequency", "8"), Load("distractor salience", "high")],
         _ => throw new ArgumentOutOfRangeException(nameof(level)),
     };
 

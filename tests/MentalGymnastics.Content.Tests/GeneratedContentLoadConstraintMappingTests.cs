@@ -94,7 +94,7 @@ public sealed class GeneratedContentLoadConstraintMappingTests
             PromptContentKind.EquivalentPrompt,
             "fh-l1-target-hold",
             [new LoadVariable("duration", "3 minutes"), new LoadVariable("complex reasoning", "logic puzzle")],
-            [new CriticalConstraint("Target is stated before set; every drift is marked.")]);
+            [new CriticalConstraint("Target is stated before set; every noticed drift is marked once.")]);
 
         var plan = GeneratedContentLoadConstraintMapper.Map(request);
 
@@ -120,24 +120,21 @@ public sealed class GeneratedContentLoadConstraintMappingTests
             [
                 new LoadVariable("duration", "3 minutes"),
                 new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
             ],
-            [new CriticalConstraint("Target is stated before set; every drift is marked.")]);
+            [new CriticalConstraint("Target is stated before set; every noticed drift is marked once.")]);
         var result = CreateResult(request);
         var materials = new[]
         {
             new GeneratedContentMaterial(GeneratedContentMaterialKind.LoadVariable, "duration", "3 minutes"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.LoadVariable, "target subtlety", "simple phrase"),
-            new GeneratedContentMaterial(GeneratedContentMaterialKind.LoadVariable, "recovery window", "10 seconds"),
             new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.HonestyConstraint,
                 "target-and-drift",
-                "Target is stated before set; every drift is marked."),
+                "Target is stated before set; every noticed drift is marked once."),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.TargetStatement, "target", "Hold this phrase."),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.TargetType, "target-type", "phrase"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.TargetSubtlety, "target-subtlety", "simple phrase"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.HoldDuration, "duration", "3 minutes"),
-            new GeneratedContentMaterial(GeneratedContentMaterialKind.RecoveryWindow, "recovery-window", "10 seconds"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.DriftMarkingEvidenceShape, "drift-log", "marked drifts"),
         };
 

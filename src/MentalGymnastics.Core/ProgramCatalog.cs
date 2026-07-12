@@ -158,17 +158,17 @@ public static class ProgramCatalog
             "Selective hold",
             [BranchCode.FH],
             "Keep a selected object or operation in the foreground.",
-            "Duration, distractors, precision of return.",
-            "No switching target; drift must be marked.",
-            "Timed hold with drift count and recovery time."),
+            "Duration, distractors, target subtlety.",
+            "No switching target; every noticed drift must be marked.",
+            "Timed hold with drift count."),
         new(
             CapacityId.ReturnAfterDrift,
             "Return after drift",
             [BranchCode.FH, BranchCode.FS],
             "Notice loss of target and resume without resetting the session.",
-            "Shorter recovery window, more interruptions.",
-            "Drift must be marked immediately.",
-            "Return-time standard after controlled interruption."),
+            "More interruptions and switching demands.",
+            "Drift must be marked immediately; the set continues without a reset.",
+            "Continued task completion after interruption."),
         new(
             CapacityId.DeliberateSwitching,
             "Deliberate switching",
@@ -276,8 +276,8 @@ public static class ProgramCatalog
             "Build selective hold.",
             [CapacityId.SelectiveHold, CapacityId.ReturnAfterDrift],
             "Duration, target subtlety, distractor salience.",
-            "Target is stated before set; every drift is marked.",
-            "Target maintained within drift threshold; returns inside time window.",
+            "Target is stated before set; every noticed drift is marked once.",
+            "Target maintained within drift threshold; set continues on the same target after a drift mark.",
             "Unmarked drift, target substitution, restarting after drift.",
             "Shorter duration with same marking rule."),
         new(
@@ -449,8 +449,8 @@ public static class ProgramCatalog
 
     public static IReadOnlyList<BranchLevelStandard> Standards { get; } =
     [
-        Standard(BranchCode.FH, GlobalLevelId.L1, "Hold one simple target for 3 minutes.", "No more than 5 marked drifts; each return within 10 seconds; no target change.", "Pass once enters stabilization.", "Repeat twice within 14 days; one after a short WM set.", "Hold a different target type with same standard."),
-        Standard(BranchCode.FH, GlobalLevelId.L2, "Hold for 6 minutes or two 3-minute sets with 60 seconds rest.", "No more than 7 total drifts; average return within 8 seconds.", "Own L1 required.", "Repeat on two days; one after light distraction.", "Hold during low-noise environment change."),
+        Standard(BranchCode.FH, GlobalLevelId.L1, "Hold one simple target for 3 minutes.", "No more than 5 marked drifts; every noticed drift marked; no target change.", "Pass once enters stabilization.", "Repeat twice within 14 days; one after a short WM set.", "Hold a different target type with same standard."),
+        Standard(BranchCode.FH, GlobalLevelId.L2, "Hold for 6 minutes or two 3-minute sets with 60 seconds rest.", "No more than 7 total marked drifts; every noticed drift marked; no target change.", "Own L1 required.", "Repeat on two days; one after light distraction.", "Hold during low-noise environment change."),
         Standard(BranchCode.FH, GlobalLevelId.L3, "Hold with controlled distractor.", "5 minutes with periodic irrelevant prompts; no response to distractor; no more than 5 drifts.", "Own L2 required.", "Repeat after FS practice.", "Hold while using unfamiliar but simple content."),
         Standard(BranchCode.FH, GlobalLevelId.L4, "Transfer hold to another branch task.", "Maintain stated target while completing WM or DE task; branch score remains passing.", "Own L3 required.", "Two transfer passes in different branches.", "Required transfer is the level test."),
         Standard(BranchCode.FH, GlobalLevelId.L5, "Hold under integrated pressure.", "Maintain target during 12-minute TI task; no branch-critical constraint breach.", "Own L4 and TI L3 required.", "Repeat during global review cycle.", "Global task with branch-specific scoring."),

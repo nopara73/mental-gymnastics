@@ -14,10 +14,12 @@ namespace MentalGymnastics.Android;
 internal sealed class MgNavigationShell
 {
     private readonly Context context;
+    private readonly LinearLayout normalRoot;
     private readonly MgTopBar topBar;
     private readonly ScrollView scrollView;
     private readonly LinearLayout content;
     private readonly MgBottomNavigationBar navigation;
+    private readonly ImmersiveFocusSurfaceView immersiveFocusSurface;
 
     private AndroidTrainingStateSnapshot? snapshot;
     private AndroidSessionStartSnapshot? sessionStartSnapshot;
@@ -32,6 +34,8 @@ internal sealed class MgNavigationShell
     private bool restoreConfirmationArmed;
     private bool stopTodayConfirmationArmed;
     private DateTimeOffset? liveBackConfirmationAt;
+    private bool immersivePracticeActive;
+    private bool immersiveFocusSurfaceActive;
     private Screen currentScreen = Screen.Today;
     private Screen utilityReturnScreen = Screen.Today;
     private BranchCode selectedBranch = BranchCode.FH;
@@ -43,12 +47,18 @@ internal sealed class MgNavigationShell
     {
         this.context = context ?? throw new ArgumentNullException(nameof(context));
 
-        Root = new LinearLayout(context)
+        Root = new FrameLayout(context);
+        Root.SetBackgroundColor(MgColors.Canvas);
+
+        normalRoot = new LinearLayout(context)
         {
             Orientation = Orientation.Vertical,
         };
-        Root.SetBackgroundColor(MgColors.Canvas);
-        Root.SetPadding(0, StatusBarHeightPx(), 0, 0);
+        normalRoot.SetBackgroundColor(MgColors.Canvas);
+        normalRoot.SetPadding(0, StatusBarHeightPx(), 0, 0);
+        Root.AddView(normalRoot, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent));
 
         topBar = new MgTopBar(context);
         topBar.BackRequested += () => HandleBack();
@@ -63,7 +73,7 @@ internal sealed class MgNavigationShell
             restoreConfirmationArmed = false;
             RenderCurrentScreen();
         };
-        Root.AddView(topBar, new LinearLayout.LayoutParams(
+        normalRoot.AddView(topBar, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             Dp(56)));
 
@@ -87,17 +97,27 @@ internal sealed class MgNavigationShell
         scrollView.AddView(contentHost, new ScrollView.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             ViewGroup.LayoutParams.WrapContent));
-        Root.AddView(scrollView, new LinearLayout.LayoutParams(
+        normalRoot.AddView(scrollView, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             0,
             1));
 
         navigation = new MgBottomNavigationBar(context);
         navigation.DestinationSelected += NavigateToDestination;
-        Root.AddView(navigation, new LinearLayout.LayoutParams(
+        normalRoot.AddView(navigation, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             Dp(64) + NavigationBarHeightPx()));
         navigation.SetPadding(0, Dp(2), 0, NavigationBarHeightPx());
+
+        immersiveFocusSurface = new ImmersiveFocusSurfaceView(context)
+        {
+            Visibility = ViewStates.Gone,
+        };
+        immersiveFocusSurface.CommandRequested += (command, targetId, value) =>
+            LiveSessionCommandRequested?.Invoke(command, targetId, value);
+        Root.AddView(immersiveFocusSurface, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent));
     }
 
     private enum Screen
@@ -129,7 +149,9 @@ internal sealed class MgNavigationShell
         Missed,
     }
 
-    public LinearLayout Root { get; }
+    public FrameLayout Root { get; }
+
+    public bool IsImmersivePracticeActive => immersivePracticeActive;
 
     public event Action? SessionStartRequested;
 
@@ -145,6 +167,8 @@ internal sealed class MgNavigationShell
 
     public event Action<RuntimeInputCommandKind, string?, string?>? LiveSessionCommandRequested;
 
+    public event Action<bool>? ImmersivePracticeChanged;
+
     public event Action<string>? ActiveSessionInvalidateRequested;
 
     public event Action? LocalBackupExportRequested;
@@ -154,6 +178,18 @@ internal sealed class MgNavigationShell
     public event Action? LocalBackupValidateRequested;
 
     public event Action? LocalBackupRestoreRequested;
+
+    public void SuppressImmersivePracticeUntilFreshSnapshot()
+    {
+        immersiveFocusSurfaceActive = false;
+        immersivePracticeActive = false;
+        normalRoot.Visibility = ViewStates.Visible;
+        immersiveFocusSurface.Visibility = ViewStates.Gone;
+        immersiveFocusSurface.Reset();
+        topBar.Visibility = ViewStates.Visible;
+        ApplyNormalRootSystemInsets(systemChromeHidden: false);
+        ImmersivePracticeChanged?.Invoke(false);
+    }
 
     public bool HandleBack()
     {
@@ -172,7 +208,7 @@ internal sealed class MgNavigationShell
                 liveBackConfirmationAt = now;
                 Toast.MakeText(
                     context,
-                    "Press back again to stop today's workout.",
+                    "Press back again to end today's training and save a stopped attempt.",
                     ToastLength.Short)?.Show();
                 return true;
             }
@@ -350,17 +386,30 @@ internal sealed class MgNavigationShell
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
+        var wasImmersiveFocusSurface = immersiveFocusSurfaceActive;
         var phaseChanged = liveSessionSnapshot is { } previous &&
             string.Equals(previous.LiveSession.SessionId, snapshot.LiveSession.SessionId, StringComparison.Ordinal) &&
             !string.Equals(previous.LiveSession.CurrentPhaseId, snapshot.LiveSession.CurrentPhaseId, StringComparison.Ordinal);
         liveSessionSnapshot = snapshot;
         liveCompletionSnapshot = null;
-        liveTrainingView?.Update(snapshot);
+        UpdateImmersivePracticePresentation();
         if (currentScreen != Screen.Live)
         {
             navigation.Update(
                 DestinationFor(currentScreen),
                 trainSessionActive: !snapshot.LiveSession.IsTerminal);
+            return;
+        }
+
+        if (immersiveFocusSurfaceActive)
+        {
+            return;
+        }
+
+        liveTrainingView?.Update(snapshot);
+        if (wasImmersiveFocusSurface)
+        {
+            RenderCurrentScreen(resetScroll: true);
             return;
         }
 
@@ -467,6 +516,7 @@ internal sealed class MgNavigationShell
         LogUiException(exception);
 
         currentScreen = Screen.Live;
+        liveSessionSnapshot = null;
         RenderFrame();
         AddPanel("Could not save result", FriendlyExceptionDetail(exception), "No progress change was applied.");
         AddPrimaryButton("Open local data", enabled: snapshot is not null, () =>
@@ -567,6 +617,89 @@ internal sealed class MgNavigationShell
         navigation.Update(
             DestinationFor(currentScreen),
             trainSessionActive: liveSessionSnapshot is { LiveSession.IsTerminal: false });
+        UpdateImmersivePracticePresentation();
+    }
+
+    internal static bool ShouldUseImmersivePracticePresentation(
+        AndroidLiveSessionSnapshot? liveSnapshot)
+    {
+        if (liveSnapshot is null)
+        {
+            return false;
+        }
+
+        var presentation = liveSnapshot.Presentation;
+        var directFocusHold = presentation.Work.Drill is
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold;
+        var wrappedAiFocusHold =
+            (presentation.Work.Drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery) &&
+            (presentation.SourceDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold);
+        var hasImmediateAction = presentation.AvailableCommands.Any(command =>
+            command.Command == RuntimeInputCommandKind.MarkDrift) ||
+            presentation.ActiveCue is { Kind: RuntimeCueKind.Interruption } &&
+            presentation.AvailableCommands.Any(command =>
+                command.Command == RuntimeInputCommandKind.RespondToCue);
+        return !liveSnapshot.LiveSession.IsTerminal &&
+               presentation.LifecycleStatus == RuntimeSessionLifecycleStatus.Running &&
+               presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.ActiveWork &&
+               (directFocusHold || wrappedAiFocusHold) &&
+               hasImmediateAction;
+    }
+
+    internal static bool ShouldUseDistractionFreeSystemChrome(
+        AndroidLiveSessionSnapshot? liveSnapshot)
+    {
+        if (liveSnapshot is null || liveSnapshot.LiveSession.IsTerminal)
+        {
+            return false;
+        }
+
+        var presentation = liveSnapshot.Presentation;
+        return presentation.LifecycleStatus == RuntimeSessionLifecycleStatus.Running &&
+               presentation.CurrentPhaseKind is
+                   RuntimeSessionPhaseKind.EncodeWindow or
+                   RuntimeSessionPhaseKind.ActiveWork or
+                   RuntimeSessionPhaseKind.DelayWindow or
+                   RuntimeSessionPhaseKind.CueResponse or
+                   RuntimeSessionPhaseKind.ReconstructionInput or
+                   RuntimeSessionPhaseKind.Audit;
+    }
+
+    private void UpdateImmersivePracticePresentation()
+    {
+        var focusSurfaceActive = currentScreen == Screen.Live &&
+            ShouldUseImmersivePracticePresentation(liveSessionSnapshot);
+        var chromeActive = currentScreen == Screen.Live &&
+            ShouldUseDistractionFreeSystemChrome(liveSessionSnapshot);
+        immersiveFocusSurfaceActive = focusSurfaceActive;
+        immersivePracticeActive = chromeActive;
+        ApplyNormalRootSystemInsets(systemChromeHidden: chromeActive);
+        normalRoot.Visibility = focusSurfaceActive ? ViewStates.Gone : ViewStates.Visible;
+        immersiveFocusSurface.Visibility = focusSurfaceActive ? ViewStates.Visible : ViewStates.Gone;
+        topBar.Visibility = chromeActive ? ViewStates.Gone : ViewStates.Visible;
+
+        if (focusSurfaceActive && liveSessionSnapshot is { } liveSnapshot)
+        {
+            immersiveFocusSurface.Update(liveSnapshot);
+        }
+        else
+        {
+            immersiveFocusSurface.Reset();
+        }
+
+        ImmersivePracticeChanged?.Invoke(chromeActive);
+    }
+
+    private void ApplyNormalRootSystemInsets(bool systemChromeHidden)
+    {
+        var workflowWithoutBottomNavigation = currentScreen is Screen.Preflight or Screen.Live or Screen.Result;
+        normalRoot.SetPadding(
+            0,
+            systemChromeHidden ? 0 : StatusBarHeightPx(),
+            0,
+            !systemChromeHidden && workflowWithoutBottomNavigation
+                ? NavigationBarHeightPx()
+                : 0);
     }
 
     private bool UsesFocusedTrainingFrame()
@@ -738,8 +871,8 @@ internal sealed class MgNavigationShell
 
         var instruction = new TextView(context)
         {
-            Text = work.Drill == DrillId.FH1TargetHold
-                ? "Hold one target. Mark every wander, then return."
+            Text = work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold
+                ? "Hold one target. Tap when you notice a wander, then resume the same target."
                 : SessionDoseInstruction(work),
             Gravity = GravityFlags.CenterVertical,
         };
@@ -769,9 +902,18 @@ internal sealed class MgNavigationShell
 
         if (presentation.DailyTotalBlockCount > 0)
         {
+            if (stopTodayConfirmationArmed)
+            {
+                AddWarningRow(
+                    panel,
+                    "Skip today",
+                    "This skips every remaining block and closes training until the next program day.",
+                    MgColors.Blocked);
+            }
+
             AddUtilityButton(
                 panel,
-                stopTodayConfirmationArmed ? "Confirm stop today" : "Stop today",
+                stopTodayConfirmationArmed ? "Skip and close today" : "Skip today's training…",
                 () =>
                 {
                     if (!stopTodayConfirmationArmed)
@@ -829,14 +971,9 @@ internal sealed class MgNavigationShell
         for (var index = 0; index < presentation.DailyTotalBlockCount; index++)
         {
             var completed = index < presentation.DailyCompletedBlockCount;
-            var current = index == presentation.DailyCompletedBlockCount &&
-                presentation.DailyStatus is not DailyTrainingWorkflowStatus.Done and not
-                    DailyTrainingWorkflowStatus.Stopped;
             var color = completed
                 ? MgColors.Owned
-                : current
-                    ? MgColors.Training
-                    : MgColors.Hairline;
+                : MgColors.Hairline;
             var bar = new View(context)
             {
                 Background = MgTheme.Filled(context, color, cornerRadius: 2),
@@ -909,11 +1046,6 @@ internal sealed class MgNavigationShell
 
     private static string StandardDisplay(TrainingPresentationWorkSummary work)
     {
-        if (work.Drill == DrillId.FS1CueSwitch)
-        {
-            return "4 min · 90%+ correct · max 3 early switches";
-        }
-
         return work.Standard ?? "Complete the visible task to its stated standard.";
     }
 
@@ -1905,7 +2037,7 @@ internal sealed class MgNavigationShell
         {
             AddMuted(panel, "No detailed evidence is available in the current record window.");
         }
-        else if (session.Drill == DrillId.FH1TargetHold)
+        else if (session.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
             AddFocusHoldRecordEvidence(panel, session, artifacts);
         }
@@ -1931,17 +2063,14 @@ internal sealed class MgNavigationShell
     {
         var facts = EvidenceFacts(artifacts);
         var drifts = IntFact(facts, "drift_count");
-        var returns = IntFact(facts, "return_count");
-        var lateReturns = IntFact(facts, "late_return_count");
         var changes = IntFact(facts, "target_substitution_count");
         var completed = !session.Notes.Contains("abandon", StringComparison.OrdinalIgnoreCase);
         panel.AddView(
             new CriteriaStripView(
                 context,
                 [
-                    (completed ? FocusHoldDurationLabel(session.LoadVariables) : "--", "hold"),
-                    ($"{drifts}/5", "wanders"),
-                    (drifts == 0 ? "--" : $"{returns}/{drifts}", "returns"),
+                    (completed ? FocusHoldDurationLabel(session.LoadVariables) : "Stopped", "hold"),
+                    (drifts.ToString(), "wanders"),
                     (changes.ToString(), "changes"),
                 ]),
             MatchWrapWithTop(MgSpacing.Md));
@@ -1953,15 +2082,9 @@ internal sealed class MgNavigationShell
 
         var reason = !completed
             ? $"The hold ended before {FocusHoldDurationLabel(session.LoadVariables)}."
-            : returns < drifts
-                ? "A wander was not followed by a return."
-                : lateReturns > 0
-                    ? "A return took longer than 10 seconds."
-                    : changes > 0
-                        ? "The target changed during the hold."
-                        : drifts > FocusHoldLevelOneStandard.MaximumMarkedDrifts
-                            ? "The hold exceeded 5 wanders."
-                            : "The recorded set did not meet the standard.";
+            : changes > 0
+                ? "The target changed during the hold."
+                : "The recorded hold exceeded this level's wander limit or missed required evidence.";
         AddWarningRow(panel, "Why it missed", reason, MgColors.Blocked);
     }
 
@@ -2475,23 +2598,28 @@ internal sealed class MgNavigationShell
             if (work.Drill != DrillId.FH1TargetHold)
             {
                 AddCompactScreenHeading(panel, work.Exercise.ExerciseName, work.Exercise.BranchLevelLabel);
+                AddBody(panel, work.Exercise.Purpose);
             }
 
             if (work.Drill == DrillId.FH1TargetHold)
             {
                 var target = new TargetMaterialView(context, compact: true);
+                target.SetDense(dense: true);
                 target.Update(work.Exercise.PrimaryMaterial);
                 panel.AddView(target, MatchWrapWithTop(MgSpacing.Md));
 
                 var prompt = new TextView(context)
                 {
-                    Text = "Say it once. Keep it unchanged.",
+                    Text = "Keep attention on this exact shape.",
                     Gravity = GravityFlags.Center,
                 };
                 MgTypography.ApplyHeading(prompt);
                 panel.AddView(prompt, MatchWrapWithTop(MgSpacing.Md));
-                panel.AddView(FocusHoldCriteriaStrip(work.LoadVariables), MatchWrapWithTop(MgSpacing.Md));
                 AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
+                AddFocusedBlock(
+                    panel,
+                    "COUNTS WHEN",
+                    StandardDisplay(work));
                 AddFailureModeSelector(panel, work);
             }
             else
@@ -2557,8 +2685,8 @@ internal sealed class MgNavigationShell
             context,
             [
                 (FocusHoldDurationLabel(loadVariables), "hold"),
-                ("5 max", "wanders"),
-                ("10s", "return"),
+                ("Every", "wander"),
+                ("Same", "target"),
             ]);
     }
 
@@ -2591,67 +2719,63 @@ internal sealed class MgNavigationShell
         return string.IsNullOrWhiteSpace(value) ? "3 minutes" : value;
     }
 
-    private void AddSetupSteps(LinearLayout panel)
-    {
-        var steps = new LinearLayout(context)
-        {
-            Orientation = Orientation.Horizontal,
-        };
-        AddSetupStep(steps, MgGlyphKind.Read, "Say", MgColors.TrainingDark);
-        AddSetupStep(steps, MgGlyphKind.Hold, "Hold", MgColors.TestReady);
-        AddSetupStep(steps, MgGlyphKind.Drift, "Mark + return", MgColors.PassedOnce);
-        panel.AddView(steps, MatchWrapWithTop(MgSpacing.Md));
-    }
-
     private void AddInteractionProtocol(
         LinearLayout panel,
         DrillInteractionProtocol protocol)
     {
-        var steps = new LinearLayout(context)
+        var heading = new TextView(context)
+        {
+            Text = "HOW THIS WORKS",
+        };
+        MgTypography.ApplyLabel(heading);
+        heading.SetTextColor(MgColors.InkMuted);
+        panel.AddView(heading, MatchWrapWithTop(MgSpacing.Md));
+
+        for (var index = 0; index < protocol.Steps.Count; index++)
+        {
+            AddProtocolStep(panel, index + 1, protocol.Steps[index]);
+        }
+
+        var setup = new LinearLayout(context)
         {
             Orientation = Orientation.Horizontal,
         };
-        var glyphs = new[] { MgGlyphKind.Target, MgGlyphKind.Hold, MgGlyphKind.Check };
-        var colors = new[] { MgColors.TrainingDark, MgColors.TestReady, MgColors.PassedOnce };
-        for (var index = 0; index < protocol.Steps.Count; index++)
+        setup.SetGravity(GravityFlags.CenterVertical);
+        setup.AddView(
+            new MgGlyphView(context, MgGlyphKind.Hold, MgColors.InkMuted, filled: false),
+            new LinearLayout.LayoutParams(Dp(30), Dp(30)));
+        var setupText = new TextView(context)
         {
-            AddSetupStep(
-                steps,
-                glyphs[Math.Min(index, glyphs.Length - 1)],
-                protocol.Steps[index].Label,
-                colors[Math.Min(index, colors.Length - 1)]);
-        }
-
-        panel.AddView(steps, MatchWrapWithTop(MgSpacing.Md));
-
-        AddInteractionLine(panel, MgGlyphKind.Target, "EYES", protocol.AttentionInstruction);
-        AddInteractionLine(panel, MgGlyphKind.Hold, "PHONE", protocol.DeviceInstruction);
-        AddInteractionLine(panel, MgGlyphKind.Check, "ACTION", protocol.ActionInstruction, emphasized: true);
+            Text = protocol.DeviceInstruction,
+        };
+        MgTypography.ApplyBody(setupText);
+        setupText.SetTextColor(MgColors.InkMuted);
+        var setupLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
+        setupLayout.SetMargins(Dp(MgSpacing.Sm), 0, 0, 0);
+        setup.AddView(setupText, setupLayout);
+        panel.AddView(setup, MatchWrapWithTop(MgSpacing.Sm));
     }
 
-    private void AddInteractionLine(
+    private void AddProtocolStep(
         LinearLayout panel,
-        MgGlyphKind glyph,
-        string label,
-        string instruction,
-        bool emphasized = false)
+        int number,
+        DrillInteractionStep step)
     {
         var row = new LinearLayout(context)
         {
             Orientation = Orientation.Horizontal,
-            Background = emphasized
-                ? MgTheme.TintedSurface(context, MgColors.TrainingTint, MgColors.Training, cornerRadius: 8)
-                : null,
         };
-        row.SetGravity(GravityFlags.CenterVertical);
-        row.SetPadding(
-            emphasized ? Dp(MgSpacing.Sm) : 0,
-            Dp(MgSpacing.Sm),
-            emphasized ? Dp(MgSpacing.Sm) : 0,
-            Dp(MgSpacing.Sm));
-        row.AddView(
-            new MgGlyphView(context, glyph, emphasized ? MgColors.TrainingDark : MgColors.InkMuted, filled: false),
-            new LinearLayout.LayoutParams(Dp(34), Dp(34)));
+        row.SetGravity(GravityFlags.Top);
+
+        var marker = new TextView(context)
+        {
+            Text = number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Gravity = GravityFlags.Center,
+            Background = MgTheme.Filled(context, MgColors.TrainingDark, cornerRadius: 17),
+        };
+        MgTypography.ApplyLabel(marker);
+        marker.SetTextColor(Color.White);
+        row.AddView(marker, new LinearLayout.LayoutParams(Dp(34), Dp(34)));
 
         var body = new LinearLayout(context)
         {
@@ -2663,26 +2787,30 @@ internal sealed class MgNavigationShell
 
         var labelView = new TextView(context)
         {
-            Text = label,
+            Text = step.Label,
         };
         MgTypography.ApplyLabel(labelView);
-        labelView.SetTextColor(emphasized ? MgColors.TrainingDark : MgColors.InkMuted);
+        labelView.SetTextColor(MgColors.TrainingDark);
         body.AddView(labelView, MatchWrap());
 
         var instructionView = new TextView(context)
         {
-            Text = instruction,
+            Text = step.Instruction,
         };
         MgTypography.ApplyBody(instructionView);
         body.AddView(instructionView, MatchWrapWithTop(MgSpacing.Xs));
-        panel.AddView(row, MatchWrapWithTop(MgSpacing.Xs));
+        panel.AddView(row, MatchWrapWithTop(MgSpacing.Sm));
     }
 
     private void AddPreflightMaterial(
         LinearLayout panel,
         TrainingPresentationWorkSummary work)
     {
-        if (string.IsNullOrWhiteSpace(work.Exercise.PrimaryMaterial))
+        var visualTargets = work.Exercise.VisualTargets ?? [];
+        var visualExceptions = work.Exercise.VisualExceptions ?? [];
+        if (string.IsNullOrWhiteSpace(work.Exercise.PrimaryMaterial) &&
+            visualTargets.Count == 0 &&
+            visualExceptions.Count == 0)
         {
             return;
         }
@@ -2704,21 +2832,86 @@ internal sealed class MgNavigationShell
         MgTypography.ApplyLabel(label);
         label.SetTextColor(MgColors.TrainingDark);
         material.AddView(label, MatchWrap());
-        var value = new TextView(context)
+        if (!string.IsNullOrWhiteSpace(work.Exercise.PrimaryMaterial))
         {
-            Text = work.Exercise.PrimaryMaterial,
-        };
-        MgTypography.ApplyHeading(value);
-        material.AddView(value, MatchWrapWithTop(MgSpacing.Xs));
-        foreach (var item in work.Exercise.SetupItems)
-        {
-            var itemView = new TextView(context)
+            var value = new TextView(context)
             {
-                Text = item,
+                Text = work.Exercise.PrimaryMaterial,
             };
-            MgTypography.ApplyBody(itemView);
-            itemView.SetTextColor(MgColors.InkMuted);
-            material.AddView(itemView, MatchWrapWithTop(MgSpacing.Sm));
+            MgTypography.ApplyHeading(value);
+            material.AddView(value, MatchWrapWithTop(MgSpacing.Xs));
+        }
+
+        if (visualTargets.Count > 0)
+        {
+            var targetRow = new LinearLayout(context)
+            {
+                Orientation = Orientation.Horizontal,
+            };
+            for (var index = 0; index < visualTargets.Count; index++)
+            {
+                var targetPanel = new FrameLayout(context)
+                {
+                    Background = MgTheme.Outline(context, MgColors.Training, cornerRadius: 8),
+                };
+                var targetStimulus = new VisualStimulusView(context);
+                targetStimulus.Update(visualTargets[index]);
+                targetPanel.AddView(targetStimulus, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MatchParent,
+                    ViewGroup.LayoutParams.MatchParent));
+                var targetLayout = new LinearLayout.LayoutParams(0, Dp(104), 1);
+                if (index > 0)
+                {
+                    targetLayout.SetMargins(Dp(MgSpacing.Xs), 0, 0, 0);
+                }
+                targetRow.AddView(targetPanel, targetLayout);
+            }
+            material.AddView(targetRow, MatchWrapWithTop(MgSpacing.Sm));
+        }
+
+        if (visualExceptions.Count > 0)
+        {
+            foreach (var exception in visualExceptions)
+            {
+                var exceptionRow = new LinearLayout(context)
+                {
+                    Orientation = Orientation.Horizontal,
+                    Background = MgTheme.MutedSurface(context, cornerRadius: 8),
+                };
+                exceptionRow.SetGravity(GravityFlags.CenterVertical);
+                var exceptionStimulus = new VisualStimulusView(context)
+                {
+                    ImportantForAccessibility = ImportantForAccessibility.No,
+                };
+                exceptionStimulus.Update(exception.Stimulus);
+                exceptionRow.AddView(exceptionStimulus, new LinearLayout.LayoutParams(Dp(88), Dp(88)));
+                var exceptionAction = new TextView(context)
+                {
+                    Text = $"Exception {exception.Ordinal}{Environment.NewLine}" +
+                        exception.ExpectedAction.ToString().ToUpperInvariant(),
+                };
+                MgTypography.ApplyBody(exceptionAction);
+                exceptionAction.ContentDescription =
+                    $"Exception {exception.Ordinal}: {VisualStimulusView.Describe(exception.Stimulus)}; " +
+                    exception.ExpectedAction.ToString().ToLowerInvariant();
+                var actionLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
+                actionLayout.SetMargins(Dp(MgSpacing.Sm), 0, 0, 0);
+                exceptionRow.AddView(exceptionAction, actionLayout);
+                material.AddView(exceptionRow, MatchWrapWithTop(MgSpacing.Sm));
+            }
+        }
+        else
+        {
+            foreach (var item in work.Exercise.SetupItems)
+            {
+                var itemView = new TextView(context)
+                {
+                    Text = item,
+                };
+                MgTypography.ApplyBody(itemView);
+                itemView.SetTextColor(MgColors.InkMuted);
+                material.AddView(itemView, MatchWrapWithTop(MgSpacing.Sm));
+            }
         }
         panel.AddView(material, MatchWrapWithTop(MgSpacing.Md));
     }
@@ -2729,7 +2922,8 @@ internal sealed class MgNavigationShell
     {
         var labels = drill switch
         {
-            DrillId.FH2DistractorHold => ("Target", "Ignore", "Return"),
+            DrillId.FH1TargetHold => ("Target", "Tap wander", "Resume"),
+            DrillId.FH2DistractorHold => ("Target", "Ignore", "Resume"),
             DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => ("Targets", "Watch", "Switch"),
             DrillId.WM1DelayedReconstruction => ("Study", "Hide", "Rebuild"),
             DrillId.WM2MentalTransform => ("Study", "Transform", "Explain"),
@@ -2960,6 +3154,11 @@ internal sealed class MgNavigationShell
             return;
         }
 
+        if (immersiveFocusSurfaceActive)
+        {
+            return;
+        }
+
         if (liveTrainingView is null)
         {
             liveTrainingView = new LiveTrainingScreenView(context);
@@ -3075,7 +3274,7 @@ internal sealed class MgNavigationShell
         {
             var cueDetail = new TextView(context)
             {
-                Text = cue.RequiresResponse ? $"{FormatDuration(cue.ResponseWindow)} window" : "No response",
+                Text = $"Apply the rule · {FormatDuration(cue.Remaining ?? cue.ResponseWindow)} remaining",
             };
             MgTypography.ApplyMicro(cueDetail);
             box.AddView(cueDetail, MatchWrapWithTop(MgSpacing.Xs));
@@ -3171,7 +3370,7 @@ internal sealed class MgNavigationShell
         stateBand.AddView(stateText, stateTextLayout);
         panel.AddView(stateBand, MatchWrapWithTop(MgSpacing.Lg));
 
-        if (result.Work.Drill == DrillId.FH1TargetHold &&
+        if (result.Work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold &&
             result.Outcome != TrainingResultPresentationOutcomeKind.Cancelled)
         {
             AddResultFocusHoldEvidence(panel, result);
@@ -3201,18 +3400,15 @@ internal sealed class MgNavigationShell
         ResultPresentationReadModel result)
     {
         var evidence = result.SessionEvidence;
-        var maximumReturn = evidence.MaximumReturnTime.HasValue
-            ? $"{Math.Ceiling(evidence.MaximumReturnTime.Value.TotalSeconds):0}s"
-            : "--";
         var strip = new CriteriaStripView(
             context,
             [
                 (result.RuntimeCompletionStatus == RuntimeSessionCompletionStatus.Completed
                     ? FocusHoldDurationLabel(result.Work.LoadVariables)
-                    : "--", "hold"),
-                ($"{evidence.DriftCount}/5", "wanders"),
-                ($"{maximumReturn}/10s", "max return"),
-                (evidence.TargetChangeCount.ToString(), "changes"),
+                    : "Stopped", "hold"),
+                (evidence.DriftCount.ToString(), "wanders"),
+                (evidence.TargetChangeCount.ToString(), "target changes"),
+                (evidence.EvidenceFactCount.ToString(), "evidence facts"),
             ]);
         panel.AddView(strip, MatchWrapWithTop(MgSpacing.Md));
     }
@@ -3274,7 +3470,7 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.Cancelled => "No attempt recorded",
             TrainingResultPresentationOutcomeKind.CleanPractice => "Clean practice counted",
             TrainingResultPresentationOutcomeKind.TestReady => "Practice requirement met",
-            TrainingResultPresentationOutcomeKind.Abandoned => "Stopped attempt saved",
+            TrainingResultPresentationOutcomeKind.Abandoned => "Did not count · training closed for today",
             TrainingResultPresentationOutcomeKind.Failed or
             TrainingResultPresentationOutcomeKind.TimedOut => "Standard not met",
             TrainingResultPresentationOutcomeKind.PassedOnce => "First pass counted",
@@ -3296,7 +3492,7 @@ internal sealed class MgNavigationShell
 
         if (dailyTraining?.IsTerminal == true)
         {
-            return "Done";
+            return "Back to Today";
         }
 
         return outcome switch
@@ -3304,8 +3500,8 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.Failed or
             TrainingResultPresentationOutcomeKind.TimedOut or
             TrainingResultPresentationOutcomeKind.Abandoned => "Return to training",
-            TrainingResultPresentationOutcomeKind.Cancelled => "Back to Train",
-            _ => "Continue",
+            TrainingResultPresentationOutcomeKind.Cancelled => "Back to Today",
+            _ => "Back to Today",
         };
     }
 
@@ -4993,65 +5189,8 @@ internal sealed class MgNavigationShell
 
     private static string PreflightStartLabel(TrainingPresentationWorkSummary work)
     {
-        return work.Drill switch
-        {
-            DrillId.FH1TargetHold => $"Start {FocusHoldDurationValue(work.LoadVariables)} hold",
-            DrillId.FH2DistractorHold => "Start hold",
-            DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter or
-            DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "Start cues",
-            DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform => "Show items",
-            DrillId.DE1PairDiscrimination => "Start comparisons",
-            DrillId.DE2SeededAudit => "Open audit",
-            DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping => "Start task",
-            DrillId.AI1PressureRepeat => "Start repeat",
-            DrillId.AI2DisruptionRecovery => "Start recovery task",
-            DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask => "Start task",
-            _ => "Start exercise",
-        };
-    }
-
-    private static string PreflightSetupText(TrainingPresentationWorkSummary work)
-    {
-        if (work.Drill == DrillId.FH1TargetHold)
-        {
-            var targetLine = string.IsNullOrWhiteSpace(work.Exercise.PrimaryMaterial)
-                ? string.Empty
-                : $"{Environment.NewLine}{Environment.NewLine}Target: {work.Exercise.PrimaryMaterial}";
-            return string.Join(
-                Environment.NewLine,
-                "1. Read the target.",
-                "2. Say it once in your head.",
-                "3. Hold only that target when the timer starts.",
-                "4. If attention leaves, tap Mind wandered and return.") + targetLine;
-        }
-
-        var target = string.IsNullOrWhiteSpace(work.Exercise.PrimaryMaterial)
-            ? string.Empty
-            : $"{Environment.NewLine}{Environment.NewLine}Target: {work.Exercise.PrimaryMaterial}";
-        return $"{work.Exercise.FirstScreenInstruction}{Environment.NewLine}{Environment.NewLine}{work.Exercise.BeforeStartInstruction}{target}";
-    }
-
-    private static string PreflightCriteriaText(TrainingPresentationWorkSummary work)
-    {
-        if (work.Drill == DrillId.FH1TargetHold)
-        {
-            return string.Join(
-                Environment.NewLine,
-                "This counts when:",
-                $"{FocusHoldDurationValue(work.LoadVariables)} finished",
-                "5 taps or fewer",
-                "Each return is within 10 seconds",
-                "Same target the whole time",
-                string.Empty,
-                "Try again when:",
-                "You stop early",
-                "Target changed",
-                "Wander not tapped",
-                "More than 5 taps",
-                "Slow return");
-        }
-
-        return $"{work.Exercise.SuccessCriteria}{Environment.NewLine}{Environment.NewLine}{work.Exercise.FailureCriteria}{Environment.NewLine}{Environment.NewLine}{work.Exercise.HonestyInstruction}";
+        _ = work;
+        return "Continue to ready screen";
     }
 
     private static string LiveMaterialText(LiveSessionPresentationReadModel presentation)
@@ -5074,7 +5213,8 @@ internal sealed class MgNavigationShell
     {
         if (string.Equals(kind, "TargetStatement", StringComparison.Ordinal))
         {
-            var target = StripPrefix(value, "Hold target phrase:")
+            var target = StripPrefix(value, "Visual target:")
+                ?? StripPrefix(value, "Hold target phrase:")
                 ?? StripPrefix(value, "Hold target word:")
                 ?? value;
 

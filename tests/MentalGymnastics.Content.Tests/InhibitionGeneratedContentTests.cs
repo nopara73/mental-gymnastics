@@ -44,10 +44,31 @@ public sealed class InhibitionGeneratedContentTests
             .ToArray();
         Assert.Equal(9, cueStream.Length);
         Assert.Equal(cueStream.Length, expectedActions.Length);
-        Assert.Contains(cueStream, cue =>
-            cue.Value.Contains("go:", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(cueStream, cue =>
-            cue.Value.Contains("no-go:", StringComparison.OrdinalIgnoreCase));
+        Assert.All(cueStream, cue =>
+        {
+            Assert.True(
+                VisualStimulusCodec.TryDecode(cue.Value, out var stimulus),
+                $"Go/no-go cue {cue.Name} must contain canonical visual stimulus material.");
+            Assert.NotNull(stimulus);
+            Assert.DoesNotContain("go:", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("no-go:", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("withhold", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("respond", cue.Value, StringComparison.OrdinalIgnoreCase);
+            var expectedAction = Assert.Single(expectedActions, action =>
+                string.Equals(
+                    action.Name,
+                    cue.Name.Replace("cue-", "expected-action-", StringComparison.Ordinal),
+                    StringComparison.Ordinal));
+            var isGo = IsGoStimulus(stimulus!);
+            var isNoGo = IsNoGoStimulus(stimulus!);
+            Assert.NotEqual(isGo, isNoGo);
+            Assert.Equal(
+                expectedAction.Value.Contains("respond", StringComparison.OrdinalIgnoreCase),
+                isGo);
+            Assert.Equal(
+                expectedAction.Value.Contains("withhold", StringComparison.OrdinalIgnoreCase),
+                isNoGo);
+        });
 
         var noGoActions = expectedActions
             .Where(action => action.Value.Contains("withhold", StringComparison.OrdinalIgnoreCase))
@@ -144,10 +165,19 @@ public sealed class InhibitionGeneratedContentTests
             .Where(material => material.Kind == GeneratedContentMaterialKind.ExceptionDefinition)
             .ToArray();
         Assert.Equal(3, exceptions.Length);
+        var exceptionStimuli = exceptions
+            .Select(exception => VisualStimulusCodec.DecodeException(exception.Value))
+            .ToArray();
         Assert.All(exceptions, exception =>
         {
             Assert.Contains("exception", exception.Value, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("instead", exception.Value, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(exceptionStimuli, exception =>
+        {
+            Assert.True(exception.Ordinal > 0);
+            Assert.False(string.IsNullOrWhiteSpace(exception.Reason));
+            Assert.True(Enum.IsDefined(exception.ExpectedAction));
         });
 
         var cueSteps = generated.Materials
@@ -158,8 +188,55 @@ public sealed class InhibitionGeneratedContentTests
             .ToArray();
         Assert.Equal(8, cueSteps.Length);
         Assert.Equal(cueSteps.Length, expectedActions.Length);
-        Assert.Contains(cueSteps, cue =>
-            cue.Value.Contains("exception", StringComparison.OrdinalIgnoreCase));
+        Assert.All(cueSteps, cue =>
+        {
+            Assert.True(
+                VisualStimulusCodec.TryDecode(cue.Value, out var stimulus),
+                $"Exception-rule cue {cue.Name} must contain canonical visual stimulus material.");
+            Assert.NotNull(stimulus);
+            Assert.DoesNotContain("exception:", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("base rule:", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("withhold", cue.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("respond", cue.Value, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(exceptionStimuli, exception =>
+        {
+            var cue = Assert.Single(cueSteps, candidate => string.Equals(
+                candidate.Value,
+                VisualStimulusCodec.Encode(exception.Stimulus),
+                StringComparison.Ordinal));
+            var expectedAction = Assert.Single(expectedActions, action =>
+                string.Equals(
+                    action.Name,
+                    cue.Name.Replace("cue-step-", "expected-action-", StringComparison.Ordinal),
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                exception.ExpectedAction.ToString(),
+                expectedAction.Value,
+                StringComparison.OrdinalIgnoreCase);
+        });
+        var encodedExceptionStimuli = exceptionStimuli
+            .Select(exception => VisualStimulusCodec.Encode(exception.Stimulus))
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.All(
+            cueSteps.Where(cue => !encodedExceptionStimuli.Contains(cue.Value)),
+            cue =>
+            {
+                var stimulus = VisualStimulusCodec.Decode(cue.Value);
+                var expectedAction = Assert.Single(expectedActions, action =>
+                    string.Equals(
+                        action.Name,
+                        cue.Name.Replace("cue-step-", "expected-action-", StringComparison.Ordinal),
+                        StringComparison.Ordinal));
+                var isRound = stimulus.Shape is
+                    VisualStimulusShape.Dot or
+                    VisualStimulusShape.Circle or
+                    VisualStimulusShape.Ring;
+                Assert.Contains(
+                    isRound ? "tap" : "withhold",
+                    expectedAction.Value,
+                    StringComparison.OrdinalIgnoreCase);
+            });
         Assert.Contains(expectedActions, action =>
             action.Value.Contains("apply exception", StringComparison.OrdinalIgnoreCase));
 
@@ -321,5 +398,58 @@ public sealed class InhibitionGeneratedContentTests
             .Where(material => material.Kind == GeneratedContentMaterialKind.CueStep)
             .Select(material => material.Value)
             .ToArray();
+    }
+
+    private static bool IsGoStimulus(VisualStimulusSpec stimulus)
+    {
+        return stimulus.Color is
+                VisualStimulusColor.Green or
+                VisualStimulusColor.Blue or
+                VisualStimulusColor.White ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Arrow,
+                Direction: VisualStimulusDirection.North,
+            } ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Dot,
+                Color: VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Solid,
+            } ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Ring,
+                Color: VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Outline,
+            };
+    }
+
+    private static bool IsNoGoStimulus(VisualStimulusSpec stimulus)
+    {
+        return stimulus.Color is VisualStimulusColor.Red or VisualStimulusColor.Amber ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Arrow,
+                Direction: VisualStimulusDirection.South,
+            } ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Bar,
+                Color: VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Striped,
+            } ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Dot,
+                Color: VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Outline,
+            } ||
+            stimulus is
+            {
+                Shape: VisualStimulusShape.Ring,
+                Color: VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Crossed,
+            };
     }
 }

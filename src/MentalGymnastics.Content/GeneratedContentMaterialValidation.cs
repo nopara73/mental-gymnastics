@@ -147,6 +147,7 @@ public enum GeneratedContentMaterialValidationFailureKind
     InsufficientLoadMaterial,
     MissingComponentEvidenceRequirement,
     MissingComponentScoringKey,
+    InvalidMaterialValue,
 }
 
 public sealed record GeneratedContentMaterialValidationFailure(
@@ -175,6 +176,20 @@ public sealed class GeneratedContentMaterialValidationResult
 
 public static class GeneratedContentMaterialValidator
 {
+    private const string FocusHoldVisualTargetPrefix = "Visual target: ";
+    private const string FocusHoldVisualTargetType = "visual shape";
+
+    private static readonly string[] FocusHoldTargetSizes = ["small", "medium", "large"];
+
+    private static readonly string[] FocusHoldTargetColors =
+        ["red", "blue", "green", "black", "amber", "violet"];
+
+    private static readonly string[] FocusHoldTargetShapes =
+        ["dot", "line", "square", "circle", "triangle"];
+
+    private static readonly IReadOnlySet<string> UntestedFocusHoldPositionTokens =
+        new HashSet<string>(["left", "center", "right"], StringComparer.OrdinalIgnoreCase);
+
     private static readonly IReadOnlyDictionary<DrillId, PromptContentKind> ExpectedContentKinds =
         new Dictionary<DrillId, PromptContentKind>
         {
@@ -225,14 +240,12 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialKind.TargetType,
                 GeneratedContentMaterialKind.TargetSubtlety,
                 GeneratedContentMaterialKind.HoldDuration,
-                GeneratedContentMaterialKind.RecoveryWindow,
                 GeneratedContentMaterialKind.DriftMarkingEvidenceShape),
             [DrillId.FH2DistractorHold] = Required(
                 GeneratedContentMaterialKind.TargetStatement,
                 GeneratedContentMaterialKind.TargetType,
                 GeneratedContentMaterialKind.TargetSubtlety,
                 GeneratedContentMaterialKind.HoldDuration,
-                GeneratedContentMaterialKind.RecoveryWindow,
                 GeneratedContentMaterialKind.DriftMarkingEvidenceShape,
                 GeneratedContentMaterialKind.DistractorPrompt,
                 GeneratedContentMaterialKind.DistractorTiming,
@@ -354,6 +367,8 @@ public static class GeneratedContentMaterialValidator
         AddBranchDrillFailures(result, failures);
         AddContentKindFailures(result, failures);
         AddRequiredMaterialFailures(result.Drill, materialArray, failures);
+        AddFocusHoldTargetMaterialFailures(result.Drill, materialArray, failures);
+        AddStructuredVisualMaterialFailures(result.Drill, materialArray, failures);
         AddLevelSpecificRequiredMaterialFailures(result, materialArray, failures);
         AddCompositeComponentVisibilityFailures(result.Drill, materialArray, failures);
         AddLoadVariableFailures(result.Request.LoadVariables, materialArray, failures);
@@ -428,6 +443,238 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial,
                 requiredMaterial,
                 $"Generated content for {drill} is missing required {requiredMaterial} material."));
+        }
+    }
+
+    private static void AddFocusHoldTargetMaterialFailures(
+        DrillId drill,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        if (drill is not DrillId.FH1TargetHold and not DrillId.FH2DistractorHold)
+        {
+            return;
+        }
+
+        var targetStatements = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.TargetStatement)
+            .ToArray();
+        if (targetStatements.Length > 1)
+        {
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.TargetStatement,
+                "Focus Hold content must contain exactly one visual target statement."));
+        }
+
+        foreach (var statement in targetStatements.Where(statement =>
+                     !IsValidFocusHoldVisualTargetStatement(statement.Value)))
+        {
+            var detail = ContainsUntestedFocusHoldPosition(statement.Value)
+                ? "Focus Hold visual targets cannot include untested left, center, or right position attributes."
+                : "Focus Hold visual target statements must match exactly " +
+                    "'Visual target: {supported size} {supported color} {supported shape}'.";
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.TargetStatement,
+                detail));
+        }
+
+        var targetTypes = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.TargetType)
+            .ToArray();
+        if (targetTypes.Length > 1)
+        {
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.TargetType,
+                "Focus Hold content must contain exactly one target type."));
+        }
+
+        foreach (var targetType in targetTypes.Where(targetType =>
+                     !string.Equals(targetType.Value, FocusHoldVisualTargetType, StringComparison.Ordinal)))
+        {
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.TargetType,
+                "Focus Hold target type must be exactly 'visual shape'."));
+        }
+    }
+
+    private static bool IsValidFocusHoldVisualTargetStatement(string value)
+    {
+        return FocusHoldTargetSizes.Any(size =>
+            FocusHoldTargetColors.Any(color =>
+                FocusHoldTargetShapes.Any(shape => string.Equals(
+                    value,
+                    $"{FocusHoldVisualTargetPrefix}{size} {color} {shape}",
+                    StringComparison.Ordinal))));
+    }
+
+    private static bool ContainsUntestedFocusHoldPosition(string value)
+    {
+        return value
+            .Split(
+                [' ', '\t', '\r', '\n', ',', '.', ';', ':'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(UntestedFocusHoldPositionTokens.Contains);
+    }
+
+    private static void AddStructuredVisualMaterialFailures(
+        DrillId drill,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        switch (drill)
+        {
+            case DrillId.FS1CueSwitch:
+            case DrillId.FS2InvalidCueFilter:
+                AddCanonicalVisualStimulusFailures(
+                    materials,
+                    [
+                        GeneratedContentMaterialKind.TargetSet,
+                        GeneratedContentMaterialKind.CueStep,
+                        GeneratedContentMaterialKind.ValidCue,
+                        GeneratedContentMaterialKind.InvalidCue,
+                        GeneratedContentMaterialKind.ExpectedActiveTarget,
+                    ],
+                    "Focus Shift",
+                    failures);
+                break;
+
+            case DrillId.IR1GoNoGoRule:
+                AddCanonicalVisualStimulusFailures(
+                    materials,
+                    [GeneratedContentMaterialKind.GoNoGoCue],
+                    "Go/No-Go",
+                    failures);
+                break;
+
+            case DrillId.IR2ExceptionRule:
+                AddCanonicalVisualStimulusFailures(
+                    materials,
+                    [GeneratedContentMaterialKind.CueStep],
+                    "Exception Rule cue",
+                    failures);
+                AddCanonicalVisualExceptionFailures(materials, failures);
+                break;
+
+            case DrillId.DE1PairDiscrimination:
+                AddCanonicalDiscriminationPairFailures(materials, failures);
+                break;
+        }
+    }
+
+    private static void AddCanonicalVisualStimulusFailures(
+        IEnumerable<GeneratedContentMaterial> materials,
+        IReadOnlyCollection<GeneratedContentMaterialKind> materialKinds,
+        string materialFamily,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        foreach (var material in materials.Where(material => materialKinds.Contains(material.Kind)))
+        {
+            if (VisualStimulusCodec.TryDecode(material.Value, out _))
+            {
+                continue;
+            }
+
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                material.Kind,
+                $"{materialFamily} {material.Kind} material '{material.Name}' must use canonical " +
+                    $"{VisualStimulusCodec.FormatVersion} visual stimulus data, not prose or malformed data."));
+        }
+    }
+
+    private static void AddCanonicalVisualExceptionFailures(
+        IEnumerable<GeneratedContentMaterial> materials,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        foreach (var material in materials.Where(material =>
+                     material.Kind == GeneratedContentMaterialKind.ExceptionDefinition))
+        {
+            if (VisualStimulusCodec.TryDecodeException(material.Value, out _))
+            {
+                continue;
+            }
+
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.ExceptionDefinition,
+                $"Exception Rule material '{material.Name}' must use a canonical encoded visual exception, " +
+                    "not prose or malformed data."));
+        }
+    }
+
+    private static void AddCanonicalDiscriminationPairFailures(
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        var pairMaterials = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.DiscriminationPair)
+            .ToArray();
+        var truthMaterials = materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.MatchTruth)
+            .ToArray();
+        var decodedPairs = new VisualStimulusPairSpec?[pairMaterials.Length];
+
+        for (var index = 0; index < pairMaterials.Length; index++)
+        {
+            var material = pairMaterials[index];
+            var expectedPairId = $"pair-{(index + 1).ToString(CultureInfo.InvariantCulture)}";
+            if (!string.Equals(material.Name, expectedPairId, StringComparison.Ordinal))
+            {
+                failures.Add(new GeneratedContentMaterialValidationFailure(
+                    GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                    GeneratedContentMaterialKind.DiscriminationPair,
+                    $"Discrimination pairs must use canonical pair IDs in material order; expected '{expectedPairId}'."));
+            }
+
+            if (VisualStimulusCodec.TryDecodePair(material.Value, out var pair) && pair is not null)
+            {
+                decodedPairs[index] = pair;
+                continue;
+            }
+
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.DiscriminationPair,
+                $"Discrimination pair '{material.Name}' must use canonical " +
+                    $"{VisualStimulusCodec.PairFormatVersion} data, not prose or malformed data."));
+        }
+
+        if (pairMaterials.Length != truthMaterials.Length)
+        {
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.MatchTruth,
+                "Discrimination content must provide one ordered truth material for every ordered pair."));
+        }
+
+        for (var index = 0; index < Math.Min(pairMaterials.Length, truthMaterials.Length); index++)
+        {
+            if (decodedPairs[index] is not { } pair)
+            {
+                continue;
+            }
+
+            var pairId = $"pair-{(index + 1).ToString(CultureInfo.InvariantCulture)}";
+            var expectedTruth = pair.RelevantFeatureMatches ? "match" : "mismatch";
+            var expectedTruthName = $"{pairId}-truth";
+            var expectedTruthValue =
+                $"{pairId}: {expectedTruth}; expected answer based only on relevant feature";
+            var truth = truthMaterials[index];
+            if (string.Equals(truth.Name, expectedTruthName, StringComparison.Ordinal) &&
+                string.Equals(truth.Value, expectedTruthValue, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            failures.Add(new GeneratedContentMaterialValidationFailure(
+                GeneratedContentMaterialValidationFailureKind.InvalidMaterialValue,
+                GeneratedContentMaterialKind.MatchTruth,
+                $"Discrimination truth at position {index + 1} must match pair ID '{pairId}' and its " +
+                    $"decoded relevant-feature result '{expectedTruth}'."));
         }
     }
 

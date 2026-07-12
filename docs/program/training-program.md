@@ -189,8 +189,8 @@ No branch may advance more than two owned levels ahead of the lowest foundationa
 
 | Capacity | Branch | What Is Trained | How It Is Loaded | How It Is Constrained | How It Is Tested |
 | --- | --- | --- | --- | --- | --- |
-| Selective hold | FH | Keep a selected object or operation in the foreground. | Duration, distractors, precision of return. | No switching target; drift must be marked. | Timed hold with drift count and recovery time. |
-| Return after drift | FH, FS | Notice loss of target and resume without resetting the session. | Shorter recovery window, more interruptions. | Drift must be marked immediately. | Return-time standard after controlled interruption. |
+| Selective hold | FH | Keep a selected object or operation in the foreground. | Duration, distractors, target subtlety. | No switching target; every noticed drift must be marked. | Timed hold with drift count. |
+| Return after drift | FH, FS | Notice loss of target and resume without resetting the session. | More interruptions and switching demands. | Drift must be marked immediately; the set continues without a reset. | Continued task completion after interruption. |
 | Deliberate switching | FS | Move attention between specified targets on command. | Switch count, rule complexity, interval density. | Switches occur only on cue; no anticipatory switching. | Alternating target test with sequence accuracy. |
 | Encoding fidelity | WM | Take in information accurately enough to reconstruct it later. | Item count, detail density, delay. | No rereading after encode window. | Delayed reconstruction and comparison. |
 | Manipulation in mind | WM | Transform held information without externalizing the intermediate steps. | Operation steps, reversals, interference. | Intermediate notes prohibited unless drill allows them. | Final reconstruction plus operation explanation. |
@@ -210,7 +210,7 @@ Load increases must be coherent. Only one primary load variable should increase 
 
 | Branch | Primary Load Variables | Prohibited Load Increase |
 | --- | --- | --- |
-| FH | Duration, distractor salience, recovery window, target subtlety. | Adding complex reasoning before hold is stable. |
+| FH | Duration, distractor salience, target subtlety. | Adding complex reasoning before hold is stable. |
 | FS | Switch count, cue density, rule contrast, return precision. | Random switching without a defined cue rule. |
 | WM | Item count, detail density, operation steps, delay, interference. | Adding abstraction when encoding is inaccurate. |
 | IR | Cue conflict, response speed, exception count, pressure. | Increasing speed after rule-breaking errors. |
@@ -367,21 +367,23 @@ Each branch has level standards, gates, maintenance logic, transfer rules, and b
 
 ### FH: Focus Hold
 
-**Capacity:** Selective hold and return after drift.  
-**Branch relationship:** Foundational prerequisite for all branches; maintenance branch after L2.  
-**Primary evidence:** Timed hold, drift marks, recovery time.
+**Capacity:** Selective hold with honest drift noticing.
+
+**Branch relationship:** Foundational prerequisite for all branches; maintenance branch after L2.
+
+**Primary evidence:** Timed hold, drift marks, target continuity, and distractor responses where applicable.
 
 | Level | Demand | Standard | Gate | Stabilization | Transfer |
 | --- | --- | --- | --- | --- | --- |
-| L1 | Hold one simple target for 3 minutes. | No more than 5 marked drifts; each return within 10 seconds; no target change. | Pass once enters stabilization. | Repeat twice within 14 days; one after a short WM set. | Hold a different target type with same standard. |
-| L2 | Hold for 6 minutes or two 3-minute sets with 60 seconds rest. | No more than 7 total drifts; average return within 8 seconds. | Own L1 required. | Repeat on two days; one after light distraction. | Hold during low-noise environment change. |
+| L1 | Hold one simple target for 3 minutes. | No more than 5 marked drifts; every noticed drift marked; no target change. | Pass once enters stabilization. | Repeat twice within 14 days; one after a short WM set. | Hold a different target type with same standard. |
+| L2 | Hold for 6 minutes or two 3-minute sets with 60 seconds rest. | No more than 7 total marked drifts; every noticed drift marked; no target change. | Own L1 required. | Repeat on two days; one after light distraction. | Hold during low-noise environment change. |
 | L3 | Hold with controlled distractor. | 5 minutes with periodic irrelevant prompts; no response to distractor; no more than 5 drifts. | Own L2 required. | Repeat after FS practice. | Hold while using unfamiliar but simple content. |
 | L4 | Transfer hold to another branch task. | Maintain stated target while completing WM or DE task; branch score remains passing. | Own L3 required. | Two transfer passes in different branches. | Required transfer is the level test. |
 | L5 | Hold under integrated pressure. | Maintain target during 12-minute TI task; no branch-critical constraint breach. | Own L4 and TI L3 required. | Repeat during global review cycle. | Global task with branch-specific scoring. |
 
 **Maintenance:** After L2 owned, perform one 3-minute hold check weekly. After L4 owned, perform one transfer hold every 14 days.  
 **Bottleneck effect:** If FH maintenance fails, no branch may test above current level until FH is restored.  
-**Regression:** Shorten duration by half while keeping drift marking and return standards.
+**Regression:** Shorten duration by half while keeping drift marking and the same-target rule.
 
 ### FS: Focus Shift and Recovery
 
@@ -521,7 +523,7 @@ These drills are the standard building blocks. Branch levels may use variants, b
 
 | Drill | Purpose | Capacity Trained | Load Applied | Honesty Constraint | Clean Performance | Failure Modes | Regression |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| FH-1 Target Hold | Build selective hold. | Selective hold, return after drift. | Duration, target subtlety, distractor salience. | Target is stated before set; every drift is marked. | Target maintained within drift threshold; returns inside time window. | Unmarked drift, target substitution, restarting after drift. | Shorter duration with same marking rule. |
+| FH-1 Target Hold | Build selective hold. | Selective hold, immediate resumption after drift. | Duration, target subtlety, distractor salience. | Target is stated before set; every noticed drift is marked once. | Target maintained within drift threshold; set continues on the same target after a drift mark. | Unmarked drift, target substitution, restarting after drift. | Shorter duration with same marking rule. |
 | FH-2 Distractor Hold | Hold while irrelevant prompts appear. | Selective hold under interference. | Distractor frequency and salience. | Do not respond to distractor unless drill says so. | Passing hold score while distractors are ignored. | Responding to distractor, losing target, refusing to mark drift. | Fewer distractors with same no-response rule. |
 | FS-1 Cue Switch | Switch deliberately on cue. | Deliberate switching, cue obedience. | Cue density, target count. | Switch only on valid cue. | Sequence accuracy meets threshold; wrong switches corrected. | Anticipatory switch, missed cue, continuing wrong target. | Longer cue intervals and two targets. |
 | FS-2 Invalid Cue Filter | Switch while ignoring invalid cues. | Switching plus inhibition. | Invalid cue ratio, rule contrast. | Invalid cues must not trigger switch. | Valid and invalid response thresholds both met. | Treating all cues as valid, freezing, rule drift. | Reduce invalid cue count. |
@@ -607,7 +609,7 @@ Transfer tests must be related to the trained capacity but not identical to the 
 
 | Source Branch | Transfer Test | What Must Stay the Same | What Must Change |
 | --- | --- | --- | --- |
-| FH | Hold target during WM or DE task. | Target, drift marking, return standard. | Content and task format. |
+| FH | Hold target during WM or DE task. | Target, drift marking, no target substitution. | Content and task format. |
 | FS | Switch between two branch tasks. | Cue obedience and return standard. | Target type and branch context. |
 | WM | Reconstruct structure from unfamiliar content. | Encoding, delay, no invention. | Domain or representation. |
 | IR | Maintain rule in open task. | Pre-stated rule and no critical breach. | Task format and temptation source. |
@@ -735,7 +737,7 @@ The program prevents advancement through strengths while ignoring blockers.
 
 | Bottleneck | How It Shows Up | Programming Effect |
 | --- | --- | --- |
-| FH return after drift | Many tasks begin clean but dissolve. | Reduce task length and train FH before adding complexity. |
+| FH honest drift noticing | Attention repeatedly leaves the target without being marked. | Reduce task length and train FH before adding complexity. |
 | WM encoding fidelity | Later reasoning uses wrong source material. | Pause CO and TI; train WM reconstruction. |
 | IR rule fidelity | Standards are changed mid-task. | Suspend tests that rely on self-enforced rules. |
 | DE audit accuracy | Practitioner cannot find errors in artifacts. | Require DE maintenance before global review. |

@@ -47,10 +47,27 @@ public sealed class DiscriminationGeneratedContentTests
             .ToArray();
         Assert.Equal(6, pairs.Length);
         Assert.Equal(pairs.Length, truthKey.Length);
-        Assert.Contains(pairs, pair =>
-            pair.Value.Contains("relevant difference", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(pairs, pair =>
-            pair.Value.Contains("irrelevant difference", StringComparison.OrdinalIgnoreCase));
+        var decodedPairs = pairs
+            .Select(pair => (Material: pair, Pair: VisualStimulusCodec.DecodePair(pair.Value)))
+            .ToArray();
+        Assert.All(decodedPairs, item =>
+        {
+            Assert.NotEqual(item.Pair.First, item.Pair.Second);
+            Assert.False(string.IsNullOrWhiteSpace(item.Pair.RelevantFeatureName));
+            Assert.DoesNotContain("left '", item.Material.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("vs right", item.Material.Value, StringComparison.OrdinalIgnoreCase);
+            var expectedTruth = item.Pair.RelevantFeatureMatches ? "match" : "mismatch";
+            var truth = Assert.Single(truthKey, candidate =>
+                string.Equals(candidate.Name, item.Material.Name + "-truth", StringComparison.Ordinal));
+            Assert.StartsWith(
+                $"{item.Material.Name}: {expectedTruth};",
+                truth.Value,
+                StringComparison.Ordinal);
+        });
+        Assert.Contains(decodedPairs, item => item.Pair.RelevantFeatureMatches);
+        Assert.Contains(decodedPairs, item => !item.Pair.RelevantFeatureMatches);
+        Assert.Contains(decodedPairs, item =>
+            item.Pair.RelevantFeature == VisualStimulusFeature.MarkPosition);
         Assert.All(pairs, pair =>
             Assert.DoesNotContain("expected", pair.Value, StringComparison.OrdinalIgnoreCase));
         Assert.All(truthKey, truth =>

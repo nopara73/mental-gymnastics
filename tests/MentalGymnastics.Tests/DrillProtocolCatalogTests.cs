@@ -62,10 +62,10 @@ public sealed class DrillProtocolCatalogTests
             ["Duration", "target subtlety", "distractor salience."],
             protocol.LoadApplied.Select(load => load.Description));
         Assert.Equal(
-            ["Target is stated before set", "every drift is marked."],
+            ["Target is stated before set", "every noticed drift is marked once."],
             protocol.HonestyConstraints.Select(constraint => constraint.Description));
         Assert.Equal(
-            "Target maintained within drift threshold; returns inside time window.",
+            "Target maintained within drift threshold; set continues on the same target after a drift mark.",
             protocol.CleanPerformance);
         Assert.Equal(
             ["Unmarked drift", "target substitution", "restarting after drift."],

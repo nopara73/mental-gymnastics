@@ -47,66 +47,147 @@ public static class DiscriminationGeneratedContentGenerator
 
     private static readonly DiscriminationPairTemplate[] PairTemplates =
     [
-        new(
-            "arc-17 blue left notch",
-            "arc-17 blue right notch",
-            "center notch position",
-            "blue shade",
-            false),
-        new(
-            "grid-42 three center dots",
-            "grid-42 three center dots with pale border",
-            "center dot count",
-            "border shade",
-            true),
-        new(
-            "line-8 long-short-long",
-            "line-8 long-short-long with rotated label",
-            "line length sequence",
-            "label rotation",
-            true),
-        new(
-            "tile-31 small upper gap",
-            "tile-31 small lower gap",
-            "gap position",
-            "tile color",
-            false),
-        new(
-            "mark-5 double inner slash",
-            "mark-5 double inner slash with outer shadow",
-            "inner slash count",
-            "outer shadow",
-            true),
-        new(
-            "node-26 closed hook",
-            "node-26 open hook",
-            "hook closure",
-            "node label",
-            false),
-        new(
-            "card-14 left offset bar",
-            "card-14 right offset bar",
-            "bar offset direction",
-            "card texture",
-            false),
-        new(
-            "ring-9 two inner ticks",
-            "ring-9 two inner ticks with darker rim",
-            "inner tick count",
-            "rim darkness",
-            true),
-        new(
-            "glyph-63 tall crossbar",
-            "glyph-63 short crossbar",
-            "crossbar height",
-            "glyph tint",
-            false),
-        new(
-            "panel-7 diagonal slot",
-            "panel-7 diagonal slot with faint corner mark",
-            "slot angle",
-            "corner mark",
-            true),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Circle,
+                VisualStimulusColor.Blue,
+                Mark: VisualStimulusMark.Notch,
+                MarkPosition: VisualStimulusPosition.Left,
+                MarkCount: 1),
+            new(
+                VisualStimulusShape.Circle,
+                VisualStimulusColor.Blue,
+                Mark: VisualStimulusMark.Notch,
+                MarkPosition: VisualStimulusPosition.Right,
+                MarkCount: 1),
+            VisualStimulusFeature.MarkPosition)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Blue,
+                Mark: VisualStimulusMark.Dot,
+                MarkCount: 3,
+                Border: VisualStimulusBorder.Light),
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Blue,
+                Mark: VisualStimulusMark.Dot,
+                MarkCount: 3,
+                Border: VisualStimulusBorder.Heavy),
+            VisualStimulusFeature.MarkCount)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Gray,
+                Mark: VisualStimulusMark.Bar,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.Horizontal),
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Black,
+                Mark: VisualStimulusMark.Bar,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.Horizontal),
+            VisualStimulusFeature.MarkOrientation)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Green,
+                Size: VisualStimulusSize.Small,
+                Mark: VisualStimulusMark.Notch,
+                MarkPosition: VisualStimulusPosition.Top,
+                MarkCount: 1),
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Green,
+                Size: VisualStimulusSize.Small,
+                Mark: VisualStimulusMark.Notch,
+                MarkPosition: VisualStimulusPosition.Bottom,
+                MarkCount: 1),
+            VisualStimulusFeature.MarkPosition)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Circle,
+                VisualStimulusColor.Black,
+                Mark: VisualStimulusMark.Slash,
+                MarkCount: 2,
+                MarkOrientation: VisualStimulusOrientation.DiagonalRight),
+            new(
+                VisualStimulusShape.Circle,
+                VisualStimulusColor.Black,
+                Mark: VisualStimulusMark.Slash,
+                MarkCount: 2,
+                MarkOrientation: VisualStimulusOrientation.DiagonalRight,
+                Border: VisualStimulusBorder.Heavy),
+            VisualStimulusFeature.MarkCount)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Ring,
+                VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Outline),
+            new(
+                VisualStimulusShape.Ring,
+                VisualStimulusColor.Black,
+                Fill: VisualStimulusFill.Crossed),
+            VisualStimulusFeature.Fill)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Arrow,
+                VisualStimulusColor.Gray,
+                Direction: VisualStimulusDirection.West),
+            new(
+                VisualStimulusShape.Arrow,
+                VisualStimulusColor.Gray,
+                Direction: VisualStimulusDirection.East),
+            VisualStimulusFeature.Direction)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Ring,
+                VisualStimulusColor.Violet,
+                Fill: VisualStimulusFill.Outline,
+                Mark: VisualStimulusMark.Tick,
+                MarkCount: 2,
+                MarkOrientation: VisualStimulusOrientation.Vertical,
+                Border: VisualStimulusBorder.Light),
+            new(
+                VisualStimulusShape.Ring,
+                VisualStimulusColor.Violet,
+                Fill: VisualStimulusFill.Outline,
+                Mark: VisualStimulusMark.Tick,
+                MarkCount: 2,
+                MarkOrientation: VisualStimulusOrientation.Vertical,
+                Border: VisualStimulusBorder.Heavy),
+            VisualStimulusFeature.MarkCount)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Amber,
+                Size: VisualStimulusSize.Large,
+                Mark: VisualStimulusMark.Crossbar,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.Horizontal),
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Amber,
+                Size: VisualStimulusSize.Small,
+                Mark: VisualStimulusMark.Crossbar,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.Horizontal),
+            VisualStimulusFeature.Size)),
+        new(new VisualStimulusPairSpec(
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Blue,
+                Mark: VisualStimulusMark.Slot,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.DiagonalRight),
+            new(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Gray,
+                Mark: VisualStimulusMark.Slot,
+                MarkCount: 1,
+                MarkOrientation: VisualStimulusOrientation.DiagonalRight),
+            VisualStimulusFeature.MarkOrientation)),
     ];
 
     private static readonly SeededAuditTemplate[] SeededAuditTemplates =
@@ -352,11 +433,11 @@ public static class DiscriminationGeneratedContentGenerator
         {
             var pairNumber = (i + 1).ToString(CultureInfo.InvariantCulture);
             var pair = pairs[i];
-            var truth = pair.RelevantFeaturesMatch ? "match" : "mismatch";
+            var truth = pair.Pair.RelevantFeatureMatches ? "match" : "mismatch";
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.DiscriminationPair,
                 $"pair-{pairNumber}",
-                $"pair-{pairNumber}: left '{pair.LeftItem}' vs right '{pair.RightItem}'; relevant feature '{pair.RelevantFeature}'; irrelevant difference '{pair.IrrelevantDifference}'"));
+                VisualStimulusCodec.EncodePair(pair.Pair)));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.MatchTruth,
                 $"pair-{pairNumber}-truth",
@@ -690,7 +771,7 @@ public static class DiscriminationGeneratedContentGenerator
             seedPlan.RequestFingerprint,
             "discrimination-pair",
             seedPlan.FreshnessOrdinal,
-            pair => $"{pair.LeftItem}|{pair.RightItem}");
+            pair => VisualStimulusCodec.EncodePair(pair.Pair));
         var pairs = new List<DiscriminationPairTemplate>();
 
         for (var i = 0; i < pairCount; i++)
@@ -701,8 +782,11 @@ public static class DiscriminationGeneratedContentGenerator
                 ? template
                 : template with
                 {
-                    LeftItem = template.RightItem,
-                    RightItem = template.LeftItem,
+                    Pair = template.Pair with
+                    {
+                        First = template.Pair.Second,
+                        Second = template.Pair.First,
+                    },
                 });
         }
 
@@ -778,12 +862,7 @@ public static class DiscriminationGeneratedContentGenerator
             : null;
     }
 
-    private sealed record DiscriminationPairTemplate(
-        string LeftItem,
-        string RightItem,
-        string RelevantFeature,
-        string IrrelevantDifference,
-        bool RelevantFeaturesMatch);
+    private sealed record DiscriminationPairTemplate(VisualStimulusPairSpec Pair);
 
     private sealed record SeededAuditTemplate(
         string TemplateId,

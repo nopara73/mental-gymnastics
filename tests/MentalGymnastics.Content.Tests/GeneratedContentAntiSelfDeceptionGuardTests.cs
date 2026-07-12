@@ -275,16 +275,34 @@ public sealed class GeneratedContentAntiSelfDeceptionGuardTests
 
     private static IReadOnlyList<GeneratedContentMaterial> ValidDeMaterials()
     {
+        var differentShape = new VisualStimulusPairSpec(
+            new VisualStimulusSpec(VisualStimulusShape.Circle, VisualStimulusColor.Blue),
+            new VisualStimulusSpec(VisualStimulusShape.Square, VisualStimulusColor.Blue),
+            VisualStimulusFeature.Shape);
+        var sameMarkCount = new VisualStimulusPairSpec(
+            new VisualStimulusSpec(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Green,
+                Mark: VisualStimulusMark.Dot,
+                MarkCount: 2),
+            new VisualStimulusSpec(
+                VisualStimulusShape.Square,
+                VisualStimulusColor.Amber,
+                Mark: VisualStimulusMark.Dot,
+                MarkCount: 2),
+            VisualStimulusFeature.MarkCount);
+
         return
         [
             new GeneratedContentMaterial(GeneratedContentMaterialKind.LoadVariable, "quantity", "2"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.LoadVariable, "similarity", "simple"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.HonestyConstraint, "marked-guesses", MarkedGuessConstraint),
-            new GeneratedContentMaterial(GeneratedContentMaterialKind.DiscriminationPair, "pair-1", "A|B"),
-            new GeneratedContentMaterial(GeneratedContentMaterialKind.DiscriminationPair, "pair-2", "C|D"),
+            new GeneratedContentMaterial(GeneratedContentMaterialKind.DiscriminationPair, "pair-1", VisualStimulusCodec.EncodePair(differentShape)),
+            new GeneratedContentMaterial(GeneratedContentMaterialKind.DiscriminationPair, "pair-2", VisualStimulusCodec.EncodePair(sameMarkCount)),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.RelevantFeature, "feature", "shape edge"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.Similarity, "similarity", "simple"),
-            new GeneratedContentMaterial(GeneratedContentMaterialKind.MatchTruth, "truth", "pair-1 different; pair-2 same"),
+            new GeneratedContentMaterial(GeneratedContentMaterialKind.MatchTruth, "pair-1-truth", "pair-1: mismatch; expected answer based only on relevant feature"),
+            new GeneratedContentMaterial(GeneratedContentMaterialKind.MatchTruth, "pair-2-truth", "pair-2: match; expected answer based only on relevant feature"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.GuessHandling, "guess-handling", "mark every guess before answering"),
             new GeneratedContentMaterial(GeneratedContentMaterialKind.FalsePositiveFalseNegativeKey, "fp-fn", "false positives and false negatives tracked separately"),
         ];

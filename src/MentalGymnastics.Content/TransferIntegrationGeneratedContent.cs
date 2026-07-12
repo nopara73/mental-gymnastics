@@ -50,8 +50,8 @@ public static class TransferIntegrationGeneratedContentGenerator
             GlobalLevelId.L3,
             DrillId.FH2DistractorHold,
             "hold target while the composite task runs",
-            "drift marks, return timing, distractor no-response record, and unchanged target",
-            "FH score uses drift threshold and return timing; it cannot be replaced by composite total"),
+            "one mark per noticed drift, distractor no-response record, and unchanged target",
+            "FH score uses the hold duration, drift threshold, and target continuity; it cannot be replaced by composite total"),
         new(
             BranchCode.FS,
             GlobalLevelId.L3,
@@ -103,7 +103,7 @@ public static class TransferIntegrationGeneratedContentGenerator
             GlobalLevelId.L5,
             DrillId.FH2DistractorHold,
             "maintain the declared target while the global review task runs",
-            "target preservation, drift marks, return timing, and no pressure-driven target substitution",
+            "target preservation, one mark per noticed drift, and no pressure-driven target substitution",
             "FH score uses hold stability and target preservation; it cannot be replaced by composite total"),
         new(
             BranchCode.FS,

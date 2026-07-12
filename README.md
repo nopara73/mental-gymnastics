@@ -4,6 +4,31 @@ Mental Gymnastics is a native, offline Android training product for standards-ba
 
 The implementation is split into pure domain rules, local persistence, deterministic generated content, a headless runtime, app workflows, and a native Android UI. The app has no accounts, network dependency, telemetry, cloud sync, or AI/API dependency.
 
+## Android Experience
+
+The interface follows an explicit attention budget: setup explains the task, live practice shows only the stimulus and immediate action, and measurement returns after the cognitive work. Visual drills render the objects themselves rather than asking the practitioner to memorize descriptor text or internal content data.
+
+<table>
+  <tr>
+    <td align="center" width="25%">
+      <img src="docs/screenshots/practice-ergonomics-2026-07-12/01-today.png" width="220" alt="Today's prescribed Mental Gymnastics practice" /><br />
+      <sub>Today’s prescribed work</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/screenshots/practice-ergonomics-2026-07-12/02-preflight.png" width="220" alt="Focus Hold setup showing the complete visual target" /><br />
+      <sub>Setup before cognitive load</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/screenshots/practice-ergonomics-2026-07-12/03-live-hold.png" width="220" alt="Distraction-free Focus Hold with one centered target" /><br />
+      <sub>Distraction-free Focus Hold</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/screenshots/practice-ergonomics-2026-07-12/04-discrimination.png" width="220" alt="Visual discrimination using two rendered arrow stimuli" /><br />
+      <sub>Objects, not descriptors</sub>
+    </td>
+  </tr>
+</table>
+
 ## A Discipline, Not An Atmosphere
 
 Mental Gymnastics occupies some of the same territory as meditation and contemplative practice: attention, awareness of drift, deliberate return, restraint under impulse, and stability under pressure. Its disagreement is not with inner practice itself. It is with practices that remain too vague to distinguish transformation from participation.

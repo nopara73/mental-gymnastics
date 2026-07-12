@@ -35,7 +35,7 @@ public static class AffectiveInterferenceGeneratedContentGenerator
 {
     private const string OriginalStandardCannotBeLoweredConstraint = "Original standard cannot be lowered.";
     private const string FullRestartProhibitedConstraint = "Full restart prohibited unless specified.";
-    private const string DefaultTimePressure = "mild countdown";
+    private const string DefaultTimePressure = "declared set limit";
     private const string DefaultEvaluativePressure = "visible score review";
     private const string DefaultInterruptionTiming = "after first stable segment";
     private const string DefaultRestartDelay = "10 seconds";
@@ -52,9 +52,9 @@ public static class AffectiveInterferenceGeneratedContentGenerator
     private static readonly PressureSourceTemplate[] PressureSources =
     [
         new(
-            "visible-countdown",
-            "defined pressure source: visible countdown label while the original source task is performed",
-            "countdown is visible but does not hide the source task, scoring key, or artifact capture"),
+            "post-set-audit",
+            "defined pressure source: a post-set accuracy audit is declared before the original source task",
+            "the audit occurs after the set and does not add live chrome or hide source-task evidence"),
         new(
             "observer-review",
             "defined pressure source: visible evaluator note that the artifact will be reviewed after the set",
@@ -590,8 +590,7 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             DrillId.FH2DistractorHold =>
             [
                 new LoadVariable("duration", "5 minutes"),
-                new LoadVariable("target subtlety", "simple phrase"),
-                new LoadVariable("recovery window", "10 seconds"),
+                new LoadVariable("target subtlety", "simple visual target"),
                 new LoadVariable("distractor frequency", "periodic"),
                 new LoadVariable("distractor salience", "low"),
             ],

@@ -18,7 +18,7 @@ public sealed class StabilizationGeneratedContentTests
             "fh-l1-stabilization",
             PromptFreshnessPolicy.FreshEquivalentRequired,
             profile.TargetStage.LoadVariables,
-            [new CriticalConstraint("Target is stated before set; every drift is marked.")]);
+            [new CriticalConstraint("Target is stated before set; every noticed drift is marked once.")]);
         var generated = FocusHoldGeneratedContentGenerator.Generate(
             request,
             new GeneratedContentSeed("stabilization-controlled-demand"));

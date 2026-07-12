@@ -424,6 +424,15 @@ public sealed class RuntimeStandardEvaluationHandoffMapperTests
                 "Rule before set: respond only to go cues and withhold every no-go cue; " +
                 "the rule cannot be changed after the cue stream starts."),
         ];
+        RuntimeScoringMaterial[] generatedVisualMaterials =
+        [
+            new(
+                "RuleStatement",
+                "rule",
+                "Rule before set: TAP green, blue, or white shapes; north arrows; solid black dots; " +
+                "or open black rings. WITHHOLD red or amber shapes; south arrows; striped black bars; " +
+                "hollow black dots; or crossed black rings. The rule cannot be changed after the cue stream starts."),
+        ];
         var phaseStart = Event(
             3,
             RuntimeEventKind.PhaseStarted,
@@ -462,6 +471,12 @@ public sealed class RuntimeStandardEvaluationHandoffMapperTests
             .CriticalConstraintChecks.Single(check =>
                 check.Id == TrainingStandardConstraints.RuleStatedBeforeSet).Satisfied);
         Assert.True(RuntimeStandardEvaluationHandoffMapper.Map(exact, materials)
+            .CriticalConstraintChecks.Single(check =>
+                check.Id == TrainingStandardConstraints.RuleStatedBeforeSet).Satisfied);
+        Assert.False(RuntimeStandardEvaluationHandoffMapper.Map(vague, generatedVisualMaterials)
+            .CriticalConstraintChecks.Single(check =>
+                check.Id == TrainingStandardConstraints.RuleStatedBeforeSet).Satisfied);
+        Assert.True(RuntimeStandardEvaluationHandoffMapper.Map(exact, generatedVisualMaterials)
             .CriticalConstraintChecks.Single(check =>
                 check.Id == TrainingStandardConstraints.RuleStatedBeforeSet).Satisfied);
     }
@@ -503,6 +518,59 @@ public sealed class RuntimeStandardEvaluationHandoffMapperTests
                 TrainingStandardConstraints.RuleStatedBeforeSet or
                 TrainingStandardConstraints.ExceptionsStatedBeforeSet),
             check => Assert.True(check.Satisfied));
+    }
+
+    [Fact]
+    public void InhibitionDeclarationBindsStableActionsToGeneratedExceptionTokens()
+    {
+        const string rule =
+            "Rule before set: tap round symbols and withhold angular symbols; " +
+            "named exceptions override base rule and cannot be rewritten mid-set.";
+        RuntimeScoringMaterial[] materials =
+        [
+            new("RuleStatement", "rule", rule),
+            new(
+                "ExceptionDefinition",
+                "exception-1",
+                "exception 1: exception-1 -> withhold instead; visual-stimulus-exception-v1;" +
+                "stimulus visual-stimulus-v1;shape=Circle;color=Red;fill=Solid;size=Medium;" +
+                "direction=None;mark=None;mark-position=Center;mark-count=0;" +
+                "mark-orientation=None;border=Regular;reason red circle is withheld instead of tapped"),
+            new(
+                "ExceptionDefinition",
+                "exception-2",
+                "exception 2: exception-2 -> tap instead; visual-stimulus-exception-v1;" +
+                "stimulus visual-stimulus-v1;shape=Diamond;color=Blue;fill=Solid;size=Medium;" +
+                "direction=None;mark=None;mark-position=Center;mark-count=0;" +
+                "mark-orientation=None;border=Regular;reason blue diamond is tapped instead of withheld"),
+        ];
+        var correctAnswer =
+            "RULE=tap round symbols and withhold angular symbols; " +
+            "EXCEPTION-1=withhold; EXCEPTION-2=tap";
+        var swappedAnswer =
+            "RULE=tap round symbols and withhold angular symbols; " +
+            "EXCEPTION-1=tap; EXCEPTION-2=withhold";
+
+        var correct = RuntimeStandardEvaluationHandoffMapper.Map(
+            InhibitionDeclarationResult(correctAnswer),
+            materials);
+        var swapped = RuntimeStandardEvaluationHandoffMapper.Map(
+            InhibitionDeclarationResult(swappedAnswer),
+            materials);
+
+        Assert.DoesNotContain("visual-stimulus", correctAnswer, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            100,
+            correct.Measurements.Single(measurement =>
+                measurement.Name == TrainingStandardMeasurements.ExceptionStatementPercent).Value);
+        Assert.True(correct.CriticalConstraintChecks.Single(check =>
+            check.Id == TrainingStandardConstraints.ExceptionsStatedBeforeSet).Satisfied);
+        Assert.Equal(
+            0,
+            swapped.Measurements.Single(measurement =>
+                measurement.Name == TrainingStandardMeasurements.ExceptionStatementPercent).Value);
+        Assert.False(swapped.CriticalConstraintChecks.Single(check =>
+            check.Id == TrainingStandardConstraints.ExceptionsStatedBeforeSet).Satisfied);
     }
 
     [Fact]
@@ -1172,6 +1240,26 @@ public sealed class RuntimeStandardEvaluationHandoffMapperTests
             handoff.CriticalConstraintChecks,
             handoff.OutputComplete,
             handoff.RubricOutcome);
+    }
+
+    private static RuntimeSessionCompletionResult InhibitionDeclarationResult(string answer)
+    {
+        return Result(
+            BranchCode.IR,
+            GlobalLevelId.L2,
+            DrillId.IR2ExceptionRule,
+            [],
+            [
+                Event(1, RuntimeEventKind.PhaseStarted, "rule-declaration", RuntimeSessionPhaseKind.ActiveWork),
+                Event(
+                    2,
+                    RuntimeEventKind.AnswerSubmitted,
+                    "rule-declaration",
+                    RuntimeSessionPhaseKind.ActiveWork,
+                    new("answer_id", "rule-declaration"),
+                    new("answer_reference", answer)),
+                Event(3, RuntimeEventKind.PhaseStarted, "cue-response", RuntimeSessionPhaseKind.CueResponse),
+            ]);
     }
 
     private static RuntimeSessionCompletionResult Result(

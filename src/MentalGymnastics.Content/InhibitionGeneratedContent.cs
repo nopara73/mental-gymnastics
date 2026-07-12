@@ -48,42 +48,66 @@ public static class InhibitionGeneratedContentGenerator
 
     private static readonly CueTemplate[] GoCues =
     [
-        new("green circle", "tap"),
-        new("blue square", "tap"),
-        new("white bar", "tap"),
-        new("north arrow", "tap"),
-        new("solid dot", "tap"),
-        new("open ring", "tap"),
+        new(new(VisualStimulusShape.Circle, VisualStimulusColor.Green), "tap"),
+        new(new(VisualStimulusShape.Square, VisualStimulusColor.Blue), "tap"),
+        new(new(VisualStimulusShape.Bar, VisualStimulusColor.White), "tap"),
+        new(new(
+            VisualStimulusShape.Arrow,
+            VisualStimulusColor.Black,
+            Direction: VisualStimulusDirection.North), "tap"),
+        new(new(VisualStimulusShape.Dot, VisualStimulusColor.Black), "tap"),
+        new(new(
+            VisualStimulusShape.Ring,
+            VisualStimulusColor.Black,
+            Fill: VisualStimulusFill.Outline), "tap"),
     ];
 
     private static readonly CueTemplate[] NoGoCues =
     [
-        new("red circle", "withhold"),
-        new("amber square", "withhold"),
-        new("striped bar", "withhold"),
-        new("south arrow", "withhold"),
-        new("hollow dot", "withhold"),
-        new("crossed ring", "withhold"),
+        new(new(VisualStimulusShape.Circle, VisualStimulusColor.Red), "withhold"),
+        new(new(VisualStimulusShape.Square, VisualStimulusColor.Amber), "withhold"),
+        new(new(
+            VisualStimulusShape.Bar,
+            VisualStimulusColor.Black,
+            Fill: VisualStimulusFill.Striped), "withhold"),
+        new(new(
+            VisualStimulusShape.Arrow,
+            VisualStimulusColor.Black,
+            Direction: VisualStimulusDirection.South), "withhold"),
+        new(new(
+            VisualStimulusShape.Dot,
+            VisualStimulusColor.Black,
+            Fill: VisualStimulusFill.Outline), "withhold"),
+        new(new(
+            VisualStimulusShape.Ring,
+            VisualStimulusColor.Black,
+            Fill: VisualStimulusFill.Crossed), "withhold"),
     ];
 
     private static readonly BaseRuleItem[] BaseRuleItems =
     [
-        new("green circle", "round", "tap"),
-        new("blue ring", "round", "tap"),
-        new("silver disk", "round", "tap"),
-        new("red triangle", "angular", "withhold"),
-        new("amber square", "angular", "withhold"),
-        new("black diamond", "angular", "withhold"),
+        new(new(VisualStimulusShape.Circle, VisualStimulusColor.Green), "tap"),
+        new(new(
+            VisualStimulusShape.Ring,
+            VisualStimulusColor.Blue,
+            Fill: VisualStimulusFill.Outline), "tap"),
+        new(new(VisualStimulusShape.Dot, VisualStimulusColor.Gray), "tap"),
+        new(new(VisualStimulusShape.Triangle, VisualStimulusColor.Red), "withhold"),
+        new(new(VisualStimulusShape.Square, VisualStimulusColor.Amber), "withhold"),
+        new(new(VisualStimulusShape.Diamond, VisualStimulusColor.Black), "withhold"),
     ];
 
     private static readonly ExceptionTemplate[] ExceptionTemplates =
     [
-        new("green triangle", "tap", "round-color triangle is tapped instead of withheld"),
-        new("red circle", "withhold", "red round cue is withheld instead of tapped"),
-        new("blue diamond", "tap", "blue angular cue is tapped instead of withheld"),
-        new("amber ring", "withhold", "amber round cue is withheld instead of tapped"),
-        new("white square", "tap", "white angular cue is tapped instead of withheld"),
-        new("black disk", "withhold", "black round cue is withheld instead of tapped"),
+        new(new(VisualStimulusShape.Triangle, VisualStimulusColor.Green), "tap", "green triangle is tapped instead of withheld"),
+        new(new(VisualStimulusShape.Circle, VisualStimulusColor.Red), "withhold", "red circle is withheld instead of tapped"),
+        new(new(VisualStimulusShape.Diamond, VisualStimulusColor.Blue), "tap", "blue diamond is tapped instead of withheld"),
+        new(new(
+            VisualStimulusShape.Ring,
+            VisualStimulusColor.Amber,
+            Fill: VisualStimulusFill.Outline), "withhold", "amber ring is withheld instead of tapped"),
+        new(new(VisualStimulusShape.Square, VisualStimulusColor.White), "tap", "white square is tapped instead of withheld"),
+        new(new(VisualStimulusShape.Dot, VisualStimulusColor.Black), "withhold", "black dot is withheld instead of tapped"),
     ];
 
     public static InhibitionGeneratedContent Generate(
@@ -175,7 +199,9 @@ public static class InhibitionGeneratedContentGenerator
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.RuleStatement,
             "rule-statement",
-            "Rule before set: respond only to go cues and withhold every no-go cue; the rule cannot be changed after the cue stream starts."));
+            "Rule before set: TAP green, blue, or white shapes; north arrows; solid black dots; or open black rings. " +
+            "WITHHOLD red or amber shapes; south arrows; striped black bars; hollow black dots; or crossed black rings. " +
+            "The rule cannot be changed after the cue stream starts."));
 
         AddGoNoGoCueStream(materials, seedPlan, noGoInterval, responseWindow);
 
@@ -244,7 +270,11 @@ public static class InhibitionGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExceptionDefinition,
                 $"exception-{exceptionNumber}",
-                $"exception {exceptionNumber}: {exceptions[i].Symbol} -> {exceptions[i].ExpectedAction} instead; {exceptions[i].Reason}"));
+                VisualStimulusCodec.EncodeException(new VisualStimulusExceptionSpec(
+                    i + 1,
+                    exceptions[i].Stimulus,
+                    ResponseActionFor(exceptions[i].ExpectedAction),
+                    exceptions[i].Reason))));
         }
 
         AddExceptionRuleCueStream(materials, seedPlan, exceptions, responseWindow);
@@ -338,13 +368,13 @@ public static class InhibitionGeneratedContentGenerator
             seedPlan.RequestFingerprint,
             "go-cue",
             seedPlan.FreshnessOrdinal,
-            cue => cue.Symbol);
+            cue => cue.Encoded);
         var orderedNoGoCues = GeneratedContentStableHash.OrderByOrdinal(
             NoGoCues,
             seedPlan.RequestFingerprint,
             "no-go-cue",
             seedPlan.FreshnessOrdinal,
-            cue => cue.Symbol);
+            cue => cue.Encoded);
         var goIndex = 0;
         var noGoIndex = 0;
 
@@ -360,7 +390,7 @@ public static class InhibitionGeneratedContentGenerator
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.GoNoGoCue,
                     $"cue-{cueName}",
-                    $"no-go: {cue.Symbol}"));
+                    cue.Encoded));
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.ExpectedAction,
                     $"expected-action-{cueName}",
@@ -372,7 +402,7 @@ public static class InhibitionGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.GoNoGoCue,
                 $"cue-{cueName}",
-                $"go: {goCue.Symbol}"));
+                goCue.Encoded));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedAction,
                 $"expected-action-{cueName}",
@@ -410,7 +440,7 @@ public static class InhibitionGeneratedContentGenerator
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.CueStep,
                     $"cue-step-{cueName}",
-                    $"exception: {exception.Symbol}"));
+                    exception.Encoded));
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.ExpectedAction,
                     $"expected-action-{cueName}",
@@ -422,7 +452,7 @@ public static class InhibitionGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.CueStep,
                 $"cue-step-{cueName}",
-                $"base rule: {item.Symbol} ({item.Shape})"));
+                item.Encoded));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedAction,
                 $"expected-action-{cueName}",
@@ -549,7 +579,7 @@ public static class InhibitionGeneratedContentGenerator
                 seedPlan.RequestFingerprint,
                 "exception-definition",
                 seedPlan.FreshnessOrdinal,
-                exception => exception.Symbol)
+                exception => exception.Encoded)
             .Take(exceptionCount)
             .ToArray();
     }
@@ -611,17 +641,36 @@ public static class InhibitionGeneratedContentGenerator
             : null;
     }
 
+    private static VisualStimulusResponseAction ResponseActionFor(string expectedAction)
+    {
+        return expectedAction switch
+        {
+            "tap" => VisualStimulusResponseAction.Tap,
+            "withhold" => VisualStimulusResponseAction.Withhold,
+            _ => throw new InvalidOperationException(
+                $"Unsupported visual stimulus response action {expectedAction}."),
+        };
+    }
+
     private sealed record CueTemplate(
-        string Symbol,
-        string ExpectedAction);
+        VisualStimulusSpec Stimulus,
+        string ExpectedAction)
+    {
+        public string Encoded => VisualStimulusCodec.Encode(Stimulus);
+    }
 
     private sealed record BaseRuleItem(
-        string Symbol,
-        string Shape,
-        string ExpectedAction);
+        VisualStimulusSpec Stimulus,
+        string ExpectedAction)
+    {
+        public string Encoded => VisualStimulusCodec.Encode(Stimulus);
+    }
 
     private sealed record ExceptionTemplate(
-        string Symbol,
+        VisualStimulusSpec Stimulus,
         string ExpectedAction,
-        string Reason);
+        string Reason)
+    {
+        public string Encoded => VisualStimulusCodec.Encode(Stimulus);
+    }
 }

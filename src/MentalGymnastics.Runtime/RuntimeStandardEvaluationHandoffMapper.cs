@@ -109,9 +109,6 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 TrainingStandardMeasurements.ActiveDurationSeconds => ActiveDurationSeconds(),
                 TrainingStandardMeasurements.SetCount => WorkingSetCount(),
                 TrainingStandardMeasurements.MarkedDriftCount => EventCount(RuntimeEventKind.DriftMarked),
-                TrainingStandardMeasurements.UnreturnedDriftCount => UnreturnedDriftCount(),
-                TrainingStandardMeasurements.LateReturnCount => FactCount("return_timing_outcome", "late"),
-                TrainingStandardMeasurements.AverageReturnSeconds => AverageDurationFact("recovery_time"),
                 TrainingStandardMeasurements.TargetSubstitutionCount => FactCount("error_kind", "target_substitution"),
                 TrainingStandardMeasurements.DistractorResponseCount => cueScore.NoResponseCueResponses,
                 TrainingStandardMeasurements.CorrectResponsePercent => cueScore.RequiredAccuracyPercent,
@@ -226,14 +223,14 @@ public static class RuntimeStandardEvaluationHandoffMapper
             if (result.Branch == BranchCode.AI && result.SessionDefinition.SourceDrill is { } sourceDrill)
             {
                 var sourceOutputPresent = sourceDrill == DrillId.FH2DistractorHold
-                    ? HasStartedWork() && UnreturnedDriftCount() == 0
+                    ? HasStartedWork()
                     : cueScore.Total > 0 && cueScore.AllCuesResolved;
                 return sourceOutputPresent && componentOutputPresent;
             }
 
             if (result.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
             {
-                return HasStartedWork() && UnreturnedDriftCount() == 0 && componentOutputPresent;
+                return HasStartedWork() && componentOutputPresent;
             }
 
             if (result.Drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter or
@@ -290,32 +287,6 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 DrillId.DE1PairDiscrimination => pairScore.AccuracyPercent,
                 _ => Math.Max(reconstruction.AccuracyPercent, cueScore.TotalAccuracyPercent),
             };
-        }
-
-        private decimal UnreturnedDriftCount()
-        {
-            var returned = events
-                .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted)
-                .Select(runtimeEvent => Fact(runtimeEvent, "drift_id"))
-                .Where(value => value is not null)
-                .ToHashSet(StringComparer.Ordinal);
-            return events.Count(runtimeEvent =>
-                runtimeEvent.Kind == RuntimeEventKind.DriftMarked &&
-                (Fact(runtimeEvent, "drift_id") is not { } id || !returned.Contains(id)));
-        }
-
-        private decimal AverageDurationFact(string factName)
-        {
-            var durations = events
-                .Select(runtimeEvent => Fact(runtimeEvent, factName))
-                .Where(value => value is not null)
-                .Select(value => TimeSpan.TryParseExact(value, "c", CultureInfo.InvariantCulture, out var parsed)
-                    ? parsed.TotalSeconds
-                    : 0)
-                .ToArray();
-            return durations.Length == 0
-                ? 0
-                : Convert.ToDecimal(durations.Average(), CultureInfo.InvariantCulture);
         }
 
         private decimal MaximumCorrectionDistance()
@@ -425,12 +396,14 @@ public static class RuntimeStandardEvaluationHandoffMapper
             return RuleDeclarationMatches(expectedRule, declaredRule);
         }
 
-        private static bool RuleDeclarationMatches(string expectedRule, string declaredRule)
+        private bool RuleDeclarationMatches(string expectedRule, string declaredRule)
         {
             var expected = Normalize(expectedRule);
             var declared = Normalize(declaredRule);
-            if (expected.Contains("go cues", StringComparison.Ordinal) &&
-                expected.Contains("no-go", StringComparison.Ordinal))
+            var effectiveDrill = result.SessionDefinition.SourceDrill ?? result.Drill;
+            if (effectiveDrill == DrillId.IR1GoNoGoRule ||
+                (expected.Contains("go cues", StringComparison.Ordinal) &&
+                 expected.Contains("no-go", StringComparison.Ordinal)))
             {
                 return ContainsRuleToken(declared, "respond") &&
                     ContainsRuleToken(declared, "go") &&
@@ -476,6 +449,10 @@ public static class RuntimeStandardEvaluationHandoffMapper
             var answer = declaration is null
                 ? string.Empty
                 : Normalize(Fact(declaration, "answer_reference") ?? string.Empty);
+            var usesStructuredExceptionAssignments = Regex.IsMatch(
+                answer,
+                @"\bexception-\d+\s*=",
+                RegexOptions.IgnoreCase);
             var stated = exceptions.Count(exception =>
             {
                 var symbol = Regex.Match(
@@ -486,9 +463,21 @@ public static class RuntimeStandardEvaluationHandoffMapper
                     exception.Value,
                     @"->\s*([a-z-]+)",
                     RegexOptions.IgnoreCase).Groups[1].Value;
-                return symbol.Length > 0 && action.Length > 0 &&
-                    answer.Contains(Normalize(symbol), StringComparison.Ordinal) &&
-                    answer.Contains(Normalize(action), StringComparison.Ordinal);
+                if (symbol.Length == 0 || action.Length == 0)
+                {
+                    return false;
+                }
+
+                if (usesStructuredExceptionAssignments)
+                {
+                    return Regex.IsMatch(
+                        answer,
+                        $@"\b{Regex.Escape(symbol)}\s*=\s*{Regex.Escape(action)}\b",
+                        RegexOptions.IgnoreCase);
+                }
+
+                return ContainsRuleToken(answer, symbol) &&
+                    ContainsRuleToken(answer, action);
             });
             return Percent(stated, exceptions.Length);
         }

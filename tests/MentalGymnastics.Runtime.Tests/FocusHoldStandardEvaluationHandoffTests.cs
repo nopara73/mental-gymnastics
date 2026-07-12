@@ -13,18 +13,13 @@ public sealed class FocusHoldStandardEvaluationHandoffTests
             activeDurationSeconds: 180,
             [
                 Event(RuntimeEventKind.DriftMarked, 30, new RuntimeEventFact("drift_id", "drift-1")),
-                Event(
-                    RuntimeEventKind.RecoveryCompleted,
-                    38,
-                    new RuntimeEventFact("drift_id", "drift-1"),
-                    new RuntimeEventFact("recovery_time", "00:00:08"),
-                    new RuntimeEventFact("return_within_window", "true")),
             ]);
 
         var summary = FocusHoldStandardEvaluationHandoffMapper.Summarize(result);
         var handoff = FocusHoldStandardEvaluationHandoffMapper.ToStandardEvaluationInput(
             result,
-            targetStatedBeforeSet: true);
+            targetStatedBeforeSet: true,
+            everyNoticedDriftMarked: true);
         var attempt = new StandardEvaluationAttempt(
             handoff.Measurements,
             handoff.CriticalConstraintChecks,
@@ -36,16 +31,12 @@ public sealed class FocusHoldStandardEvaluationHandoffTests
 
         Assert.Equal(180, summary.ActiveDurationSeconds);
         Assert.Equal(1, summary.MarkedDriftCount);
-        Assert.Equal(1, summary.ReturnCount);
-        Assert.Equal(0, summary.UnreturnedDriftCount);
-        Assert.Equal(0, summary.LateReturnCount);
         Assert.Equal(0, summary.TargetSubstitutionCount);
-        Assert.Equal(8, summary.MaximumReturnSeconds);
         Assert.True(evaluation.Passed);
     }
 
     [Fact]
-    public void MapperPreservesLateUnreturnedAndTargetChangeFailuresForCore()
+    public void MapperIgnoresLegacyReturnTimingAndPreservesTargetChangeFailure()
     {
         var result = Result(
             RuntimeSessionCompletionStatus.Completed,
@@ -68,7 +59,8 @@ public sealed class FocusHoldStandardEvaluationHandoffTests
         var summary = FocusHoldStandardEvaluationHandoffMapper.Summarize(result);
         var handoff = FocusHoldStandardEvaluationHandoffMapper.ToStandardEvaluationInput(
             result,
-            targetStatedBeforeSet: true);
+            targetStatedBeforeSet: true,
+            everyNoticedDriftMarked: true);
         var evaluation = StandardEvaluator.Evaluate(
             FocusHoldLevelOneStandard.Create(),
             new StandardEvaluationAttempt(
@@ -77,13 +69,12 @@ public sealed class FocusHoldStandardEvaluationHandoffTests
                 handoff.OutputComplete,
                 handoff.RubricOutcome));
 
-        Assert.Equal(1, summary.UnreturnedDriftCount);
-        Assert.Equal(1, summary.LateReturnCount);
+        Assert.Equal(2, summary.MarkedDriftCount);
         Assert.Equal(1, summary.TargetSubstitutionCount);
-        Assert.Equal(12, summary.MaximumReturnSeconds);
         Assert.False(evaluation.Passed);
-        Assert.Equal(3, evaluation.Failures.Count(failure =>
-            failure.Kind == StandardFailureKind.NumericalThresholdMissed));
+        Assert.Single(
+            evaluation.Failures,
+            failure => failure.Kind == StandardFailureKind.NumericalThresholdMissed);
     }
 
     private static RuntimeSessionCompletionResult Result(

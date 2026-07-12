@@ -6,11 +6,7 @@ namespace MentalGymnastics.Runtime;
 public sealed record FocusHoldRuntimeEvidenceSummary(
     decimal ActiveDurationSeconds,
     int MarkedDriftCount,
-    int ReturnCount,
-    int UnreturnedDriftCount,
-    int LateReturnCount,
-    int TargetSubstitutionCount,
-    decimal MaximumReturnSeconds);
+    int TargetSubstitutionCount);
 
 public static class FocusHoldStandardEvaluationHandoffMapper
 {
@@ -26,45 +22,22 @@ public static class FocusHoldStandardEvaluationHandoffMapper
         var driftEvents = result.RuntimeEvents
             .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.DriftMarked)
             .ToArray();
-        var returnEvents = result.RuntimeEvents
-            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted)
-            .ToArray();
-        var returnedDriftIds = returnEvents
-            .Select(runtimeEvent => FactValue(runtimeEvent.Facts, "drift_id"))
-            .Where(driftId => driftId is not null)
-            .ToHashSet(StringComparer.Ordinal);
-        var unreturnedDrifts = driftEvents.Count(runtimeEvent =>
-            FactValue(runtimeEvent.Facts, "drift_id") is not { } driftId ||
-            !returnedDriftIds.Contains(driftId));
-        var lateReturns = returnEvents.Count(runtimeEvent =>
-            !string.Equals(
-                FactValue(runtimeEvent.Facts, "return_within_window"),
-                "true",
-                StringComparison.Ordinal));
         var targetSubstitutions = result.RuntimeEvents.Count(runtimeEvent =>
             runtimeEvent.Kind == RuntimeEventKind.ErrorRecorded &&
             string.Equals(
                 FactValue(runtimeEvent.Facts, "error_kind"),
                 "target_substitution",
                 StringComparison.Ordinal));
-        var maximumReturn = returnEvents
-            .Select(runtimeEvent => ParseDuration(FactValue(runtimeEvent.Facts, "recovery_time")))
-            .DefaultIfEmpty(TimeSpan.Zero)
-            .Max();
-
         return new FocusHoldRuntimeEvidenceSummary(
             Convert.ToDecimal(activeDuration.TotalSeconds, CultureInfo.InvariantCulture),
             driftEvents.Length,
-            returnEvents.Length,
-            unreturnedDrifts,
-            lateReturns,
-            targetSubstitutions,
-            Convert.ToDecimal(maximumReturn.TotalSeconds, CultureInfo.InvariantCulture));
+            targetSubstitutions);
     }
 
     public static RuntimeStandardEvaluationHandoffInput ToStandardEvaluationInput(
         RuntimeSessionCompletionResult result,
-        bool targetStatedBeforeSet)
+        bool targetStatedBeforeSet,
+        bool everyNoticedDriftMarked)
     {
         var evidence = Summarize(result);
 
@@ -77,12 +50,6 @@ public static class FocusHoldStandardEvaluationHandoffMapper
                     FocusHoldStandardMeasurements.MarkedDriftCount,
                     evidence.MarkedDriftCount),
                 new NumericMeasurement(
-                    FocusHoldStandardMeasurements.UnreturnedDriftCount,
-                    evidence.UnreturnedDriftCount),
-                new NumericMeasurement(
-                    FocusHoldStandardMeasurements.LateReturnCount,
-                    evidence.LateReturnCount),
-                new NumericMeasurement(
                     FocusHoldStandardMeasurements.TargetSubstitutionCount,
                     evidence.TargetSubstitutionCount),
             ],
@@ -90,6 +57,9 @@ public static class FocusHoldStandardEvaluationHandoffMapper
                 new CriticalConstraintCheck(
                     FocusHoldStandardMeasurements.TargetStatedBeforeSet,
                     targetStatedBeforeSet),
+                new CriticalConstraintCheck(
+                    FocusHoldStandardMeasurements.DriftMarked,
+                    everyNoticedDriftMarked),
             ],
             outputComplete: result.CompletionStatus == RuntimeSessionCompletionStatus.Completed,
             rubricOutcome: null);
@@ -115,11 +85,4 @@ public static class FocusHoldStandardEvaluationHandoffMapper
             string.Equals(fact.Name, name, StringComparison.Ordinal))?.Value;
     }
 
-    private static TimeSpan ParseDuration(string? value)
-    {
-        return value is not null &&
-            TimeSpan.TryParseExact(value, "c", CultureInfo.InvariantCulture, out var duration)
-                ? duration
-                : TimeSpan.Zero;
-    }
 }

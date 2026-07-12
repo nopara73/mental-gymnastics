@@ -5,9 +5,6 @@ public static class TrainingStandardMeasurements
     public const string ActiveDurationSeconds = "active-duration-seconds";
     public const string SetCount = "set-count";
     public const string MarkedDriftCount = "marked-drift-count";
-    public const string UnreturnedDriftCount = "unreturned-drift-count";
-    public const string LateReturnCount = "late-return-count";
-    public const string AverageReturnSeconds = "average-return-seconds";
     public const string TargetSubstitutionCount = "target-substitution-count";
     public const string DistractorResponseCount = "distractor-response-count";
     public const string CorrectResponsePercent = "correct-response-percent";
@@ -113,14 +110,14 @@ public static class ExecutableStandardCatalog
         return
         [
             Define(BranchCode.FH, GlobalLevelId.L1, DrillId.FH1TargetHold,
-                [AtLeast(TrainingStandardMeasurements.ActiveDurationSeconds, 180), AtMost(TrainingStandardMeasurements.MarkedDriftCount, 5), AtMost(TrainingStandardMeasurements.UnreturnedDriftCount, 0), AtMost(TrainingStandardMeasurements.LateReturnCount, 0), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
-                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts.")]),
+                [AtLeast(TrainingStandardMeasurements.ActiveDurationSeconds, 180), AtMost(TrainingStandardMeasurements.MarkedDriftCount, 5), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
+                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts."), Constraint(TrainingStandardConstraints.DriftMarked, "Every noticed drift must be marked.")]),
             Define(BranchCode.FH, GlobalLevelId.L2, DrillId.FH1TargetHold,
-                [AtLeast(TrainingStandardMeasurements.ActiveDurationSeconds, 360), AtLeast(TrainingStandardMeasurements.SetCount, 1), AtMost(TrainingStandardMeasurements.MarkedDriftCount, 7), AtMost(TrainingStandardMeasurements.AverageReturnSeconds, 8), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
-                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts."), Constraint(TrainingStandardConstraints.DriftMarked, "Every drift must be marked.")]),
+                [AtLeast(TrainingStandardMeasurements.ActiveDurationSeconds, 360), AtLeast(TrainingStandardMeasurements.SetCount, 1), AtMost(TrainingStandardMeasurements.MarkedDriftCount, 7), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
+                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts."), Constraint(TrainingStandardConstraints.DriftMarked, "Every noticed drift must be marked.")]),
             Define(BranchCode.FH, GlobalLevelId.L3, DrillId.FH2DistractorHold,
                 [AtLeast(TrainingStandardMeasurements.ActiveDurationSeconds, 300), AtMost(TrainingStandardMeasurements.MarkedDriftCount, 5), AtMost(TrainingStandardMeasurements.DistractorResponseCount, 0), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
-                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts."), Constraint(TrainingStandardConstraints.DriftMarked, "Every drift must be marked.")]),
+                [Constraint(TrainingStandardConstraints.TargetStatedBeforeSet, "Target must be stated before the set starts."), Constraint(TrainingStandardConstraints.DriftMarked, "Every noticed drift must be marked.")]),
             Define(BranchCode.FH, GlobalLevelId.L4, DrillId.FH2DistractorHold,
                 [AtLeast(TrainingStandardMeasurements.SourceStandardPassed, 1), AtLeast(TrainingStandardMeasurements.ComponentPassPercent, 100), AtMost(TrainingStandardMeasurements.TargetSubstitutionCount, 0)],
                 [Constraint(TrainingStandardConstraints.SourceStandardVisible, "The source hold standard must remain visible."), Constraint(TrainingStandardConstraints.BranchEvidenceSeparated, "The transfer branch must leave separate passing evidence.")]),

@@ -139,6 +139,8 @@ Supported command kinds include:
 
 Invalid commands are represented by `RuntimeInputCommandResult` and `RuntimeInputCommandInvalidReason`. They do not mutate runtime state, advance phases, or erase prior evidence.
 
+`MarkReturn` remains in the runtime command vocabulary only so older snapshots and direct runtime clients can be read safely. Current FH sessions do not expose or require it: each noticed wander is one `MarkDrift`, another wander may be marked immediately afterward, and FH standard evaluation ignores legacy return events.
+
 ### Runtime Events
 
 `RuntimeEvent` and `RuntimeEventLog` record ordered, session-associated facts about execution. Event kinds include session start, phase changes, timer ticks, cues, user actions, answers, drift marks, guesses, interruptions, corrections, errors, recovery, abandon, and completion.
@@ -206,7 +208,7 @@ Runtime protocol classes produce branch-specific execution facts for the standar
 
 | Branch | Runtime support | Preserved execution facts |
 | --- | --- | --- |
-| FH | `FocusHoldRuntimeProtocol` | Target statement before set, drift marking, return timing, distractor handling, no target substitution. |
+| FH | `FocusHoldRuntimeProtocol` | Target statement before set, one mark per noticed drift, distractor handling, no target substitution. |
 | FS | `FocusShiftRuntimeProtocol` | Cue obedience, valid cue responses, invalid cue filtering, sequence accuracy, no anticipatory switching. |
 | WM | `WorkingMemoryRuntimeProtocol` | Encode and delay windows, delayed reconstruction, no rereading after encode, no invented items, no hidden intermediate notes where prohibited. |
 | IR | `InhibitionRuntimeProtocol` | Go/no-go handling, premature-response facts, cue pace, rule statement before set, exception handling, post-error cascade evidence. |
@@ -347,7 +349,7 @@ The runtime test suite documents behavior future agents should preserve and shou
 
 ### Protocol Honesty Constraints
 
-- FH records target statements, drift marks, return timing, distractor responses, and target substitution attempts.
+- FH records target statements, one mark per noticed drift, distractor responses, and target substitution attempts. Resuming the same target is implicit and is not timed or separately confirmed.
 - FS records valid cue obedience, invalid cue inhibition, sequence accuracy, and anticipatory switches.
 - WM records encode closure, delay, reconstruction accuracy, invented items, rereading attempts, and hidden-note attempts.
 - IR records go/no-go results, premature responses, rule statements, exceptions, and post-error cascades.
