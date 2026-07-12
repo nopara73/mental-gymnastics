@@ -227,6 +227,20 @@ public sealed class GeneratedContentRuntimePackagingTests
             Assert.Equal("tap", cue.ExpectedResponse);
             Assert.DoesNotContain("pace", cue.Value, StringComparison.OrdinalIgnoreCase);
         });
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal("rule-declaration", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+            },
+            phase =>
+            {
+                Assert.Equal("cue-response", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.CueResponse, phase.Kind);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
     }
 
     [Fact]
@@ -289,6 +303,37 @@ public sealed class GeneratedContentRuntimePackagingTests
             Assert.Equal(GeneratedRuntimeCueResponseExpectation.NoResponseExpected, cue.ResponseExpectation));
         Assert.Contains(package.InputMaterials, material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement);
+    }
+
+    [Fact]
+    public void PressureRepeatPreservesInhibitionRuleDeclarationBeforeCues()
+    {
+        var generated = AffectiveInterferenceGeneratedContentGenerator.Generate(
+            CreatePressureRepeatRequest("ai-l1-pressure-repeat-ir-l3"),
+            new GeneratedContentSeed("ai1-ir-runtime-package"));
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.AI && item.Level == GlobalLevelId.L1);
+
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Equal(DrillId.IR2ExceptionRule, package.SourceDrill);
+        Assert.Collection(
+            package.Phases,
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal("rule-declaration", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
+            },
+            phase =>
+            {
+                Assert.Equal("cue-response", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.CueResponse, phase.Kind);
+            },
+            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
     }
 
     [Fact]
@@ -355,7 +400,7 @@ public sealed class GeneratedContentRuntimePackagingTests
     }
 
     [Fact]
-    public void SeededAuditPackageEnforcesDelayBeforeOriginalIsAudited()
+    public void SeededAuditPackageEnforcesSourceStudyAndDelayBeforeLockedReport()
     {
         var generated = DiscriminationGeneratedContentGenerator.Generate(
             CreateSeededAuditRequest(),
@@ -372,6 +417,12 @@ public sealed class GeneratedContentRuntimePackagingTests
         Assert.Collection(
             package.Phases,
             phase => Assert.Equal(GeneratedRuntimePhaseKind.InstructionPrep, phase.Kind),
+            phase =>
+            {
+                Assert.Equal("source-review", phase.Id);
+                Assert.Equal(GeneratedRuntimePhaseKind.EncodeWindow, phase.Kind);
+                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Manual, phase.CompletionRule);
+            },
             phase =>
             {
                 Assert.Equal(GeneratedRuntimePhaseKind.DelayWindow, phase.Kind);
@@ -512,7 +563,8 @@ public sealed class GeneratedContentRuntimePackagingTests
             ]);
     }
 
-    private static GeneratedDrillContentRequest CreatePressureRepeatRequest()
+    private static GeneratedDrillContentRequest CreatePressureRepeatRequest(
+        string equivalenceClass = "ai-l1-pressure-repeat-fh-l3")
     {
         return new GeneratedDrillContentRequest(
             BranchCode.AI,
@@ -520,7 +572,7 @@ public sealed class GeneratedContentRuntimePackagingTests
             DrillId.AI1PressureRepeat,
             SessionType.Practice,
             PromptContentKind.EquivalentPrompt,
-            "ai-l1-pressure-repeat-fh-l3",
+            equivalenceClass,
             PromptFreshnessPolicy.FreshEquivalentRequired,
             [
                 new LoadVariable("time pressure", "90 seconds"),

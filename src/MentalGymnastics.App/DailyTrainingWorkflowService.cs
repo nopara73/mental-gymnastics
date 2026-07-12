@@ -39,6 +39,10 @@ public sealed record DailyTrainingBlockReadModel(
     LocalDailyTrainingBlockRecord Record,
     AppTrainingSessionType SessionType)
 {
+    public int EstimatedMinutes => TrainingDoseDurationEstimator.RoundedMinutes(
+        Record.Drill,
+        Record.LoadVariables);
+
     public RequestedTrainingWork RequestedWork => new(
         Record.Branch,
         Record.Level,
@@ -77,6 +81,8 @@ public sealed class DailyTrainingWorkflowReadModel
     public int SkippedBlockCount { get; }
 
     public int TotalBlockCount => Blocks.Count;
+
+    public int EstimatedMinutes => Blocks.Sum(block => block.EstimatedMinutes);
 
     public DailyTrainingWorkflowStatus Status { get; }
 
@@ -820,12 +826,17 @@ public sealed class DailyTrainingWorkflowService
         return candidates.Select((candidate, index) =>
         {
             var appSessionType = candidate.ForcedSessionType ??
-                DefaultTrainingWorkPolicy.SessionTypeFor(daily.Session, candidate.Status.State);
+                DefaultTrainingWorkPolicy.SessionTypeFor(
+                    daily.Session,
+                    candidate.Status.State,
+                    candidate.Status.Level);
             var profile = TrainingLoadProfileCatalog.Get(
                 candidate.Status.Branch,
                 candidate.Status.Level);
             var history = currentState.RecentSessions
                 .Where(session =>
+                    (session.SessionType is LocalCompletedSessionType.Practice or
+                        LocalCompletedSessionType.Load) &&
                     session.Drill == profile.Drill &&
                     session.BranchLevels.Contains(new LocalSessionBranchLevel(
                         candidate.Status.Branch,
@@ -862,6 +873,7 @@ public sealed class DailyTrainingWorkflowService
         if (currentState.DueMaintenance.Count > 0)
         {
             return currentState.DueMaintenance
+                .Take(3)
                 .Select(item => new DailyBlockCandidate(
                     item.BranchLevel,
                     AppTrainingSessionType.Maintenance))
@@ -910,6 +922,24 @@ public sealed class DailyTrainingWorkflowService
         if (daily.IsOff)
         {
             return [];
+        }
+
+        if (daily.Session == WeeklySessionKind.RecoveryOrRetest)
+        {
+            var retest = currentState.CurrentPractitionerState.BranchLevels
+                .Where(status => status.State is
+                    BranchLevelState.PassedOnce or
+                    BranchLevelState.Stabilizing or
+                    BranchLevelState.TestReady)
+                .OrderBy(status => status.State is
+                    BranchLevelState.PassedOnce or BranchLevelState.Stabilizing ? 0 : 1)
+                .ThenBy(status => status.Level)
+                .ThenBy(status => status.Branch)
+                .FirstOrDefault();
+            if (retest != default)
+            {
+                return [new DailyBlockCandidate(retest, ForcedSessionType: null)];
+            }
         }
 
         var candidates = daily.BranchEmphasis

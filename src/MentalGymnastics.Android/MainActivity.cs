@@ -1,5 +1,6 @@
 namespace MentalGymnastics.Android;
 
+using MentalGymnastics.Core;
 using MentalGymnastics.Runtime;
 
 [Activity(Label = "@string/app_name", MainLauncher = true, Theme = "@style/AppTheme.Starting")]
@@ -13,6 +14,10 @@ public class MainActivity : Activity
     private const string ScreenshotLiveHold = "live-hold";
     private const string ScreenshotStoppedResult = "stopped-result";
     private const string ScreenshotReturnToday = "return-today";
+    private const string ScreenshotProtocolAudit = "protocol-audit";
+    private const string ProtocolAuditDrillExtra = "mental_gymnastics.audit_drill";
+    private const string ProtocolAuditLevelExtra = "mental_gymnastics.audit_level";
+    private const string ProtocolAuditViewExtra = "mental_gymnastics.audit_view";
 #endif
 
     private readonly SemaphoreSlim liveSessionGate = new(1, 1);
@@ -44,8 +49,19 @@ public class MainActivity : Activity
         }
 #pragma warning restore CA1422
 
+#if DEBUG
+        appHost = IsProtocolAuditRequested
+            ? MentalGymnasticsAndroidHost.CreateProtocolAudit(this)
+            : MentalGymnasticsAndroidHost.Create(this);
+#else
         appHost = MentalGymnasticsAndroidHost.Create(this);
+#endif
         shell = new MgNavigationShell(this);
+        if (savedInstanceState is not null)
+        {
+            shell.RestoreLiveSessionDraft(savedInstanceState);
+        }
+
         shell.SessionStartRequested += HandleSessionStartRequested;
         shell.LiveSessionStartRequested += HandleLiveSessionStartRequested;
         shell.PreparedSessionCancelRequested += HandlePreparedSessionCancelRequested;
@@ -140,6 +156,7 @@ public class MainActivity : Activity
 
     protected override void OnSaveInstanceState(Bundle outState)
     {
+        shell?.SaveLiveSessionDraft(outState);
 #if DEBUG
         if (!IsScreenshotStepRequested)
 #endif
@@ -187,11 +204,20 @@ public class MainActivity : Activity
         }
         catch (Exception exception)
         {
+#if DEBUG
+            global::Android.Util.Log.Error("MentalGymnastics", exception.ToString());
+#endif
             RunOnUiThread(() => shell?.ShowError(exception));
         }
     }
 
 #if DEBUG
+    private bool IsProtocolAuditRequested =>
+        string.Equals(
+            Intent?.GetStringExtra(ScreenshotStepExtra),
+            ScreenshotProtocolAudit,
+            StringComparison.OrdinalIgnoreCase);
+
     private bool IsScreenshotStepRequested =>
         !string.IsNullOrWhiteSpace(Intent?.GetStringExtra(ScreenshotStepExtra));
 
@@ -248,6 +274,54 @@ public class MainActivity : Activity
                     _ = await StopTargetHoldForScreenshotAsync(host, cancellationToken).ConfigureAwait(false);
                     var today = await host.LoadTodayAsync(cancellationToken).ConfigureAwait(false);
                     RunOnUiThread(() => navigationShell.Render(today));
+                    return true;
+
+                case ScreenshotProtocolAudit:
+                    var drillValue = Intent?.GetStringExtra(ProtocolAuditDrillExtra);
+                    if (!Enum.TryParse<DrillId>(drillValue, ignoreCase: true, out var drill))
+                    {
+                        throw new InvalidOperationException($"Unknown protocol-audit drill: {drillValue}");
+                    }
+
+                    var levelValue = Intent?.GetStringExtra(ProtocolAuditLevelExtra);
+                    GlobalLevelId? level = null;
+                    if (!string.IsNullOrWhiteSpace(levelValue))
+                    {
+                        if (!Enum.TryParse<GlobalLevelId>(levelValue, ignoreCase: true, out var parsedLevel))
+                        {
+                            throw new InvalidOperationException($"Unknown protocol-audit level: {levelValue}");
+                        }
+
+                        level = parsedLevel;
+                    }
+
+                    var auditStart = await host.PrepareProtocolAuditSessionAsync(drill, level, cancellationToken)
+                        .ConfigureAwait(false);
+                    var auditView = Intent?.GetStringExtra(ProtocolAuditViewExtra);
+                    if (string.Equals(auditView, "preflight", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunOnUiThread(() => navigationShell.RenderSessionStart(auditStart));
+                        return true;
+                    }
+
+                    var auditLive = await host.StartPreparedProtocolAuditSessionAsync(
+                            beginWork: !string.Equals(
+                                auditView,
+                                "get-ready",
+                                StringComparison.OrdinalIgnoreCase),
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                    if (string.Equals(auditView, "response", StringComparison.OrdinalIgnoreCase))
+                    {
+                        auditLive = await host.AdvanceProtocolAuditToResponseAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    RunOnUiThread(() =>
+                    {
+                        navigationShell.RenderSessionStart(auditStart);
+                        navigationShell.ShowLiveSessionLoading();
+                        navigationShell.RenderLiveSession(auditLive);
+                    });
                     return true;
 
                 default:

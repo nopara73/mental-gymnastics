@@ -18,25 +18,26 @@ public static class MvpLocalContentBank
 
     private static IEnumerable<LocalContentBankEntry> CreateEntries()
     {
-        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-a", "mvp-wm1-alpha");
-        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-b", "mvp-wm1-bravo");
-        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-c", "mvp-wm1-charlie");
+        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-a", "mvp-wm1-alpha", freshnessOrdinal: 0);
+        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-b", "mvp-wm1-bravo", freshnessOrdinal: 1);
+        yield return CreateWorkingMemoryEntry("wm1-delayed-reconstruction-c", "mvp-wm1-charlie", freshnessOrdinal: 2);
 
-        yield return CreateDiscriminationEntry("de1-pair-discrimination-a", "mvp-de1-alpha");
-        yield return CreateDiscriminationEntry("de1-pair-discrimination-b", "mvp-de1-bravo");
-        yield return CreateDiscriminationEntry("de1-pair-discrimination-c", "mvp-de1-charlie");
+        yield return CreateDiscriminationEntry("de1-pair-discrimination-a", "mvp-de1-alpha", freshnessOrdinal: 0);
+        yield return CreateDiscriminationEntry("de1-pair-discrimination-b", "mvp-de1-bravo", freshnessOrdinal: 1);
+        yield return CreateDiscriminationEntry("de1-pair-discrimination-c", "mvp-de1-charlie", freshnessOrdinal: 2);
 
-        yield return CreateConceptOperationsEntry("co1-rule-extraction-a", "mvp-co1-alpha");
-        yield return CreateConceptOperationsEntry("co1-rule-extraction-b", "mvp-co1-bravo");
-        yield return CreateConceptOperationsEntry("co1-rule-extraction-c", "mvp-co1-charlie");
+        yield return CreateConceptOperationsEntry("co1-rule-extraction-a", "mvp-co1-alpha", freshnessOrdinal: 0);
+        yield return CreateConceptOperationsEntry("co1-rule-extraction-b", "mvp-co1-bravo", freshnessOrdinal: 1);
+        yield return CreateConceptOperationsEntry("co1-rule-extraction-c", "mvp-co1-charlie", freshnessOrdinal: 2);
     }
 
     private static LocalContentBankEntry CreateWorkingMemoryEntry(
         string entryId,
-        string seed)
+        string seed,
+        int freshnessOrdinal)
     {
         var generated = WorkingMemoryGeneratedContentGenerator.Generate(
-            CreateDelayedReconstructionRequest(),
+            CreateDelayedReconstructionRequest(freshnessOrdinal),
             new GeneratedContentSeed(seed));
 
         return CreateEntry(entryId, generated.Result, generated.Materials);
@@ -44,10 +45,11 @@ public static class MvpLocalContentBank
 
     private static LocalContentBankEntry CreateDiscriminationEntry(
         string entryId,
-        string seed)
+        string seed,
+        int freshnessOrdinal)
     {
         var generated = DiscriminationGeneratedContentGenerator.Generate(
-            CreatePairDiscriminationRequest(),
+            CreatePairDiscriminationRequest(freshnessOrdinal),
             new GeneratedContentSeed(seed));
 
         return CreateEntry(entryId, generated.Result, generated.Materials);
@@ -55,10 +57,11 @@ public static class MvpLocalContentBank
 
     private static LocalContentBankEntry CreateConceptOperationsEntry(
         string entryId,
-        string seed)
+        string seed,
+        int freshnessOrdinal)
     {
         var generated = ConceptOperationsGeneratedContentGenerator.Generate(
-            CreateRuleExtractionRequest(),
+            CreateRuleExtractionRequest(freshnessOrdinal),
             new GeneratedContentSeed(seed));
 
         return CreateEntry(entryId, generated.Result, generated.Materials);
@@ -81,7 +84,7 @@ public static class MvpLocalContentBank
             materials);
     }
 
-    private static GeneratedDrillContentRequest CreateDelayedReconstructionRequest()
+    private static GeneratedDrillContentRequest CreateDelayedReconstructionRequest(int freshnessOrdinal)
     {
         return new GeneratedDrillContentRequest(
             BranchCode.WM,
@@ -96,10 +99,11 @@ public static class MvpLocalContentBank
                 new LoadVariable("detail density", "simple objects"),
                 new LoadVariable("delay", "60 seconds"),
             ],
-            ProtocolCriticalConstraintsFor(DrillId.WM1DelayedReconstruction));
+            ProtocolCriticalConstraintsFor(DrillId.WM1DelayedReconstruction),
+            PriorContentIds("wm1", freshnessOrdinal));
     }
 
-    private static GeneratedDrillContentRequest CreatePairDiscriminationRequest()
+    private static GeneratedDrillContentRequest CreatePairDiscriminationRequest(int freshnessOrdinal)
     {
         return new GeneratedDrillContentRequest(
             BranchCode.DE,
@@ -114,10 +118,11 @@ public static class MvpLocalContentBank
                 new LoadVariable("item quantity", "6"),
                 new LoadVariable("time limit", "60 seconds"),
             ],
-            ProtocolCriticalConstraintsFor(DrillId.DE1PairDiscrimination));
+            ProtocolCriticalConstraintsFor(DrillId.DE1PairDiscrimination),
+            PriorContentIds("de1", freshnessOrdinal));
     }
 
-    private static GeneratedDrillContentRequest CreateRuleExtractionRequest()
+    private static GeneratedDrillContentRequest CreateRuleExtractionRequest(int freshnessOrdinal)
     {
         return new GeneratedDrillContentRequest(
             BranchCode.CO,
@@ -131,7 +136,15 @@ public static class MvpLocalContentBank
                 new LoadVariable("rule ambiguity", "clear examples"),
                 new LoadVariable("example count", "8"),
             ],
-            ProtocolCriticalConstraintsFor(DrillId.CO1RuleExtraction));
+            ProtocolCriticalConstraintsFor(DrillId.CO1RuleExtraction),
+            PriorContentIds("co1", freshnessOrdinal));
+    }
+
+    private static IReadOnlyList<string> PriorContentIds(string prefix, int count)
+    {
+        return Enumerable.Range(0, count)
+            .Select(index => $"{prefix}-prior-{index}")
+            .ToArray();
     }
 
     private static IReadOnlyList<CriticalConstraint> ProtocolCriticalConstraintsFor(DrillId drill)

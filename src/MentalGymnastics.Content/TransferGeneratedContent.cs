@@ -441,7 +441,7 @@ public static class TransferGeneratedContentGenerator
             var partner = request.SourceBranch == BranchCode.FH ? BranchCode.WM : BranchCode.IR;
             ObjectiveComponentTaskCatalog.AddMaterials(
                 materials,
-                [request.SourceBranch, partner],
+                [partner],
                 request.ContentRequest.EquivalenceClass,
                 (int)request.SourceLevel,
                 "transfer-integration");

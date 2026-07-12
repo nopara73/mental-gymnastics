@@ -4,6 +4,37 @@ Mental Gymnastics is a native, offline Android training product for standards-ba
 
 The implementation is split into pure domain rules, local persistence, deterministic generated content, a headless runtime, app workflows, and a native Android UI. The app has no accounts, network dependency, telemetry, cloud sync, or AI/API dependency.
 
+## A Discipline, Not An Atmosphere
+
+Mental Gymnastics occupies some of the same territory as meditation and contemplative practice: attention, awareness of drift, deliberate return, restraint under impulse, and stability under pressure. Its disagreement is not with inner practice itself. It is with practices that remain too vague to distinguish transformation from participation.
+
+The product can be understood as:
+
+> Meditation with progressive overload, observable standards, and transfer tests.
+
+Focus Hold makes the distinction concrete. Choose a target, keep it visible, mark every wander, return to the same target, and meet a defined duration and recovery standard. The rest of the curriculum extends that discipline into switching, working memory, inhibition, discrimination, conceptual operations, pressure recovery, and integrated performance.
+
+| Common contemplative framing | Mental Gymnastics |
+| --- | --- |
+| Observe your mind | Record an observable event |
+| Deepen awareness | Meet a defined standard |
+| Trust the process | Test transfer |
+| Treat every session as meaningful | Classify the actual result |
+| Repeat indefinitely | Progress, stabilize, own, and maintain |
+| Let a teacher, tradition, or feeling validate progress | Let evidence gate progress |
+
+The intended outcome is not a mystical state or a flattering score. It is greater deliberate control of attention, thought, and action: noticing loss of form earlier, returning deliberately, resisting task substitution, marking uncertainty, and preserving standards under pressure.
+
+Mental Gymnastics does not claim enlightenment, clinical treatment, or guaranteed general-intelligence gains. It provides a falsifiable practice architecture for capacities that are otherwise easy to romanticize and difficult to verify.
+
+## Program Shape
+
+- One locally prescribed daily experience, with recovery and off days treated as part of programming.
+- Eight branches and 40 branch-level standards, from protected foundational work through transfer and global review.
+- A verified perfect-practice path of 727 calendar days, including 624 active days and 1,230 drill blocks.
+- An average active-day dose of about 15.4 minutes; failed standards repeat or regress instead of granting cosmetic progress.
+- A finite curriculum milestone followed by maintenance, retesting, decay, and restoration rules.
+
 ## Architecture
 
 | Layer | Project | Responsibility |
@@ -64,18 +95,30 @@ dotnet test .\MentalGymnastics.sln --no-build
 dotnet build .\src\MentalGymnastics.Android\MentalGymnastics.Android.csproj -c Release
 ```
 
-## Deploy To A USB-Connected Android Phone
+## Try It On Your Android Phone
 
-1. Enable Developer options on the phone.
-2. Enable USB debugging.
-3. Connect the phone over USB and accept the RSA debugging prompt.
-4. Verify that the device is authorized:
+The simplest installation path is to let a local coding agent build and deploy the repository.
+
+1. On the phone, open **Settings > About phone** and tap **Build number** seven times to enable Developer options. The exact menu name varies by manufacturer.
+2. Open **Developer options** and enable **USB debugging**.
+3. Connect the phone to the computer with a data-capable USB cable.
+4. Unlock the phone and accept the **Allow USB debugging** RSA prompt. Enable "Always allow from this computer" if this is your own machine.
+5. Open this repository in a coding agent that can run local terminal commands.
+6. Ask it:
+
+> Build the Android Release app from this repository, install it on my USB-connected physical phone, launch it, and add it to my home screen. Do not modify or clear data on any other connected device.
+
+The agent should read `AGENTS.md`, verify the physical device with `adb devices -l`, build the Android project, install the signed APK to that specific device, launch `com.nopara73.mentalgymnastics`, and use the phone's launcher to place the icon on the home screen.
+
+### Manual Fallback
+
+Verify that the phone is authorized:
 
 ```powershell
-adb devices
+adb devices -l
 ```
 
-5. Build, install, and launch the app:
+Build, install, and launch the app:
 
 ```powershell
 .\eng\deploy-android.ps1

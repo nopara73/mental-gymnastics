@@ -22,7 +22,7 @@ internal sealed class TargetMaterialView : LinearLayout
             MgSpacing.Dp(context, compact ? MgSpacing.Sm : MgSpacing.Md));
         Background = MgTheme.MutedSurface(context, cornerRadius: 8);
 
-        shape = new TargetShapeView(context)
+        shape = new TargetShapeView(context, compact)
         {
             ImportantForAccessibility = ImportantForAccessibility.No,
         };
@@ -56,6 +56,20 @@ internal sealed class TargetMaterialView : LinearLayout
         ContentDescription = $"Target: {display}";
     }
 
+    public void SetDense(bool dense)
+    {
+        var padding = MgSpacing.Dp(Context!, dense ? MgSpacing.Xs : MgSpacing.Sm);
+        SetPadding(padding, padding, padding, padding);
+        var height = MgSpacing.Dp(Context!, dense ? 48 : 84);
+        shape.SetMinimumHeight(height);
+        var layout = shape.LayoutParameters;
+        if (layout is not null && layout.Height != height)
+        {
+            layout.Height = height;
+            shape.LayoutParameters = layout;
+        }
+    }
+
     private static string Normalize(string? target)
     {
         if (string.IsNullOrWhiteSpace(target))
@@ -82,11 +96,11 @@ internal sealed class TargetMaterialView : LinearLayout
         private readonly Paint paint;
         private string target = "target";
 
-        public TargetShapeView(Context context)
+        public TargetShapeView(Context context, bool compact)
             : base(context)
         {
             paint = new Paint(PaintFlags.AntiAlias);
-            SetMinimumHeight(MgSpacing.Dp(context, 136));
+            SetMinimumHeight(MgSpacing.Dp(context, compact ? 84 : 136));
         }
 
         public void Update(string value)
@@ -99,8 +113,17 @@ internal sealed class TargetMaterialView : LinearLayout
         {
             base.OnDraw(canvas);
 
-            var centerX = Width / 2f;
+            var centerX = Width / 2f + (target.Contains("left", StringComparison.Ordinal)
+                ? -Width * 0.18f
+                : target.Contains("right", StringComparison.Ordinal)
+                    ? Width * 0.18f
+                    : 0f);
             var centerY = Height / 2f;
+            var scale = target.Contains("small", StringComparison.Ordinal)
+                ? 0.72f
+                : target.Contains("large", StringComparison.Ordinal)
+                    ? 1.18f
+                    : 1f;
             var color = TargetColor(target);
             paint.Color = color;
             paint.StrokeWidth = MgSpacing.Dp(Context!, 6);
@@ -110,9 +133,9 @@ internal sealed class TargetMaterialView : LinearLayout
             {
                 paint.SetStyle(Paint.Style.Stroke);
                 canvas.DrawLine(
-                    centerX - MgSpacing.Dp(Context!, 46),
+                    centerX - MgSpacing.Dp(Context!, 46) * scale,
                     centerY,
-                    centerX + MgSpacing.Dp(Context!, 46),
+                    centerX + MgSpacing.Dp(Context!, 46) * scale,
                     centerY,
                     paint);
                 return;
@@ -121,14 +144,14 @@ internal sealed class TargetMaterialView : LinearLayout
             if (target.Contains("square", StringComparison.Ordinal))
             {
                 paint.SetStyle(Paint.Style.Fill);
-                var half = MgSpacing.Dp(Context!, 34);
+                var half = MgSpacing.Dp(Context!, 34) * scale;
                 canvas.DrawRect(centerX - half, centerY - half, centerX + half, centerY + half, paint);
                 return;
             }
 
             var radius = MgSpacing.Dp(
                 Context!,
-                target.Contains("dot", StringComparison.Ordinal) ? 24 : 38);
+                target.Contains("dot", StringComparison.Ordinal) ? 24 : 38) * scale;
             paint.SetStyle(target.Contains("circle", StringComparison.Ordinal)
                 ? Paint.Style.Stroke
                 : Paint.Style.Fill);

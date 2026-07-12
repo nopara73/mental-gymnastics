@@ -19,17 +19,21 @@ The app is organized around one visible training decision, one current action, o
 
 ## Release Evidence
 
-- `dotnet test MentalGymnastics.sln --no-restore`: 781 passed.
-  - Core: 229
-  - Runtime: 134
-  - Content: 168
+- `dotnet test MentalGymnastics.sln --no-restore --nologo`: 855 passed, 0 failed, 0 skipped.
+  - Core: 241
+  - Runtime: 152
+  - Content: 173
   - Persistence: 119
-  - App: 131
+  - App: 170
 - Release Android build and install: 0 warnings, 0 errors.
-- Signed Release APK SHA-256: `E858994135A880B003B7740116747FF131C869F8BDC7E329CC2EE967BA499686`.
+- Signed Release APK SHA-256: `F5EF17BB7583F55A0D1B93088B488C3ECC4BDD09E310BBB133B5AACBD684DA19`.
 - `git diff --check`: no whitespace errors; only repository line-ending notices.
 - Clean release launch produced a branded splash and interactive Today surface without a new app ANR.
-- Release FH flow verified on device: Today -> Preflight -> Live -> explicit stop -> saved Result -> Record entry -> Record detail.
+- Release FH flow verified on device: Today -> setup -> live hold -> Wandered haptic -> Back on target -> review. Setup explicitly says eyes open, keeps the target visible, and places the full Start action above system navigation without scrolling.
+- The live FH lower half is one stable touch pad. It toggles between `WANDERED` and `BACK ON TARGET`, leaves the target visible, and emits `TEXTURE_TICK` feedback on the wander mark.
+- All 16 drill response states were captured and mechanically audited for semantic controls, viewport bounds, enabled actions, and valid scroll access. Focus return, honest omission, cue filtering, no-go, committed comparison, audit, rule, mapping, pressure recovery, and composite evidence interactions were exercised directly.
+- The complete-program simulation reaches all 40 owned levels and a passing global review in 727 calendar days, with 624 active days, 1,230 drill blocks, and a 15.4-minute active-day average.
+- Offline generation produces a distinct full material signature for every drill block on that path; a new content ID around repeated material is rejected by the test.
 - Full-trim persistence was exercised on device after removing every generic `JsonArray.Add<T>` path.
 - Runtime-restorable lifecycle phases preserve generated material, timer state, cue schedules, and open response state across process clocks. An honesty-sensitive active phase that cannot be reconstructed is saved as the day's stopped attempt.
 - Responsive checks covered 360dp phone, standard phone, 1.3x and 1.5x text, landscape, and 800dp tablet.

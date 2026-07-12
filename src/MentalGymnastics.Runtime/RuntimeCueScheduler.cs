@@ -111,21 +111,38 @@ public sealed class RuntimeCueSchedule
     public RuntimeCueSchedule(
         RuntimeGeneratedDrillInstanceIdentity generatedDrillInstance,
         IEnumerable<RuntimeScheduledCue> cues)
+        : this(generatedDrillInstance, cues, runtimeSessionType: null)
+    {
+    }
+
+    public RuntimeCueSchedule(
+        RuntimeGeneratedDrillInstanceIdentity generatedDrillInstance,
+        IEnumerable<RuntimeScheduledCue> cues,
+        SessionType runtimeSessionType)
+        : this(generatedDrillInstance, cues, (SessionType?)runtimeSessionType)
+    {
+    }
+
+    private RuntimeCueSchedule(
+        RuntimeGeneratedDrillInstanceIdentity generatedDrillInstance,
+        IEnumerable<RuntimeScheduledCue> cues,
+        SessionType? runtimeSessionType)
     {
         ArgumentNullException.ThrowIfNull(generatedDrillInstance);
         ArgumentNullException.ThrowIfNull(cues);
+
+        if (runtimeSessionType.HasValue && !Enum.IsDefined(runtimeSessionType.Value))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(runtimeSessionType),
+                runtimeSessionType,
+                "Unknown runtime session type.");
+        }
 
         var identity = generatedDrillInstance.ContentIdentity;
         var isExecutableAffectiveWrapper = identity.Branch == BranchCode.AI &&
             identity.Kind == PromptContentKind.EquivalentPrompt &&
             identity.Drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery;
-        if (identity.Kind != PromptContentKind.CueSequence && !isExecutableAffectiveWrapper)
-        {
-            throw new ArgumentException(
-                "Runtime cue schedules must be tied to a generated cue sequence or executable Affective Interference wrapper.",
-                nameof(generatedDrillInstance));
-        }
-
         var cueArray = cues.ToArray();
         if (cueArray.Length == 0)
         {
@@ -137,6 +154,17 @@ public sealed class RuntimeCueSchedule
             ArgumentNullException.ThrowIfNull(cue);
         }
 
+        var isControlledStabilizationDemand = runtimeSessionType == SessionType.Stabilization &&
+            cueArray.Any(cue => cue.ResponseExpectation == RuntimeCueResponseExpectation.NoResponseExpected);
+        if (identity.Kind != PromptContentKind.CueSequence &&
+            !isExecutableAffectiveWrapper &&
+            !isControlledStabilizationDemand)
+        {
+            throw new ArgumentException(
+                "Runtime cue schedules must be tied to a generated cue sequence, an executable Affective Interference wrapper, or an explicitly scoped stabilization demand.",
+                nameof(generatedDrillInstance));
+        }
+
         var duplicateCue = cueArray
             .GroupBy(cue => cue.Id, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
@@ -146,6 +174,7 @@ public sealed class RuntimeCueSchedule
         }
 
         GeneratedDrillInstance = generatedDrillInstance;
+        RuntimeSessionType = runtimeSessionType;
         Cues = Array.AsReadOnly(cueArray
             .OrderBy(cue => cue.ScheduledAt.Offset)
             .ThenBy(cue => cue.Id, StringComparer.Ordinal)
@@ -153,6 +182,8 @@ public sealed class RuntimeCueSchedule
     }
 
     public RuntimeGeneratedDrillInstanceIdentity GeneratedDrillInstance { get; }
+
+    public SessionType? RuntimeSessionType { get; }
 
     public IReadOnlyList<RuntimeScheduledCue> Cues { get; }
 }
@@ -219,6 +250,14 @@ public sealed class RuntimeCueScheduler
         {
             throw new ArgumentException(
                 "Runtime cue scheduler must use the generated drill instance attached to the active session.",
+                nameof(schedule));
+        }
+
+        if (schedule.RuntimeSessionType.HasValue &&
+            eventLog.SessionDefinition.SessionType != schedule.RuntimeSessionType.Value)
+        {
+            throw new ArgumentException(
+                "Runtime cue schedule session type must match the active session.",
                 nameof(schedule));
         }
 
@@ -356,6 +395,35 @@ public sealed class RuntimeCueScheduler
                 Events: Array.Empty<RuntimeEvent>());
         }
 
+        var events = new List<RuntimeEvent>();
+        var expiredRequiredStates = _cueStates.Values
+            .Where(state => state.PresentedAt.HasValue &&
+                state.ResponseEvent is null &&
+                state.Cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired &&
+                _clock.Now.Offset > state.PresentedAt.Value.Offset + state.Cue.ResponseWindow.Value)
+            .OrderBy(state => state.Cue.ScheduledAt.Offset)
+            .ThenBy(state => state.Cue.Id, StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var state in expiredRequiredStates)
+        {
+            var response = RuntimeCueResponse.ForCue(state.Cue.Id, "omitted");
+            var responseTime = _clock.Now.ElapsedSince(state.PresentedAt!.Value);
+            state.ResponseEvent = _eventLog.Append(
+                RuntimeEventKind.CueResponseSubmitted,
+                _clock.Now,
+                state.PhaseId,
+                state.PhaseKind,
+                BuildResponseFacts(
+                    state.Cue,
+                    state.PresentedAt.Value,
+                    response,
+                    responseTime,
+                    withinWindow: false,
+                    RuntimeCueResponseOutcome.Late));
+            events.Add(state.ResponseEvent);
+        }
+
         var dueStates = _cueStates.Values
             .Where(state => !state.PresentedAt.HasValue &&
                 EffectiveScheduledAt(state.Cue).Offset <= _clock.Now.Offset)
@@ -363,7 +431,6 @@ public sealed class RuntimeCueScheduler
             .ThenBy(state => state.Cue.Id, StringComparer.Ordinal)
             .ToArray();
 
-        var events = new List<RuntimeEvent>();
         foreach (var state in dueStates)
         {
             state.PresentedAt = _clock.Now;

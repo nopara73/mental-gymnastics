@@ -1,114 +1,76 @@
-# MentalGymnastics Generated Content MVP Offline Depth Audit
+# Generated Content Offline Depth Audit
 
-This audit reviews the generated content layer against the standard drill
-library and expected repeated offline use. It is a requirements and coverage
-audit only: no UI, service, network, AI/API, telemetry, sync, account, or
-storage-technology changes are implied.
+**Status:** Verified for the complete first-install curriculum path
 
-## Summary
+**Date:** 2026-07-11
 
-The generated content layer is structurally ready for MVP integration: it is
-local, deterministic, versioned, validated, and separated from Core progression
-rules, Runtime execution, Persistence storage, and Android UI. Every documented
-standard drill has representation coverage.
+## Product Guarantee
 
-The current content depth is not yet sufficient for honest repeated offline
-practice. Most branch generators use small hard-coded template pools or wrapper
-recipes that prove the boundary and invariants, but would repeat recognizable
-material quickly during acquisition, formal retests, stabilization, transfer,
-maintenance, and global review.
+Mental Gymnastics generates and validates all drill material locally. It does
+not require a network, account, API, language model, or downloaded content
+pack. Generated Content owns material and expected answers; Runtime owns live
+execution; Core owns progression; Persistence stores the resulting facts.
 
-## Sufficient Areas
+The perfect-practice completion simulation reaches all 40 owned levels and a
+passing global review in 727 calendar days, including 624 active days and 1,230
+drill blocks. The offline-depth test replays the exact per-drill demand from
+that path and requires every block to have a distinct material signature.
 
-- Boundary ownership is clear. Generated Content owns drill instances, prompt
-  material, cue sequences, item sets, seeded errors, transfer variants,
-  freshness/equivalence metadata, runtime packaging, and persistence handoff.
-- The layer remains offline-only. There are no AI/API, network, backend, sync,
-  account, analytics, telemetry, notification, Android UI, or SQLite concerns.
-- The standard drill library is covered by generators for FH-1, FH-2, FS-1,
-  FS-2, WM-1, WM-2, IR-1, IR-2, DE-1, DE-2, CO-1, CO-2, AI-1, AI-2, TI-1,
-  and TI-2.
-- Generated instance identity, content version metadata, deterministic seed
-  behavior, freshness, equivalence, validation, difficulty audit, and
-  anti-self-deception guards are implemented and tested.
-- Runtime and persistence handoffs preserve generated identity, branch, level,
-  drill, load variables, constraints, standards visibility, and audit-relevant
-  facts without moving progression decisions into generated content.
-- `LocalContentBank` provides a deterministic offline selection boundary for
-  packaged or locally generated bank entries, including version, load,
-  equivalence, constraint, material, and freshness checks.
-- `MvpLocalContentBank` provides an initial packaged local corpus for WM-1,
-  DE-1, and CO-1 so the most obvious fresh-equivalent retest drills can select
-  multiple validated offline variants without Android, network, AI/API, or
-  persistence-owned content generation.
+| Drill | Distinct blocks required | Drill | Distinct blocks required |
+| --- | ---: | --- | ---: |
+| FH-1 | 85 | FH-2 | 232 |
+| FS-1 | 41 | FS-2 | 97 |
+| WM-1 | 61 | WM-2 | 121 |
+| IR-1 | 28 | IR-2 | 150 |
+| DE-1 | 70 | DE-2 | 111 |
+| CO-1 | 20 | CO-2 | 42 |
+| AI-1 | 20 | AI-2 | 77 |
+| TI-1 | 47 | TI-2 | 28 |
 
-## Thin Areas For Repeated Offline Practice
+All 16 rows pass. A fresh content ID around repeated material does not satisfy
+the test.
 
-| Area | Current depth | MVP offline risk |
-| --- | --- | --- |
-| FH-1 Target Hold and FH-2 Distractor Hold | 6 target templates and 6 distractor prompts | Targets and distractors will become recognizable quickly; repeated practice may train familiarity instead of stable target holding under varied distractors. |
-| FS-1 Cue Switch and FS-2 Invalid Cue Filter | 6 target templates, 6 invalid cue values, short deterministic cue schedules | Cue and invalid-cue patterns can become predictable; target-set and rule-contrast variety is too narrow for repeated retests. |
-| WM-1 Delayed Reconstruction | 20 simple object items with contiguous item selection | Material is limited to one simple object family; it lacks structured passages, relational item sets, detail-density bands, and enough fresh equivalents for repeated reconstruction. |
-| WM-2 Mental Transform | Same 20-item pool with a small cyclic operation set | Transform operations are easy to learn as recipe patterns; there is limited source-material variety, interference variety, and operation-family depth. |
-| IR-1 Go/No-Go Rule | 6 go cues, 6 no-go cues, 9-item default stream | Streams are short and built from a narrow cue vocabulary; repeated use risks pattern learning rather than inhibition under varied cue pace and no-go distribution. |
-| IR-2 Exception Rule | 6 base rule items, 6 exception templates, 8-item default stream | Exception families and similarity structures are thin; longer sets and varied temptation sources are needed for realistic repeated practice. |
-| DE-1 Pair Discrimination | 10 pair templates | Pair families are too few to sustain marked-guess and false-positive/false-negative work across many sessions. |
-| DE-2 Seeded Audit | 3 seeded audit templates with short outputs | Audit scenarios will repeat quickly; output length, seeded error families, subtlety, and false-correction traps need broader local corpora. |
-| CO-1 Rule Extraction | 3 rule families | Learners can memorize rule-family shapes; more example families, negative examples, ambiguous boundaries, and unseen test cases are needed. |
-| CO-2 Structure Mapping | 3 mapping templates | Mapping domains and surface-lure types are too limited for repeated relation naming and surface-match rejection. |
-| AI-1 Pressure Repeat | 3 source standards and 3 pressure sources | AI content mostly wraps existing source tasks; it needs a broader local set of source-task references and pressure variants while preserving the original standard. |
-| AI-2 Disruption Recovery | 3 source standards and 3 disruption events | Disruption content is structurally correct but shallow; more interruption types, timing recipes, restart-delay bands, and source-task pairings are needed. |
-| TI-1 Composite Task | 5 component templates and 3 task frames | Composite work has branch-separated evidence, but lacks enough composite task material, component pairings, transfer distances, and task families for repeated sessions. |
-| TI-2 Global Review Task | 7 global-review component templates and 3 task frames | Review structure is covered, but broader task material is needed so global review evaluates the whole practitioner rather than familiarity with fixed frames. |
-| Transfer content | One static transfer definition per source branch, with generated materials built from catalog text | Transfer preserves standards and rejects novelty-only content, but actual changed-context material is shallow and should be backed by branch-specific transfer banks or recipes. |
-| Local content banks | Initial packaged bank entries exist for WM-1, DE-1, and CO-1 only | MVP can prove bank selection for the clearest fresh-equivalent retest cases, but broader app-packaged bank entries are still needed before repeated offline practice can rely primarily on bank depth. |
+## Freshness Model
 
-## Concrete Non-UI Content Gaps
+- Each request carries the content IDs already used for its equivalence class.
+- The generator derives a monotonic freshness ordinal from that history.
+- Targets, ordered item sets, cue streams, exception rules, seeded audits,
+  rule families, source tasks, pressure/disruption combinations, component
+  pairings, and composite task frames advance by deterministic permutation or
+  mixed-radix enumeration.
+- Secondary demands such as invalid-cue position, no-go position, integrated
+  component task, audit error position, and AI source material use the same
+  freshness ordinal. They do not remain fixed behind a changing headline.
+- The app-level reachability test and content-level depth test share one demand
+  catalog. A cadence change that requires more material fails automated tests.
 
-Before offline MVP practice, add a packaged local content corpus or richer
-deterministic recipes for each drill family. The corpus should be app-owned and
-local, not network fetched or AI generated.
+## Correctness Controls
 
-- FH needs target banks grouped by target type, subtlety, duration band, and
-  allowed distractor salience; distractors should vary without becoming target
-  substitutions.
-- FS needs larger target-set banks, valid/invalid cue families, cue-density
-  schedules, rule-contrast variants, and longer deterministic schedules for
-  stabilization and maintenance.
-- WM needs multiple material families: simple item sets, structured passages,
-  relational or spatial sets, detail-density bands, delay bands, operation
-  families, reversals, interference variants, and expected-answer keys.
-- IR needs larger go/no-go streams, exception-rule families, similarity bands,
-  pace bands, no-go distributions, premature-response traps, and post-error
-  cascade scenarios.
-- DE needs broader discrimination pair banks by relevant difference,
-  irrelevant difference, similarity, time limit, and answer key; seeded audits
-  need longer outputs, more domains, seeded-error taxonomies, and false
-  correction traps.
-- CO needs more rule-extraction families, negative examples, ambiguous
-  boundary cases, unseen tests, structure-mapping domains, relation sets,
-  surface lures, and unsupported-inference traps.
-- AI needs pressure and disruption wrappers that can attach to a larger set of
-  source branch tasks, with explicit source-standard visibility, clean evidence
-  preservation, pressure metadata, interruption timing, and restart rules.
-- TI needs composite task banks with separate component evidence requirements,
-  task lengths, transfer distances, branch-specific scoring channels, delayed
-  reconstruction requirements, audit requirements, and global-review variants.
-- Transfer needs branch-specific changed-context material that preserves the
-  source standard visibly, not only catalog-level transfer descriptions.
-- Content-bank packaging beyond the initial WM-1, DE-1, and CO-1 MVP entries
-  needs versioned entries, equivalence classes, load metadata, content
-  summaries, material payload facts, and a process for validating every
-  packaged entry through the existing generated content validators before
-  release.
-- Content-depth requirements should be made explicit before adding count-based
-  tests. The current code proves correctness of shape and invariants, not
-  sufficiency of corpus size for weeks of offline practice.
+- Every generated package includes stable identity, algorithm version, load,
+  constraints, equivalence class, expected evidence, and hidden scoring data.
+- Material validation, load validation, anti-self-deception checks, Runtime
+  packaging, and persistence handoff tests cover every standard drill.
+- Rule-extraction unseen sets contain both a positive and a negative case.
+- AI pressure and disruption wrappers rotate source standards and carry
+  freshness into the executable source drill.
+- TI composite work enumerates branch combinations before cycling task frames
+  and retains separate branch evidence and scoring keys.
+- The packaged local bank retains three materially distinct WM-1, DE-1, and
+  CO-1 entries through the same freshness mechanism.
 
-## Test Impact
+## Honest Boundary
 
-Executable tests now cover the initial MVP packaged bank for WM-1, DE-1, and
-CO-1. They prove local selection of multiple fresh-equivalent variants, concrete
-material differences, validator-clean audit evidence, stable version metadata,
-and no generated-content advancement authority. Broader corpus-size
-requirements are still requirements, not hard count-based invariants.
+The verified guarantee is the finite curriculum path, including acquisition,
+formal tests, stabilization, transfer, maintenance encountered during the
+path, and global review. Post-completion maintenance can eventually revisit an
+equivalent material combination; repetition after curriculum completion is not
+presented as new curriculum. The expected answers remain hidden and the same
+standards still apply.
+
+## Verification
+
+`EveryDrillFamilyProvidesEnoughFreshMaterialForThePerfectPathDemand` generates
+each drill sequentially while carrying prior content IDs, hashes the complete
+ordered material payload, and requires the number of distinct signatures shown
+above. It passes as part of the 173-test Content suite and the 855-test solution
+run.

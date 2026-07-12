@@ -145,9 +145,16 @@ public sealed class DiscriminationGeneratedContentTests
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.TaskLength, "6 lines");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.AuditDelay, "5 minutes");
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.HonestyConstraint, OriginalOutputLockedConstraint);
+        AssertMaterial(
+            generated.Materials,
+            GeneratedContentMaterialKind.HonestyConstraint,
+            SourceReferenceHiddenConstraint);
 
+        var auditReference = Assert.Single(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.AuditReference);
         var lockedOutput = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.LockedOriginalOutput);
+        Assert.Contains("source record", auditReference.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("locked original output", lockedOutput.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("line 1", lockedOutput.Value, StringComparison.OrdinalIgnoreCase);
 
@@ -164,6 +171,11 @@ public sealed class DiscriminationGeneratedContentTests
             .ToArray();
         Assert.Equal(3, seededErrors.Length);
         Assert.Equal(seededErrors.Length, expectedFindings.Length);
+        Assert.Equal(
+            seededErrors.Length,
+            AuditLines(auditReference.Value)
+                .Zip(AuditLines(lockedOutput.Value))
+                .Count(pair => !string.Equals(pair.First, pair.Second, StringComparison.Ordinal)));
         Assert.All(seededErrors, error =>
         {
             Assert.Contains("seeded error", error.Value, StringComparison.OrdinalIgnoreCase);
@@ -181,6 +193,9 @@ public sealed class DiscriminationGeneratedContentTests
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "payload-family" &&
             fact.Value == "de-seeded-audit");
+        Assert.Contains(generated.Result.PayloadFacts, fact =>
+            fact.Name == "audit-reference" &&
+            fact.Value.Contains("line 1", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "locked-original-output" &&
             fact.Value.Contains("line 1", StringComparison.OrdinalIgnoreCase));
@@ -254,6 +269,9 @@ public sealed class DiscriminationGeneratedContentTests
     private const string MarkedGuessConstraint = "Guessing must be marked.";
 
     private const string OriginalOutputLockedConstraint = "Original output cannot be edited during audit.";
+
+    private const string SourceReferenceHiddenConstraint =
+        "The source record cannot be reopened, copied, or externally noted after study.";
 
     private static GeneratedDrillContentRequest CreatePairDiscriminationRequest(
         IEnumerable<string>? previouslyUsedContentIds = null)
@@ -329,6 +347,14 @@ public sealed class DiscriminationGeneratedContentTests
         return materials
             .Single(material => material.Kind == GeneratedContentMaterialKind.LockedOriginalOutput)
             .Value;
+    }
+
+    private static IReadOnlyList<string> AuditLines(string value)
+    {
+        return value
+            .Split(" | ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line[(line.IndexOf(':') + 1)..].Trim())
+            .ToArray();
     }
 
     private static IReadOnlyList<string> SeededErrorValues(

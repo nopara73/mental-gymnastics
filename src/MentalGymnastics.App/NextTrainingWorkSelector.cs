@@ -463,6 +463,16 @@ public sealed class NextTrainingWorkSelector
 
         if (requested.SessionType == AppTrainingSessionType.Transfer)
         {
+            if (requested.Level == GlobalLevelId.L4 &&
+                branchLevelState != BranchLevelState.TestReady)
+            {
+                blockers.Add(new NextTrainingWorkBlocker(
+                    NextTrainingWorkBlockerSource.BranchState,
+                    requested.Branch,
+                    requested.Level,
+                    "The L4 transfer is the formal level gate and requires a test-ready state."));
+            }
+
             transferEligibility = TransferEligibilityEvaluator.Evaluate(
                 BuildTransferEligibilityRequest(requested));
 
@@ -549,7 +559,7 @@ public sealed class NextTrainingWorkSelector
         CancellationToken cancellationToken)
     {
         var results = new List<MaintenanceCurrencyResult>();
-        foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
+        foreach (var status in MaintenanceScope.HighestEarnedByBranch(currentState))
         {
             var currency = await repository.LoadMaintenanceCurrencyAsync(
                 status.Branch,
@@ -575,7 +585,8 @@ public sealed class NextTrainingWorkSelector
             var sessionType = forcedSessionType ??
                 DefaultTrainingWorkPolicy.SessionTypeFor(
                     candidate.WeeklyWork.Session,
-                    candidate.Status.State);
+                    candidate.Status.State,
+                    candidate.Status.Level);
             return new RequestedTrainingWork(
                 candidate.Status.Branch,
                 candidate.Status.Level,
@@ -654,6 +665,8 @@ public sealed class NextTrainingWorkSelector
     {
         return sessions
             .Where(session =>
+                (session.SessionType is LocalCompletedSessionType.Practice or
+                    LocalCompletedSessionType.Load) &&
                 session.Drill == requested.Drill &&
                 session.BranchLevels.Contains(new LocalSessionBranchLevel(
                     requested.Branch,

@@ -112,10 +112,14 @@ Every row has generated content, a branch-specific Runtime protocol, an exact Co
 
 ## Release Verification
 
-- Full solution: 781 passed, 0 failed, 0 skipped (Core 229, Runtime 134, Content 168, Persistence 119, App 131).
+- Full solution: 855 passed, 0 failed, 0 skipped (Core 241, Runtime 152, Content 173, Persistence 119, App 170).
+- Reachability: the first-install perfect path owns all 40 levels and passes global review in 727 calendar days, including 624 active days and 1,230 drill blocks at 15.4 minutes per active day on average.
+- Offline depth: every one of those 1,230 blocks has a distinct complete material signature. App reachability and Content depth share one per-drill demand contract, so cadence growth cannot silently exceed generated material.
 - Curriculum: all 40 standards have generation, Runtime evidence, Core evaluation, pass/failure, and formal transfer coverage.
 - Persistence: previous-schema initialization, daily-prescription integrity, atomic completion, and backup/restore coverage pass; Release device backup validation and restore also pass.
-- Android: full trimming build succeeds with 0 warnings and 0 errors. Signed APK SHA-256: `E858994135A880B003B7740116747FF131C869F8BDC7E329CC2EE967BA499686`.
-- Device workflows: first day, preflight, live work, confirmed stop, truthful `2:00` result, terminal day, process interruption, due global review, cadence reset, Map, Record, Review, Local Data, backup validation, and restore pass.
+- Android: full trimming build succeeds with 0 warnings and 0 errors. Signed APK SHA-256: `F5EF17BB7583F55A0D1B93088B488C3ECC4BDD09E310BBB133B5AACBD684DA19`.
+- Interaction audit: all 16 drill response states expose their required semantic controls with in-bounds actions or a valid scroll path. Honest omission, invalid/no-go taps, immediate pair commitment, pressure recovery, delayed report-last, and component evidence were exercised on device.
+- Release FH workflow: a clean install opens Today, setup says `Eyes open`, keeps the target visible, and presents the complete Start button at `[32,1679][1048,1826]` without scrolling. One large lower pad toggles `WANDERED` / `BACK ON TARGET`; the tap emits Android `TEXTURE_TICK` haptic feedback.
+- Device workflows: first day, preflight, live work, confirmed stop, truthful result, terminal day, process interruption, due global review, cadence reset, Map, Record, Review, Local Data, backup validation, and restore pass.
 - Responsive/accessibility: standard and narrow phones, landscape, 800dp tablet, and 150% text were inspected. The complete `0 of 1` label remains visible and no incoherent overlap was found.
 - Lifecycle rule: Runtime-restorable phases resume the same attempt. An honesty-sensitive active phase that cannot be reconstructed is recorded as the day's stopped attempt instead of being replayed or counted twice.

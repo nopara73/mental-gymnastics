@@ -47,6 +47,7 @@ public sealed class GeneratedContentSeedPlan
 
         Request = request;
         VariantIndex = variantIndex;
+        FreshnessOrdinal = request.PreviouslyUsedContentIds.Count + variantIndex;
         RequestFingerprint = requestFingerprint;
         PayloadSeed = payloadSeed;
         Instance = instance;
@@ -55,6 +56,7 @@ public sealed class GeneratedContentSeedPlan
                 new GeneratedContentPayloadFact("algorithm-version", AlgorithmVersion),
                 new GeneratedContentPayloadFact("request-fingerprint", requestFingerprint),
                 new GeneratedContentPayloadFact("variant-index", variantIndex.ToString(CultureInfo.InvariantCulture)),
+                new GeneratedContentPayloadFact("freshness-ordinal", FreshnessOrdinal.ToString(CultureInfo.InvariantCulture)),
                 new GeneratedContentPayloadFact("payload-seed", payloadSeed),
             ]);
     }
@@ -62,6 +64,8 @@ public sealed class GeneratedContentSeedPlan
     public GeneratedDrillContentRequest Request { get; }
 
     public int VariantIndex { get; }
+
+    public int FreshnessOrdinal { get; }
 
     public string RequestFingerprint { get; }
 

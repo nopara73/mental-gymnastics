@@ -488,7 +488,10 @@ public static class GeneratedContentLoadConstraintMapper
                 programLoadVariable: LoadVariableKind.BranchCount,
                 loadVariable.Name,
                 loadVariable.Value,
-                [GeneratedContentMaterialKind.ComponentPayload],
+                [
+                    GeneratedContentMaterialKind.SourceTask,
+                    GeneratedContentMaterialKind.ComponentPayload,
+                ],
                 GeneratedContentLoadConstraintMatchKind.MinimumMaterialCount,
                 ParseLoadCount(loadVariable.Value) ?? 1);
             return true;

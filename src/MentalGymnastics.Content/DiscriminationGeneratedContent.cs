@@ -35,6 +35,8 @@ public static class DiscriminationGeneratedContentGenerator
 {
     private const string MarkedGuessConstraint = "Guessing must be marked.";
     private const string OriginalOutputLockedConstraint = "Original output cannot be edited during audit.";
+    private const string SourceReferenceHiddenConstraint =
+        "The source record cannot be reopened, copied, or externally noted after study.";
     private const string DefaultSimilarity = "near match";
     private const string DefaultTimeLimit = "60 seconds";
     private const string DefaultErrorSubtlety = "subtle wording errors";
@@ -128,28 +130,32 @@ public static class DiscriminationGeneratedContentGenerator
                     "number mismatch",
                     "critical",
                     "the source key requires two crews, not three",
-                    "finding: line 2 should report two crews instead of three"),
+                    "finding: line 2 should report two crews instead of three",
+                    "Two crews inspected the east barrier before the report."),
                 new(
                     "marker-color",
                     3,
                     "attribute mismatch",
                     "noncritical",
                     "the west marker should be green, not blue",
-                    "finding: line 3 should name the west marker as green"),
+                    "finding: line 3 should name the west marker as green",
+                    "The west marker was logged as green in the first pass."),
                 new(
                     "tag-count",
                     5,
                     "number mismatch",
                     "critical",
                     "the follow-up count should name ten usable tags, not twelve",
-                    "finding: line 5 should report ten usable tags"),
+                    "finding: line 5 should report ten usable tags",
+                    "The follow-up count named ten usable tags."),
                 new(
                     "route-state",
                     6,
                     "state mismatch",
                     "noncritical",
                     "the backup route remained open, not closed",
-                    "finding: line 6 should say the backup route remained open"),
+                    "finding: line 6 should say the backup route remained open",
+                    "The final note said the backup route remained open."),
             ],
             [
                 new("line 1 gate-check time is consistent with the source; not an error"),
@@ -174,28 +180,32 @@ public static class DiscriminationGeneratedContentGenerator
                     "number mismatch",
                     "critical",
                     "the intake shelf held eight packets, not nine",
-                    "finding: line 1 should report eight labeled packets"),
+                    "finding: line 1 should report eight labeled packets",
+                    "The intake shelf held eight labeled packets before sorting."),
                 new(
                     "seal-color",
                     2,
                     "attribute mismatch",
                     "noncritical",
                     "the seal should be orange, not yellow",
-                    "finding: line 2 should name an orange seal"),
+                    "finding: line 2 should name an orange seal",
+                    "An orange seal was attached to the second packet."),
                 new(
                     "checksum",
                     4,
                     "symbol mismatch",
                     "critical",
                     "the checksum should end with code 47-K, not 47-A",
-                    "finding: line 4 should end with code 47-K"),
+                    "finding: line 4 should end with code 47-K",
+                    "The checksum field ended with code 47-K."),
                 new(
                     "review-owner",
                     6,
                     "name mismatch",
                     "noncritical",
                     "the review was assigned to Nira, not Mira",
-                    "finding: line 6 should assign review to Nira"),
+                    "finding: line 6 should assign review to Nira",
+                    "The closing note assigned review to Nira."),
             ],
             [
                 new("line 3 tray placement is correct; not an error"),
@@ -220,28 +230,32 @@ public static class DiscriminationGeneratedContentGenerator
                     "letter mismatch",
                     "critical",
                     "channel B carried the backup signal, not channel D",
-                    "finding: line 2 should name channel B"),
+                    "finding: line 2 should name channel B",
+                    "Channel B carried the backup signal for the test."),
                 new(
                     "pause-count",
                     3,
                     "number mismatch",
                     "noncritical",
                     "the operator paused after the third pulse, not the fourth",
-                    "finding: line 3 should say third pulse"),
+                    "finding: line 3 should say third pulse",
+                    "The operator paused the log after the third pulse."),
                 new(
                     "indicator-color",
                     4,
                     "attribute mismatch",
                     "critical",
                     "the indicator was amber, not green",
-                    "finding: line 4 should name an amber indicator"),
+                    "finding: line 4 should name an amber indicator",
+                    "The amber indicator stayed lit during the retry."),
                 new(
                     "status-field",
                     6,
                     "state mismatch",
                     "noncritical",
                     "the sequence was marked stable, not unstable",
-                    "finding: line 6 should mark the sequence as stable"),
+                    "finding: line 6 should mark the sequence as stable",
+                    "The status field marked the sequence as stable."),
             ],
             [
                 new("line 1 calibration ordering is correct; not an error"),
@@ -365,14 +379,14 @@ public static class DiscriminationGeneratedContentGenerator
         var sectionCount = Math.Max(
             (int)Math.Ceiling(lineCount / 8m),
             (int)Math.Ceiling(seededErrorCount / 4m));
-        var templateStart = (
-            SelectIndex(
-                seedPlan.PayloadSeed,
-                "seeded-audit-template",
-                seedPlan.VariantIndex,
-                SeededAuditTemplates.Length) +
-            seedPlan.VariantIndex) % SeededAuditTemplates.Length;
+        var templateSlot = seedPlan.FreshnessOrdinal % SeededAuditTemplates.Length;
+        var templateStart = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "seeded-audit-template",
+            templateSlot,
+            SeededAuditTemplates.Length);
         var lines = new List<string>();
+        var referenceLines = new List<string>();
         var errors = new List<SeededAuditErrorTemplate>();
         var distractors = new List<string>();
         var templateIds = new List<string>();
@@ -382,6 +396,13 @@ public static class DiscriminationGeneratedContentGenerator
             var lineOffset = lines.Count;
             templateIds.Add(template.TemplateId);
             lines.AddRange(template.Lines);
+            var templateReference = template.Lines.ToArray();
+            foreach (var error in template.Errors)
+            {
+                templateReference[error.LineNumber - 1] = error.CorrectLine;
+            }
+
+            referenceLines.AddRange(templateReference);
             errors.AddRange(template.Errors.Select(error => error with
             {
                 ErrorId = $"{template.TemplateId}-{error.ErrorId}",
@@ -394,17 +415,26 @@ public static class DiscriminationGeneratedContentGenerator
         var availableErrors = errors
             .Where(error => error.LineNumber <= lineCount)
             .ToArray();
-        var errorStart = SelectIndex(seedPlan.PayloadSeed, "seeded-error", seedPlan.VariantIndex, availableErrors.Length);
-        var selectedErrors = new List<SeededAuditErrorTemplate>();
+        var selectedErrors = GeneratedContentStableHash.OrderByOrdinal(
+                availableErrors,
+                seedPlan.RequestFingerprint,
+                "seeded-error",
+                seedPlan.FreshnessOrdinal / SeededAuditTemplates.Length,
+                error => error.ErrorId)
+            .Take(Math.Min(seededErrorCount, availableErrors.Length))
+            .ToArray();
 
-        for (var i = 0; i < Math.Min(seededErrorCount, availableErrors.Length); i++)
+        var selectedReference = referenceLines.Take(lineCount).ToArray();
+        var lockedOutput = selectedReference.ToArray();
+        foreach (var error in selectedErrors)
         {
-            selectedErrors.Add(availableErrors[(errorStart + i) % availableErrors.Length]);
+            lockedOutput[error.LineNumber - 1] = lines[error.LineNumber - 1];
         }
 
         return new SeededAuditPlan(
             string.Join("+", templateIds),
-            lines.Take(lineCount).ToArray(),
+            selectedReference,
+            lockedOutput,
             selectedErrors,
             distractors,
             LoadValueOrDefault(request, "error subtlety", DefaultErrorSubtlety),
@@ -429,11 +459,18 @@ public static class DiscriminationGeneratedContentGenerator
         AddHonestyConstraints(materials, request);
 
         materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.AuditReference,
+            "audit-reference",
+            "source record; " + string.Join(
+                " | ",
+                plan.ReferenceLines.Select((line, index) =>
+                    $"line {(index + 1).ToString(CultureInfo.InvariantCulture)}: {line}"))));
+        materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.LockedOriginalOutput,
             "locked-original-output",
             "locked original output; " + string.Join(
                 " | ",
-                plan.Lines.Select((line, index) =>
+                plan.LockedOutputLines.Select((line, index) =>
                     $"line {(index + 1).ToString(CultureInfo.InvariantCulture)}: {line}"))));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.ErrorSubtlety,
@@ -459,7 +496,9 @@ public static class DiscriminationGeneratedContentGenerator
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.AuditInstruction,
             "audit-instruction",
-            "Audit the locked original output after the delay; do not edit the original; report findings with line, error type, and evidence."));
+            $"Study the source record, then audit the locked report after the delay; do not edit the report; " +
+            $"do not copy or note the source; report {plan.Errors.Count.ToString(CultureInfo.InvariantCulture)} findings, " +
+            "one per line, with line number, mismatch type, and exact correction."));
 
         for (var i = 0; i < plan.Errors.Count; i++)
         {
@@ -505,15 +544,26 @@ public static class DiscriminationGeneratedContentGenerator
             index++;
         }
 
+        if (request.Drill == DrillId.DE2SeededAudit)
+        {
+            AddDefaultHonestyConstraint(
+                materials,
+                added,
+                "original-output-lock",
+                OriginalOutputLockedConstraint);
+            AddDefaultHonestyConstraint(
+                materials,
+                added,
+                "source-reference-hidden",
+                SourceReferenceHiddenConstraint);
+            return;
+        }
+
         AddDefaultHonestyConstraint(
             materials,
             added,
-            request.Drill == DrillId.DE2SeededAudit
-                ? "original-output-lock"
-                : "marked-guesses",
-            request.Drill == DrillId.DE2SeededAudit
-                ? OriginalOutputLockedConstraint
-                : MarkedGuessConstraint);
+            "marked-guesses",
+            MarkedGuessConstraint);
     }
 
     private static void AddDefaultHonestyConstraint(
@@ -586,6 +636,9 @@ public static class DiscriminationGeneratedContentGenerator
         GeneratedDrillContentRequest request,
         IReadOnlyCollection<GeneratedContentMaterial> materials)
     {
+        var auditReference = materials
+            .Single(material => material.Kind == GeneratedContentMaterialKind.AuditReference)
+            .Value;
         var lockedOutput = materials
             .Single(material => material.Kind == GeneratedContentMaterialKind.LockedOriginalOutput)
             .Value;
@@ -603,6 +656,7 @@ public static class DiscriminationGeneratedContentGenerator
             .ToArray();
 
         yield return new GeneratedContentPayloadFact("payload-family", "de-seeded-audit");
+        yield return new GeneratedContentPayloadFact("audit-reference", auditReference);
         yield return new GeneratedContentPayloadFact("locked-original-output", lockedOutput);
         yield return new GeneratedContentPayloadFact("seeded-error-key", string.Join("|", seededErrors));
         yield return new GeneratedContentPayloadFact("expected-findings", string.Join("|", expectedFindings));
@@ -631,15 +685,17 @@ public static class DiscriminationGeneratedContentGenerator
         GeneratedContentSeedPlan seedPlan,
         int pairCount)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, "discrimination-pair", seedPlan.VariantIndex, PairTemplates.Length) +
-            (seedPlan.VariantIndex * pairCount)) %
-            PairTemplates.Length;
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            PairTemplates,
+            seedPlan.RequestFingerprint,
+            "discrimination-pair",
+            seedPlan.FreshnessOrdinal,
+            pair => $"{pair.LeftItem}|{pair.RightItem}");
         var pairs = new List<DiscriminationPairTemplate>();
 
         for (var i = 0; i < pairCount; i++)
         {
-            var template = PairTemplates[(firstIndex + i) % PairTemplates.Length];
+            var template = ordered[i % ordered.Count];
             var cycle = i / PairTemplates.Length;
             pairs.Add(cycle % 2 == 0
                 ? template
@@ -656,10 +712,11 @@ public static class DiscriminationGeneratedContentGenerator
     private static SeededAuditTemplate SelectSeededAuditTemplate(
         GeneratedContentSeedPlan seedPlan)
     {
-        var index = (
-            SelectIndex(seedPlan.PayloadSeed, "seeded-audit-template", seedPlan.VariantIndex, SeededAuditTemplates.Length) +
-            seedPlan.VariantIndex) %
-            SeededAuditTemplates.Length;
+        var index = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "seeded-audit-template",
+            seedPlan.FreshnessOrdinal,
+            SeededAuditTemplates.Length);
 
         return SeededAuditTemplates[index];
     }
@@ -680,19 +737,6 @@ public static class DiscriminationGeneratedContentGenerator
             DefaultSeededErrorCount,
             1,
             8);
-    }
-
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
     }
 
     private static string LoadValueOrDefault(
@@ -753,11 +797,13 @@ public static class DiscriminationGeneratedContentGenerator
         string ErrorType,
         string Criticality,
         string Description,
-        string ExpectedFinding);
+        string ExpectedFinding,
+        string CorrectLine);
 
     private sealed record SeededAuditPlan(
         string TemplateId,
-        IReadOnlyList<string> Lines,
+        IReadOnlyList<string> ReferenceLines,
+        IReadOnlyList<string> LockedOutputLines,
         IReadOnlyList<SeededAuditErrorTemplate> Errors,
         IReadOnlyList<string> NonErrorDistractors,
         string ErrorSubtlety,

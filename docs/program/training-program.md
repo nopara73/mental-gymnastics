@@ -162,6 +162,12 @@ Mixed performance is judged in this order:
 
 Excellence never bypasses prerequisites.
 
+### Curriculum Completion
+
+The finite curriculum milestone is reached when all 40 branch-level standards are owned and a global review passes. This is the point at which the practitioner has completed the ladder; it is not permission to discard the capacities.
+
+After curriculum completion, the program continues as maintenance. Due or failed maintenance remains real work, and decay can require restoration without erasing the historical fact that the level was previously earned.
+
 ## Branch Map
 
 The program has five foundational branches and three advanced branches.
@@ -310,7 +316,7 @@ Intermediate practitioners have all foundational L3 owned and may train one adva
 | Day 3 | Maintenance | FH, FS, WM, IR, DE rotating checks |
 | Day 4 | Practice | Advanced branch plus prerequisite branch |
 | Day 5 | Transfer or stabilization | Eligible branch |
-| Day 6 | Recovery | Low-load maintenance |
+| Day 6 | Recovery or retest | Recover by default; run a due formal retest when a level is test-ready. |
 | Day 7 | Off | No structured work |
 
 ### Advanced Week
@@ -387,7 +393,7 @@ Each branch has level standards, gates, maintenance logic, transfer rules, and b
 | --- | --- | --- | --- | --- | --- |
 | L1 | Alternate between two targets on cue for 4 minutes. | At least 90% correct cue responses; no more than 3 anticipatory switches. | FH L1 passed once. | Repeat twice; one after FH hold. | Use a new pair of targets. |
 | L2 | Increase cue density. | 6 minutes; at least 92% correct; recovery after wrong switch within next cue. | Own L1 required. | Two passes on separate days. | Switch between task types, not just objects. |
-| L3 | Add rule conflict. | Switch only on valid cues while ignoring invalid cues; at least 90% valid response and 90% invalid inhibition. | Own L2 and IR L2 required. | Repeat after WM set. | Transfer to DE comparison task. |
+| L3 | Add rule conflict. | At least 90% valid-cue accuracy; invalid cues must never trigger a switch. | Own L2 and IR L2 required. | Repeat after WM set. | Transfer to DE comparison task. |
 | L4 | Transfer switching to complex work. | Alternate between two branch tasks without losing either task's passing standard. | Own L3 required. | Two different branch pairings. | Required transfer is the level test. |
 | L5 | Integrated switching under pressure. | Maintain rule fidelity through 15-minute TI task with scheduled and unscheduled switches. | Own L4 and TI L3 required. | Repeat in global review. | Global task with switch log. |
 
@@ -500,6 +506,8 @@ AI does not train the practitioner to feel calm. It trains preservation of task 
 | L3 | Add advanced branch. | Foundational branch scores remain passing while CO or AI demand is active. | Own L2 and advanced branch L2 owned. | Repeat with different advanced branch or pressure source. | New task family. |
 | L4 | Transfer to untrained but related problem. | Branch evidence remains visible; no bottleneck branch falls below pass. | Own L3 required. | Two far-transfer tasks. | Required transfer is the level test. |
 | L5 | Global performance review task. | Multi-branch task passes, audit passes, delayed reconstruction passes, and pressure rule remains intact. | Own L4, CO L4, AI L4 required. | Repeat in separate global review cycles. | Global review itself. |
+
+Integrated sessions separate the executable source protocol from additional component checks. The source protocol is run and scored once; it must not reappear as a text-only duplicate component. Each additional component check names a concrete challenge, keeps its answer key hidden, passes only on the exact required response with no recorded component error, and leaves branch-labeled evidence. These checks test whether already-earned capacities remain usable inside combined work; they do not grant, replace, restore, or lower branch ownership evidence. When AI or transfer wraps a source drill, that source drill must also pass its applicable timing, cue, rule, drift, and honesty criteria.
 
 **Maintenance:** One composite task every 14 days after L1 owned; global task every 4 weeks after L3 owned.  
 **Bottleneck effect:** A TI failure routes back to the weakest scored branch; TI cannot hide weak fundamentals.  
@@ -691,6 +699,7 @@ Maintenance is lighter than acquisition but strong enough to prevent decay.
 
 Maintenance rules:
 
+- Maintain the highest owned level in each branch; its check supersedes separate checks for lower levels in that branch.
 - Owned L1-L2 foundational branches: one check weekly.
 - Owned L3 foundational branches: one standard or transfer check every 7 to 10 days.
 - Owned advanced branches: one check every 10 to 14 days.

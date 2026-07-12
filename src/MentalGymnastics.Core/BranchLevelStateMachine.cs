@@ -57,6 +57,7 @@ public static class BranchLevelStateMachine
             (BranchLevelState.TestReady, BranchLevelTransition.PassFormalTestOnce) => BranchLevelState.PassedOnce,
 
             (BranchLevelState.PassedOnce, BranchLevelTransition.EnterStabilization) => BranchLevelState.Stabilizing,
+            (BranchLevelState.PassedOnce, BranchLevelTransition.FailStabilization) => BranchLevelState.Training,
 
             (BranchLevelState.Stabilizing, BranchLevelTransition.CompleteStabilization) => BranchLevelState.Owned,
             (BranchLevelState.Stabilizing, BranchLevelTransition.FailStabilization) => BranchLevelState.Training,

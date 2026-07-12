@@ -457,7 +457,7 @@ public static class ProgramCatalog
 
         Standard(BranchCode.FS, GlobalLevelId.L1, "Alternate between two targets on cue for 4 minutes.", "At least 90% correct cue responses; no more than 3 anticipatory switches.", "FH L1 passed once.", "Repeat twice; one after FH hold.", "Use a new pair of targets."),
         Standard(BranchCode.FS, GlobalLevelId.L2, "Increase cue density.", "6 minutes; at least 92% correct; recovery after wrong switch within next cue.", "Own L1 required.", "Two passes on separate days.", "Switch between task types, not just objects."),
-        Standard(BranchCode.FS, GlobalLevelId.L3, "Add rule conflict.", "Switch only on valid cues while ignoring invalid cues; at least 90% valid response and 90% invalid inhibition.", "Own L2 and IR L2 required.", "Repeat after WM set.", "Transfer to DE comparison task."),
+        Standard(BranchCode.FS, GlobalLevelId.L3, "Add rule conflict.", "At least 90% valid-cue accuracy; invalid cues must never trigger a switch.", "Own L2 and IR L2 required.", "Repeat after WM set.", "Transfer to DE comparison task."),
         Standard(BranchCode.FS, GlobalLevelId.L4, "Transfer switching to complex work.", "Alternate between two branch tasks without losing either task's passing standard.", "Own L3 required.", "Two different branch pairings.", "Required transfer is the level test."),
         Standard(BranchCode.FS, GlobalLevelId.L5, "Integrated switching under pressure.", "Maintain rule fidelity through 15-minute TI task with scheduled and unscheduled switches.", "Own L4 and TI L3 required.", "Repeat in global review.", "Global task with switch log."),
 

@@ -251,7 +251,7 @@ public static class TestReadinessEvaluator
     {
         return checks.Any(check =>
             check.Branch == requirement.Branch &&
-            check.Level == requirement.Level &&
+            check.Level >= requirement.Level &&
             check.IsCurrent);
     }
 

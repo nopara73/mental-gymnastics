@@ -274,7 +274,7 @@ public sealed class LocalProgramRepository
         }
 
         var due = new List<LocalDueMaintenanceRecord>();
-        foreach (var branchLevel in currentState.BranchLevels.Where(IsMaintenanceRelevant))
+        foreach (var branchLevel in MaintenanceScope.HighestEarnedByBranch(currentState))
         {
             var currency = await LoadMaintenanceCurrencyAsync(
                 branchLevel.Branch,

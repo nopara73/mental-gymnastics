@@ -156,7 +156,16 @@ public sealed class ConceptOperationsGeneratedContentTests
         Assert.Equal(3, requiredRelations.Length);
         Assert.Equal(requiredRelations.Length, expectedMappings.Length);
         Assert.All(requiredRelations, relation =>
-            Assert.Contains("named relation", relation.Value, StringComparison.OrdinalIgnoreCase));
+        {
+            Assert.Contains("name one required source relation", relation.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("expected source relation", relation.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("expected target relation", relation.Value, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(expectedMappings, mapping =>
+        {
+            Assert.Contains("expected source relation", mapping.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("expected target relation", mapping.Value, StringComparison.OrdinalIgnoreCase);
+        });
 
         Assert.Contains(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.SurfaceLure &&
@@ -185,6 +194,35 @@ public sealed class ConceptOperationsGeneratedContentTests
         Assert.Contains(generated.Result.PayloadFacts, fact =>
             fact.Name == "unsupported-inference-evidence" &&
             fact.Value.Contains("unsupported", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(GlobalLevelId.L4, false)]
+    [InlineData(GlobalLevelId.L5, true)]
+    public void AdvancedStructureMappingIncludesHiddenHeldOutProbeAudit(
+        GlobalLevelId level,
+        bool includesLimitDecision)
+    {
+        var generated = ConceptOperationsGeneratedContentGenerator.Generate(
+            CreateStructureMappingRequest(level: level),
+            new GeneratedContentSeed($"co-map-{level}"));
+
+        var audit = Assert.Single(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.AuditPayload);
+        var expected = Assert.Single(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.ExpectedFinding);
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == BranchCode.CO && item.Level == level);
+        var package = GeneratedContentRuntimePackager.Package(
+            generated.Result,
+            generated.Materials,
+            standard);
+
+        Assert.Contains("UNSEEN PROBE", audit.Value, StringComparison.Ordinal);
+        Assert.Contains("TEST", audit.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain(expected.Value, audit.Value, StringComparison.Ordinal);
+        Assert.Equal(includesLimitDecision, expected.Value.Contains("LIMIT=", StringComparison.Ordinal));
+        Assert.Contains(package.Phases, phase => phase.Kind == GeneratedRuntimePhaseKind.Audit);
     }
 
     [Fact]
@@ -260,19 +298,20 @@ public sealed class ConceptOperationsGeneratedContentTests
     }
 
     private static GeneratedDrillContentRequest CreateStructureMappingRequest(
-        IEnumerable<string>? previouslyUsedContentIds = null)
+        IEnumerable<string>? previouslyUsedContentIds = null,
+        GlobalLevelId level = GlobalLevelId.L3)
     {
         return new GeneratedDrillContentRequest(
             BranchCode.CO,
-            GlobalLevelId.L3,
+            level,
             DrillId.CO2StructureMapping,
             SessionType.Practice,
             PromptContentKind.RuleExampleSet,
-            "co-l3-structure-mapping",
+            $"co-{level.ToString().ToLowerInvariant()}-structure-mapping",
             PromptFreshnessPolicy.FreshEquivalentRequired,
             [
-                new LoadVariable("relation count", "3"),
-                new LoadVariable("domain distance", "near domain"),
+                new LoadVariable("relation count", level == GlobalLevelId.L5 ? "5" : level == GlobalLevelId.L4 ? "4" : "3"),
+                new LoadVariable("domain distance", level == GlobalLevelId.L3 ? "near domain" : "open domain"),
             ],
             [new CriticalConstraint(RelationsNamedConstraint)],
             previouslyUsedContentIds);

@@ -133,6 +133,29 @@ public sealed class CurrentTrainingStateLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task CurrentHighestLevelMaintenanceSupersedesLowerChecksInTheSameBranch()
+    {
+        var configuration = Configuration();
+        var asOf = TrainingDate.From(2026, 7, 5);
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(State(
+        [
+            Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Maintenance),
+            Status(BranchCode.FH, GlobalLevelId.L2, BranchLevelState.Maintenance),
+            Status(BranchCode.FH, GlobalLevelId.L3, BranchLevelState.Maintenance),
+        ]));
+        await new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions).SaveMaintenanceAsync(
+            Maintenance("maintenance-fh-l3-current", BranchCode.FH, GlobalLevelId.L3, asOf, passed: true));
+
+        var readModel = await new CurrentTrainingStateLoader(configuration).LoadAsync(
+            new CurrentTrainingStateQuery(asOf));
+
+        Assert.DoesNotContain(readModel.DueMaintenance, due => due.BranchLevel.Branch == BranchCode.FH);
+        Assert.DoesNotContain(readModel.BlockedAdvancement, blocker =>
+            blocker.Branch == BranchCode.FH &&
+            blocker.CategoryBlockerKind == PractitionerCategoryBlockerKind.MaintenanceNotCurrent);
+    }
+
+    [Fact]
     public async Task DerivesRecoveryFromTwoConsecutiveOverloadSets()
     {
         var configuration = Configuration();

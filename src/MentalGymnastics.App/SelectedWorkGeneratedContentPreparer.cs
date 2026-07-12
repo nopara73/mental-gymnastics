@@ -271,11 +271,14 @@ public sealed class SelectedWorkGeneratedContentPreparer
         }
 
         GeneratedContentRuntimePackage runtimePackage;
+        var executionMaterials = StabilizationGeneratedContent.AddControlledDistractor(
+            selection.Result,
+            selection.Materials);
         try
         {
             runtimePackage = GeneratedContentRuntimePackager.Package(
                 selection.Result,
-                selection.Materials,
+                executionMaterials,
                 standard);
         }
         catch (ArgumentException exception)
@@ -299,7 +302,7 @@ public sealed class SelectedWorkGeneratedContentPreparer
         {
             var persistenceHandoff = GeneratedContentPersistenceHandoffMapper.Create(
                 selection.Result,
-                selection.Materials,
+                executionMaterials,
                 request.GeneratedOn);
 
             return SelectedWorkGeneratedContentPreparationResult.Prepared(

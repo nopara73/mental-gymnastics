@@ -54,6 +54,7 @@ public enum GeneratedContentMaterialKind
     MatchTruth,
     GuessHandling,
     FalsePositiveFalseNegativeKey,
+    AuditReference,
     LockedOriginalOutput,
     SeededError,
     ExpectedFinding,
@@ -66,6 +67,7 @@ public enum GeneratedContentMaterialKind
     NegativeExample,
     UnseenExample,
     ExpectedClassification,
+    ExpectedRule,
     RuleFamily,
     RuleAmbiguity,
     ExceptionHandling,
@@ -281,6 +283,7 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialKind.GuessHandling,
                 GeneratedContentMaterialKind.FalsePositiveFalseNegativeKey),
             [DrillId.DE2SeededAudit] = Required(
+                GeneratedContentMaterialKind.AuditReference,
                 GeneratedContentMaterialKind.LockedOriginalOutput,
                 GeneratedContentMaterialKind.SeededError,
                 GeneratedContentMaterialKind.ExpectedFinding,
@@ -288,6 +291,7 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialKind.AuditInstruction),
             [DrillId.CO1RuleExtraction] = Required(
                 GeneratedContentMaterialKind.RuleStatement,
+                GeneratedContentMaterialKind.ExpectedRule,
                 GeneratedContentMaterialKind.PositiveExample,
                 GeneratedContentMaterialKind.UnseenExample,
                 GeneratedContentMaterialKind.ExpectedClassification,
@@ -323,7 +327,9 @@ public static class GeneratedContentMaterialValidator
             [DrillId.TI2GlobalReviewTask] = Required(
                 GeneratedContentMaterialKind.CompositeTaskPrompt,
                 GeneratedContentMaterialKind.AuditPayload,
+                GeneratedContentMaterialKind.ExpectedFinding,
                 GeneratedContentMaterialKind.DelayedReconstructionPayload,
+                GeneratedContentMaterialKind.ExpectedReconstruction,
                 GeneratedContentMaterialKind.ComponentEvidenceRequirement,
                 GeneratedContentMaterialKind.BranchScoringKey,
                 GeneratedContentMaterialKind.PressureSource),
@@ -348,6 +354,7 @@ public static class GeneratedContentMaterialValidator
         AddBranchDrillFailures(result, failures);
         AddContentKindFailures(result, failures);
         AddRequiredMaterialFailures(result.Drill, materialArray, failures);
+        AddLevelSpecificRequiredMaterialFailures(result, materialArray, failures);
         AddCompositeComponentVisibilityFailures(result.Drill, materialArray, failures);
         AddLoadVariableFailures(result.Request.LoadVariables, materialArray, failures);
         AddHonestyConstraintFailures(result.Request.CriticalConstraints, materialArray, failures);
@@ -421,6 +428,34 @@ public static class GeneratedContentMaterialValidator
                 GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial,
                 requiredMaterial,
                 $"Generated content for {drill} is missing required {requiredMaterial} material."));
+        }
+    }
+
+    private static void AddLevelSpecificRequiredMaterialFailures(
+        GeneratedDrillContentResult result,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        ICollection<GeneratedContentMaterialValidationFailure> failures)
+    {
+        if (result.Drill != DrillId.CO2StructureMapping ||
+            (int)result.Level < (int)GlobalLevelId.L4)
+        {
+            return;
+        }
+
+        var materialKinds = materials.Select(material => material.Kind).ToHashSet();
+        foreach (var requiredMaterial in new[]
+                 {
+                     GeneratedContentMaterialKind.AuditPayload,
+                     GeneratedContentMaterialKind.ExpectedFinding,
+                 })
+        {
+            if (!materialKinds.Contains(requiredMaterial))
+            {
+                failures.Add(new GeneratedContentMaterialValidationFailure(
+                    GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial,
+                    requiredMaterial,
+                    $"Generated content for {result.Branch} {result.Level} is missing required {requiredMaterial} material."));
+            }
         }
     }
 

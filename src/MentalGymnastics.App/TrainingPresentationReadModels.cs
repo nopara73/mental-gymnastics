@@ -136,7 +136,8 @@ public sealed record TrainingExercisePresentation(
     string HonestyInstruction,
     string EvidenceRecorded,
     string? PrimaryMaterial,
-    IReadOnlyList<string> SetupItems);
+    IReadOnlyList<string> SetupItems,
+    DrillInteractionProtocol InteractionProtocol);
 
 public sealed record TrainingPresentationWorkSummary(
     TrainingPresentationWorkSource Source,
@@ -202,7 +203,8 @@ public sealed record CurrentTrainingPresentationReadModel(
     bool GrantsAdvancementInApp,
     DailyTrainingWorkflowStatus? DailyStatus = null,
     int DailyCompletedBlockCount = 0,
-    int DailyTotalBlockCount = 0);
+    int DailyTotalBlockCount = 0,
+    int DailyEstimatedMinutes = 0);
 
 public sealed record SessionPreflightPresentationReadModel(
     PreUiTrainingWorkflowPreparationStatus Status,
@@ -228,6 +230,14 @@ public sealed record LiveCuePresentationSummary(
     TimeSpan ResponseWindow,
     bool RequiresResponse,
     bool HasHiddenExpectedResponse);
+
+public sealed record LiveCueCorrectionPresentation(
+    long SourceEventSequenceNumber,
+    RuntimeCueKind Kind,
+    string Cue,
+    string SubmittedResponse,
+    IReadOnlyList<string> ResponseOptions,
+    TimeSpan Remaining);
 
 public sealed record LiveCommandPresentationSummary(
     RuntimeInputCommandKind Command,
@@ -268,7 +278,9 @@ public sealed record LiveSessionPresentationReadModel(
     bool IsTerminal,
     IReadOnlyList<TrainingPresentationReveal> RevealOnDemand,
     bool GrantsAdvancementInApp,
-    DrillId? SourceDrill = null);
+    DrillId? SourceDrill = null,
+    LiveCueCorrectionPresentation? PendingCorrection = null,
+    string? CurrentFocusTarget = null);
 
 public sealed record TrainingStateTransitionPresentation(
     BranchCode Branch,
@@ -327,7 +339,8 @@ public static class TrainingPresentationMapper
                 GrantsAdvancementInApp: false,
                 dailyTraining.Status,
                 dailyTraining.CompletedBlockCount,
-                dailyTraining.TotalBlockCount);
+                dailyTraining.TotalBlockCount,
+                dailyTraining.EstimatedMinutes);
         }
 
         var maintenancePriority = MaintenanceDecayPriorityFor(state);
@@ -459,7 +472,11 @@ public static class TrainingPresentationMapper
             live.IsTerminal,
             RevealsFor(live),
             GrantsAdvancementInApp: false,
-            SourceDrill: live.SourceDrill);
+            SourceDrill: live.SourceDrill,
+            PendingCorrection: live.PendingCorrection is null
+                ? null
+                : CorrectionSummaryFor(live.PendingCorrection),
+            CurrentFocusTarget: live.CurrentFocusTarget);
     }
 
     public static ResultPresentationReadModel FromResult(
@@ -743,7 +760,10 @@ public static class TrainingPresentationMapper
                 selectedStatus.Branch,
                 selectedStatus.Level,
                 drill.Id,
-                SessionTypeFor(work.Session, selectedStatus.State));
+                DefaultTrainingWorkPolicy.SessionTypeFor(
+                    work.Session,
+                    selectedStatus.State,
+                    selectedStatus.Level));
             var loadVariables = Array.Empty<LoadVariable>();
 
             return new TrainingPresentationWorkSummary(
@@ -1125,11 +1145,30 @@ public static class TrainingPresentationMapper
             HasHiddenExpectedResponse: cue.ExpectedResponse is not null);
     }
 
+    private static LiveCueCorrectionPresentation CorrectionSummaryFor(
+        PreUiLiveSessionCorrectionState correction)
+    {
+        return new LiveCueCorrectionPresentation(
+            correction.SourceEventSequenceNumber,
+            correction.Kind,
+            correction.Cue,
+            correction.SubmittedResponse,
+            correction.ResponseOptions,
+            correction.Remaining);
+    }
+
     private static string LiveInstructionFor(PreUiLiveSessionState live)
     {
+        if (live.PendingCorrection is not null && live.ActiveCue is null)
+        {
+            return "Correct the last cue before continuing.";
+        }
+
         if (live.ActiveCue is { } cue)
         {
-            if (live.Drill == DrillId.AI2DisruptionRecovery && cue.Kind == RuntimeCueKind.Interruption)
+            if (live.Drill == DrillId.AI2DisruptionRecovery &&
+                cue.Kind == RuntimeCueKind.Interruption &&
+                cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired)
             {
                 return "The source rule still applies.";
             }
@@ -1137,12 +1176,16 @@ public static class TrainingPresentationMapper
             var effectiveDrill = live.SourceDrill ?? live.Drill;
             if (effectiveDrill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter)
             {
-                return "Apply the cue rule.";
+                return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
+                    ? "Valid cue. Tap the named target."
+                    : "Invalid cue. Do not tap.";
             }
 
-            if (effectiveDrill == DrillId.IR2ExceptionRule)
+            if (effectiveDrill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
             {
-                return "Apply the rule.";
+                return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
+                    ? "Go. Tap now."
+                    : "No-go. Do not tap.";
             }
 
             return cue.ResponseExpectation == RuntimeCueResponseExpectation.ResponseRequired
@@ -1153,14 +1196,17 @@ public static class TrainingPresentationMapper
         return live.CurrentPhaseKind switch
         {
             RuntimeSessionPhaseKind.InstructionPrep => live.SourceDrill.HasValue
-                ? $"{PrepInstructionFor(live.SourceDrill.Value)} The source standard still counts."
+                ? $"{PrepInstructionFor(live.SourceDrill.Value)} Do not simplify it."
                 : PrepInstructionFor(live.Drill),
             RuntimeSessionPhaseKind.ActiveWork => ActiveInstructionFor(live),
-            RuntimeSessionPhaseKind.EncodeWindow => live.Drill == DrillId.WM2MentalTransform
-                ? "Study the source and operations. Use no notes."
-                : live.CurrentPhaseCompletionRule == RuntimeSessionPhaseCompletionRule.Timed
+            RuntimeSessionPhaseKind.EncodeWindow => live.Drill switch
+            {
+                DrillId.WM2MentalTransform => "Study the source and operations. Use no notes.",
+                DrillId.DE2SeededAudit => "Study the source record. It will be hidden before the audit.",
+                _ => live.CurrentPhaseCompletionRule == RuntimeSessionPhaseCompletionRule.Timed
                     ? "Study the items now. This window will close."
                     : "Study the items once, then continue.",
+            },
             RuntimeSessionPhaseKind.DelayWindow => "Keep the material hidden.",
             RuntimeSessionPhaseKind.CueResponse => CommandIsAvailable(live, RuntimeInputCommandKind.FinishPhase)
                 ? "Cue set complete."
@@ -1173,9 +1219,7 @@ public static class TrainingPresentationMapper
                 DrillId.TI1CompositeTask => "Reconstruct the component order and evidence after the delay.",
                 _ => "Reconstruct from memory. Do not reopen the items.",
             },
-            RuntimeSessionPhaseKind.Audit => CommandIsAvailable(live, RuntimeInputCommandKind.StartAudit)
-                ? "Lock the original, then start the audit."
-                : "Record only findings you can support.",
+            RuntimeSessionPhaseKind.Audit => AuditInstructionFor(live),
             RuntimeSessionPhaseKind.Rest => "Rest. The next set will appear when ready.",
             RuntimeSessionPhaseKind.Recovery => "Restart from the last stable step.",
             RuntimeSessionPhaseKind.Review => "Check the evidence, then finish.",
@@ -1187,8 +1231,8 @@ public static class TrainingPresentationMapper
     {
         return drill switch
         {
-            DrillId.FH1TargetHold => "Say the target once. Start when ready.",
-            DrillId.FH2DistractorHold => "Keep the target. Ignore every distractor.",
+            DrillId.FH1TargetHold => "Eyes open. Keep the target visible. Say it once.",
+            DrillId.FH2DistractorHold => "Eyes open. Keep the target visible. Ignore distractors.",
             DrillId.FS1CueSwitch => "Read the targets. Switch only on a valid cue.",
             DrillId.FS2InvalidCueFilter => "Read the targets. Invalid cues change nothing.",
             DrillId.WM1DelayedReconstruction => "Read the encode rule. Rereading will be blocked.",
@@ -1196,14 +1240,34 @@ public static class TrainingPresentationMapper
             DrillId.IR1GoNoGoRule => "Respond to go cues. Withhold on no-go cues.",
             DrillId.IR2ExceptionRule => "Read the rule and its exception before starting.",
             DrillId.DE1PairDiscrimination => "Compare only the named feature. Mark guesses.",
-            DrillId.DE2SeededAudit => "The original stays locked during the audit.",
+            DrillId.DE2SeededAudit => "Study the source, wait, then audit the locked report from memory.",
             DrillId.CO1RuleExtraction => "Infer one rule that fits every shown example.",
             DrillId.CO2StructureMapping => "Map roles and relations, not surface words.",
             DrillId.AI1PressureRepeat => "Pressure changes the context, not the standard.",
             DrillId.AI2DisruptionRecovery => "After disruption, resume from the last stable step.",
-            DrillId.TI1CompositeTask => "Each component keeps its own passing standard.",
-            DrillId.TI2GlobalReviewTask => "Use the evidence to make one program decision.",
+            DrillId.TI1CompositeTask => "Every branch has its own scored response.",
+            DrillId.TI2GlobalReviewTask => "Answer every branch, audit the locked report, then rebuild it from memory.",
             _ => "Start when the rule is clear.",
+        };
+    }
+
+    private static string AuditInstructionFor(PreUiLiveSessionState live)
+    {
+        var beforeStart = CommandIsAvailable(live, RuntimeInputCommandKind.StartAudit);
+        return live.Drill switch
+        {
+            DrillId.DE2SeededAudit => beforeStart
+                ? "Read the locked report. The source stays hidden."
+                : "Record each line, mismatch type, and exact correction.",
+            DrillId.CO2StructureMapping => beforeStart
+                ? "Read the unseen probe, then start the test."
+                : "Choose the verdict and cite the deciding relation.",
+            DrillId.TI2GlobalReviewTask => beforeStart
+                ? "Read the locked report, then start the audit."
+                : "Name the wrong branch and its exact correction.",
+            _ => beforeStart
+                ? "Lock the original, then start the audit."
+                : "Record only findings you can support.",
         };
     }
 
@@ -1213,15 +1277,16 @@ public static class TrainingPresentationMapper
         return effectiveDrill switch
         {
             DrillId.FH1TargetHold or DrillId.FH2DistractorHold => live.Evidence.OpenDriftCount > 0
-                ? "Return to the target now."
-                : "Hold the target.",
+                ? "Eyes open. Return to the target now."
+                : "Eyes open. Hold the target.",
             DrillId.DE1PairDiscrimination => "Judge each pair on the named feature.",
+            DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "State and lock the rule before cues begin.",
             DrillId.CO1RuleExtraction => "Commit one testable rule before unseen examples appear.",
             DrillId.CO2StructureMapping => "Name the relations before the mapping prompt appears.",
             DrillId.AI1PressureRepeat => "Repeat the source task to the same standard.",
             DrillId.AI2DisruptionRecovery => "Resume from the last stable step.",
-            DrillId.TI1CompositeTask => "Complete each component to its own standard.",
-            DrillId.TI2GlobalReviewTask => "Complete each component. Keep its evidence separate.",
+            DrillId.TI1CompositeTask => "Answer every component. Each branch is scored separately.",
+            DrillId.TI2GlobalReviewTask => "Answer every component. Keep the branch responses separate.",
             _ => "Complete the visible task to its stated standard.",
         };
     }
@@ -1264,7 +1329,8 @@ public static class TrainingPresentationMapper
                 "Tap Mind wandered every time attention leaves. Keep the same target.",
                 "The app saves wander taps, return time, target changes, and whether you finished or stopped.",
                 primaryMaterial,
-                setupItems ?? []);
+                setupItems ?? [],
+                DrillInteractionProtocolCatalog.Get(drill));
         }
 
         return new TrainingExercisePresentation(
@@ -1280,7 +1346,8 @@ public static class TrainingPresentationMapper
             $"Keep it honest: {honestyConstraint}",
             "The session records observable results, missed steps, and failed constraints.",
             primaryMaterial,
-            setupItems ?? []);
+            setupItems ?? [],
+            DrillInteractionProtocolCatalog.Get(drill));
     }
 
     private static string? PrimaryMaterialValue(
@@ -1331,6 +1398,13 @@ public static class TrainingPresentationMapper
         DrillId drill,
         IReadOnlyList<GeneratedContentMaterial> materials)
     {
+        var transferTask = materials.FirstOrDefault(material =>
+            material.Kind == GeneratedContentMaterialKind.TransferTask)?.Value;
+        if (!string.IsNullOrWhiteSpace(transferTask))
+        {
+            return transferTask;
+        }
+
         var target = materials.FirstOrDefault(material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement)?.Value;
         if (!string.IsNullOrWhiteSpace(target))
@@ -1389,8 +1463,8 @@ public static class TrainingPresentationMapper
             DrillId.CO2StructureMapping => "Map roles and relations, not surface words.",
             DrillId.AI1PressureRepeat => "Repeat the source task to the same standard.",
             DrillId.AI2DisruptionRecovery => "Resume the source task after disruption.",
-            DrillId.TI1CompositeTask => "Complete each component to its own standard.",
-            DrillId.TI2GlobalReviewTask => "Audit the evidence and make one program decision.",
+            DrillId.TI1CompositeTask => "Answer every component; every branch must pass.",
+            DrillId.TI2GlobalReviewTask => "Answer each branch, find one mismatch, then rebuild the locked report.",
             _ => value,
         };
     }
@@ -1399,17 +1473,100 @@ public static class TrainingPresentationMapper
         DrillId drill,
         IReadOnlyList<GeneratedContentMaterial> materials)
     {
-        if (drill != DrillId.IR2ExceptionRule &&
-            drill is not (DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery))
+        var items = new List<string>();
+        if (drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery)
         {
-            return [];
+            var sourceTask = materials.FirstOrDefault(material =>
+                material.Kind == GeneratedContentMaterialKind.SourceTask)?.Value;
+            var sourceStandard = materials.FirstOrDefault(material =>
+                material.Kind == GeneratedContentMaterialKind.SourceBranchStandard)?.Value;
+            var sourceCriterion = WrappedSourceCriterion(sourceTask) ??
+                SourceStandardCriterion(sourceStandard);
+            if (!string.IsNullOrWhiteSpace(sourceCriterion))
+            {
+                items.Add($"KEEP PASSING  {CompactSourceCriterion(sourceCriterion)}");
+            }
         }
 
-        return materials
-            .Where(material => material.Kind == GeneratedContentMaterialKind.ExceptionDefinition)
-            .Select(material => CompactException(material.Value))
-            .Where(value => value.Length > 0)
-            .ToArray();
+        var sameDemand = materials.FirstOrDefault(material =>
+            material.Kind == GeneratedContentMaterialKind.SameDemand)?.Value;
+        if (!string.IsNullOrWhiteSpace(sameDemand))
+        {
+            items.Add($"SAME DEMAND  {sameDemand}");
+        }
+
+        var changedContext = materials.FirstOrDefault(material =>
+            material.Kind == GeneratedContentMaterialKind.ChangedContext)?.Value;
+        if (!string.IsNullOrWhiteSpace(changedContext))
+        {
+            items.Add($"NEW CONTEXT  {changedContext}");
+        }
+
+        if (drill == DrillId.IR2ExceptionRule ||
+            drill is DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery)
+        {
+            items.AddRange(materials
+                .Where(material => material.Kind == GeneratedContentMaterialKind.ExceptionDefinition)
+                .Select(material => CompactException(material.Value))
+                .Where(value => value.Length > 0));
+        }
+
+        return items;
+    }
+
+    private static string? WrappedSourceCriterion(string? value)
+    {
+        return MaterialSegment(value, "wrapped source criterion ", "; underlying branch demand") ??
+            MaterialSegment(value, "wrapped source criterion ", "; task complexity") ??
+            MaterialSegment(value, "wrapped source criterion ", "; complete ");
+    }
+
+    private static string? SourceStandardCriterion(string? value)
+    {
+        return MaterialSegment(value, "; standard ", "; source honesty constraint");
+    }
+
+    private static string? MaterialSegment(string? value, string marker, string endMarker)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return null;
+        }
+
+        start += marker.Length;
+        var end = value.IndexOf(endMarker, start, StringComparison.OrdinalIgnoreCase);
+        return (end < 0 ? value[start..] : value[start..end]).Trim().TrimEnd('.');
+    }
+
+    private static string CompactSourceCriterion(string value)
+    {
+        if (value.Contains("periodic irrelevant prompts", StringComparison.OrdinalIgnoreCase))
+        {
+            return "5:00 / ignore prompts / max 5 wanders";
+        }
+
+        if (value.Contains("invalid inhibition", StringComparison.OrdinalIgnoreCase))
+        {
+            return "90% valid / no invalid taps";
+        }
+
+        if (value.Contains("invalid cues must never", StringComparison.OrdinalIgnoreCase))
+        {
+            return "90% valid / no invalid taps";
+        }
+
+        if (value.Contains("correction within 2 items", StringComparison.OrdinalIgnoreCase))
+        {
+            return "88% correct / no rule drift / correct within 2";
+        }
+
+        return value;
     }
 
     private static string CompactExceptionRule(string value)
@@ -1836,32 +1993,6 @@ public static class TrainingPresentationMapper
         {
             reveals.Add(new TrainingPresentationReveal(kind, count, label));
         }
-    }
-
-    private static AppTrainingSessionType SessionTypeFor(
-        WeeklySessionKind weeklySession,
-        BranchLevelState branchLevelState)
-    {
-        return weeklySession switch
-        {
-            WeeklySessionKind.Load => AppTrainingSessionType.Load,
-            WeeklySessionKind.TestOrStabilization =>
-                branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
-                    ? AppTrainingSessionType.Stabilization
-                    : AppTrainingSessionType.Test,
-            WeeklySessionKind.TransferOrStabilization =>
-                branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
-                    ? AppTrainingSessionType.Stabilization
-                    : AppTrainingSessionType.Transfer,
-            WeeklySessionKind.Transfer => AppTrainingSessionType.Transfer,
-            WeeklySessionKind.Stabilization => AppTrainingSessionType.Stabilization,
-            WeeklySessionKind.Maintenance => AppTrainingSessionType.Maintenance,
-            WeeklySessionKind.Recovery
-                or WeeklySessionKind.RecoveryOrLightMaintenance
-                or WeeklySessionKind.OffOrRecovery
-                or WeeklySessionKind.RecoveryOrRetest => AppTrainingSessionType.Recovery,
-            _ => AppTrainingSessionType.Practice,
-        };
     }
 
     private static TrainingBranchLevelPresentation BranchLevelFor(

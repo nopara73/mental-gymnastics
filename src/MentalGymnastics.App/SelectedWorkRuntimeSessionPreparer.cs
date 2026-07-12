@@ -310,7 +310,10 @@ public sealed class SelectedWorkRuntimeSessionPreparer
             package.GeneratedInstance.InstanceId,
             package.GeneratedInstance.ContentIdentity,
             package.GeneratedInstance.ContentVersion);
-        return new RuntimeCueSchedule(identity, package.Cues.Select(ToRuntimeCue));
+        return new RuntimeCueSchedule(
+            identity,
+            package.Cues.Select(ToRuntimeCue),
+            package.SessionType);
     }
 
     private static SelectedWorkRuntimeSessionPreparationResult Reject(

@@ -286,7 +286,7 @@ public static class WorkingMemoryGeneratedContentGenerator
         {
             ObjectiveComponentTaskCatalog.AddMaterials(
                 materials,
-                [BranchCode.WM, BranchCode.TI],
+                [BranchCode.TI],
                 request.EquivalenceClass,
                 (int)request.Level,
                 "integrated-memory");
@@ -407,15 +407,17 @@ public static class WorkingMemoryGeneratedContentGenerator
         int itemCount,
         string purpose)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, purpose, seedPlan.VariantIndex, SimpleObjectItems.Length) +
-            (seedPlan.VariantIndex * itemCount)) %
-            SimpleObjectItems.Length;
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            SimpleObjectItems,
+            seedPlan.RequestFingerprint,
+            purpose,
+            seedPlan.FreshnessOrdinal,
+            item => item);
         var selected = new List<string>();
 
         for (var i = 0; i < itemCount; i++)
         {
-            selected.Add(SimpleObjectItems[(firstIndex + i) % SimpleObjectItems.Length]);
+            selected.Add(ordered[i % ordered.Count]);
         }
 
         return Array.AsReadOnly(selected.ToArray());
@@ -498,19 +500,6 @@ public static class WorkingMemoryGeneratedContentGenerator
         {
             (items[i], items[i + 1]) = (items[i + 1], items[i]);
         }
-    }
-
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
     }
 
     private static int ItemCountFor(

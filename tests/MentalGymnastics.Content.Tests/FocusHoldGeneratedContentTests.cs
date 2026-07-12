@@ -140,15 +140,10 @@ public sealed class FocusHoldGeneratedContentTests
     [Fact]
     public void FocusHoldTargetsUseSimpleVisualVocabulary()
     {
-        var allowedTargets = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "red dot",
-            "blue dot",
-            "green dot",
-            "black line",
-            "blue square",
-            "red circle",
-        };
+        var allowedSizes = new HashSet<string>(["small", "medium", "large"], StringComparer.Ordinal);
+        var allowedColors = new HashSet<string>(["red", "blue", "green", "black"], StringComparer.Ordinal);
+        var allowedPositions = new HashSet<string>(["left", "center", "right"], StringComparer.Ordinal);
+        var allowedShapes = new HashSet<string>(["dot", "line", "square", "circle"], StringComparer.Ordinal);
         string[] forbiddenTerms = ["anchor", "lantern", "quiet", "steady", "clear"];
         var usedContentIds = new List<string>();
 
@@ -161,8 +156,13 @@ public sealed class FocusHoldGeneratedContentTests
 
             var target = DisplayTargetValue(Assert.Single(generated.Materials, material =>
                 material.Kind == GeneratedContentMaterialKind.TargetStatement).Value);
+            var tokens = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-            Assert.Contains(target, allowedTargets);
+            Assert.Equal(4, tokens.Length);
+            Assert.Contains(tokens[0], allowedSizes);
+            Assert.Contains(tokens[1], allowedColors);
+            Assert.Contains(tokens[2], allowedPositions);
+            Assert.Contains(tokens[3], allowedShapes);
             Assert.All(forbiddenTerms, term =>
                 Assert.DoesNotContain(term, target, StringComparison.OrdinalIgnoreCase));
         }

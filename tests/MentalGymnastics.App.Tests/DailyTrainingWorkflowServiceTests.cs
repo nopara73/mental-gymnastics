@@ -216,6 +216,76 @@ public sealed class DailyTrainingWorkflowServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RecoveryOrRetestFindsPendingStabilizationOutsideDayEmphasis()
+    {
+        var configuration = Configuration();
+        var startDate = TrainingDate.From(2026, 7, 6);
+        await SaveIntermediateStateAsync(
+            configuration,
+            new BranchLevelStatus(BranchCode.FH, GlobalLevelId.L4, BranchLevelState.PassedOnce),
+            startDate);
+        var service = new DailyTrainingWorkflowService(configuration);
+        _ = await service.LoadOrCreateAsync(startDate);
+
+        var daily = await service.LoadOrCreateAsync(TrainingDate.From(2026, 7, 11));
+
+        var block = Assert.Single(daily.Blocks);
+        Assert.Equal(WeeklySessionKind.RecoveryOrRetest, daily.Prescription.WeeklySession);
+        Assert.Equal(BranchCode.FH, block.Record.Branch);
+        Assert.Equal(GlobalLevelId.L4, block.Record.Level);
+        Assert.Equal(LocalDailyTrainingBlockRole.Stabilization, block.Record.Role);
+        Assert.Equal(AppTrainingSessionType.Stabilization, block.SessionType);
+    }
+
+    [Fact]
+    public async Task RecoveryOrRetestUsesTransferAsTheL4FormalGate()
+    {
+        var configuration = Configuration();
+        var startDate = TrainingDate.From(2026, 7, 6);
+        await SaveIntermediateStateAsync(
+            configuration,
+            new BranchLevelStatus(BranchCode.FH, GlobalLevelId.L4, BranchLevelState.TestReady),
+            startDate);
+        var service = new DailyTrainingWorkflowService(configuration);
+        _ = await service.LoadOrCreateAsync(startDate);
+
+        var daily = await service.LoadOrCreateAsync(TrainingDate.From(2026, 7, 11));
+
+        var block = Assert.Single(daily.Blocks);
+        Assert.Equal(WeeklySessionKind.RecoveryOrRetest, daily.Prescription.WeeklySession);
+        Assert.Equal(BranchCode.FH, block.Record.Branch);
+        Assert.Equal(GlobalLevelId.L4, block.Record.Level);
+        Assert.Equal(LocalDailyTrainingBlockRole.Transfer, block.Record.Role);
+        Assert.Equal(AppTrainingSessionType.Transfer, block.SessionType);
+    }
+
+    [Fact]
+    public async Task DueMaintenanceIsCappedAtThreeBlocksForOneDailyDose()
+    {
+        var configuration = Configuration();
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new PractitionerState(
+            [
+                new BranchLevelStatus(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Maintenance),
+                new BranchLevelStatus(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Maintenance),
+                new BranchLevelStatus(BranchCode.WM, GlobalLevelId.L1, BranchLevelState.Maintenance),
+                new BranchLevelStatus(BranchCode.IR, GlobalLevelId.L1, BranchLevelState.Maintenance),
+                new BranchLevelStatus(BranchCode.DE, GlobalLevelId.L1, BranchLevelState.Maintenance),
+            ]));
+
+        var daily = await new DailyTrainingWorkflowService(configuration).LoadOrCreateAsync(
+            TrainingDate.From(2026, 7, 6));
+
+        Assert.Equal(3, daily.Blocks.Count);
+        Assert.Equal(3, daily.Blocks.Select(block => block.Record.Branch).Distinct().Count());
+        Assert.All(daily.Blocks, block =>
+        {
+            Assert.Equal(LocalDailyTrainingBlockRole.Maintenance, block.Record.Role);
+            Assert.Equal(AppTrainingSessionType.Maintenance, block.SessionType);
+        });
+    }
+
+    [Fact]
     public async Task StartupReconciliationResetsPreparedSetupWithoutRecordingAttempt()
     {
         var configuration = Configuration();
@@ -328,6 +398,49 @@ public sealed class DailyTrainingWorkflowServiceTests : IDisposable
     {
         return AppStartupConfiguration.ForAppOwnedLocalStoragePath(
             Path.Combine(tempDirectory, "mental-gymnastics.json"));
+    }
+
+    private static async ValueTask SaveIntermediateStateAsync(
+        AppStartupConfiguration configuration,
+        BranchLevelStatus pendingStatus,
+        TrainingDate maintenanceDate)
+    {
+        var foundational = new[]
+        {
+            BranchCode.FH,
+            BranchCode.FS,
+            BranchCode.WM,
+            BranchCode.IR,
+            BranchCode.DE,
+        };
+        await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new PractitionerState(
+                foundational.Select(branch => new BranchLevelStatus(
+                        branch,
+                        GlobalLevelId.L3,
+                        BranchLevelState.Maintenance))
+                    .Append(pendingStatus)
+                    .Append(new BranchLevelStatus(
+                        BranchCode.CO,
+                        GlobalLevelId.L1,
+                        BranchLevelState.Training))));
+
+        var maintenanceStore = new LocalMaintenanceCheckStore(configuration.LocalDatabaseOptions);
+        foreach (var branch in foundational)
+        {
+            await maintenanceStore.SaveMaintenanceAsync(new LocalMaintenanceCheckRecord(
+                $"maintenance-{branch}-l3",
+                $"artifact-maintenance-{branch}-l3",
+                completedSessionId: null,
+                DrillId.FH1TargetHold,
+                "The current L3 standard remained visible during the check.",
+                new MaintenanceCheckEvidence(
+                    branch,
+                    GlobalLevelId.L3,
+                    maintenanceDate,
+                    MaintenanceCheckKind.StandardOrTransfer,
+                    new StandardEvaluationResult(Passed: true, Failures: []))));
+        }
     }
 
     private static LocalSessionHistoryRecord Session(

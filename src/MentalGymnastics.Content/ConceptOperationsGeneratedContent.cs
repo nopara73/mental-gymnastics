@@ -138,7 +138,9 @@ public static class ConceptOperationsGeneratedContentGenerator
                 "surface lure: both contexts mention boards and tags; matching the board label alone does not count.",
                 "surface lure: both contexts mention priority; naming priority without its override relation does not count.",
             ],
-            "limit: the mapping stops at decision flow and auditability; it does not infer that report validity and hypothesis truth are the same."),
+            "limit: the mapping stops at decision flow and auditability; it does not infer that report validity and hypothesis truth are the same.",
+            "A hypothesis without a measurement plan is accepted and sent to experiment. Does this preserve the mapped acceptance relation?",
+            "FAILED"),
         new(
             "canal-lock-to-access-control",
             "source structure: a canal lock admits one boat group, closes the lower gate, equalizes water level, then opens the upper gate only when pressure is safe.",
@@ -174,7 +176,9 @@ public static class ConceptOperationsGeneratedContentGenerator
                 "surface lure: both contexts use gates; naming a gate without the sequence relation does not count.",
                 "surface lure: both contexts involve pressure; treating pressure as emotional stress instead of release condition does not count.",
             ],
-            "limit: the mapping stops at staged access under constraints; it does not claim software permissions behave like water physics."),
+            "limit: the mapping stops at staged access under constraints; it does not claim software permissions behave like water physics.",
+            "External submissions close, permission checks equalize, and only then does deployment open. Does this preserve the mapped release sequence?",
+            "PASSED"),
         new(
             "kitchen-pass-to-code-review",
             "source structure: a kitchen pass receives dish tickets, groups tickets by station, marks blocked dishes, and releases plates only after final inspection.",
@@ -210,7 +214,9 @@ public static class ConceptOperationsGeneratedContentGenerator
                 "surface lure: both contexts mention a pass or review; copying the word review without relations does not count.",
                 "surface lure: both contexts have queues; queue shape alone does not count unless responsibility and release relations are named.",
             ],
-            "limit: the mapping stops at queue, responsibility, blockage, and inspection relations; it does not infer equivalent quality standards."),
+            "limit: the mapping stops at queue, responsibility, blockage, and inspection relations; it does not infer equivalent quality standards.",
+            "A blocked change is sent to final inspection before the blockage is cleared. Does this preserve the mapped release relation?",
+            "FAILED"),
     ];
 
     public static ConceptOperationsGeneratedContent Generate(
@@ -289,7 +295,7 @@ public static class ConceptOperationsGeneratedContentGenerator
             negativeCount,
             seedPlan,
             "negative-example");
-        var unseenExamples = SelectFrom(
+        var unseenExamples = SelectUnseenExamples(
             template.UnseenExamples,
             unseenCount,
             seedPlan,
@@ -335,6 +341,8 @@ public static class ConceptOperationsGeneratedContentGenerator
             relations,
             surfaceLures,
             template.MappingLimit,
+            template.PredictionProbe,
+            template.ExpectedPredictionVerdict,
             domainDistance);
     }
 
@@ -358,6 +366,10 @@ public static class ConceptOperationsGeneratedContentGenerator
             GeneratedContentMaterialKind.RuleStatement,
             "rule-statement-before-unseen",
             "State a testable rule before unseen examples are revealed; the rule cannot be rewritten after feedback."));
+        materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.ExpectedRule,
+            "expected-rule",
+            plan.ExpectedRule));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.RuleFamily,
             "rule-family",
@@ -464,11 +476,11 @@ public static class ConceptOperationsGeneratedContentGenerator
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.RequiredRelation,
                 $"relation-{relationNumber}",
-                $"relation-{relationNumber} named relation '{relation.RelationName}': source relation {relation.SourceRelation}; target relation {relation.TargetRelation}."));
+                $"relation-{relationNumber}: name one required source relation, map its target counterpart, and state preserving evidence."));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedMapping,
                 $"expected-mapping-{relationNumber}",
-                $"relation-{relationNumber} '{relation.RelationName}' maps source to target because {relation.MappingEvidence}; surface terms are insufficient."));
+                $"relation-{relationNumber} '{relation.RelationName}': expected source relation {relation.SourceRelation}; expected target relation {relation.TargetRelation}; mapping evidence {relation.MappingEvidence}; surface terms are insufficient."));
         }
 
         for (var i = 0; i < plan.SurfaceLures.Count; i++)
@@ -484,16 +496,21 @@ public static class ConceptOperationsGeneratedContentGenerator
             "mapping-limit",
             plan.MappingLimit));
 
-        if (request.Level == GlobalLevelId.L5)
+        if ((int)request.Level >= (int)GlobalLevelId.L4)
         {
+            var levelFiveInputs = request.Level == GlobalLevelId.L5
+                ? " Also name one critical assumption and select whether the declared mapping limit remains SUPPORTED or is EXCEEDED."
+                : string.Empty;
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.AuditPayload,
                 "model-audit",
-                $"Audit the submitted mapping against this declared limit: {plan.MappingLimit} Name one critical assumption, test one prediction, and submit LIMIT=SUPPORTED or LIMIT=EXCEEDED plus PREDICTION=PASSED or PREDICTION=FAILED."));
+                $"UNSEEN PROBE: {plan.PredictionProbe} Select PASSED only if the probe preserves the mapped relations. In TEST, name the concrete relation or evidence that decides the verdict.{levelFiveInputs}"));
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ExpectedFinding,
                 "model-audit-key",
-                "LIMIT=SUPPORTED; PREDICTION=PASSED"));
+                request.Level == GlobalLevelId.L5
+                    ? $"LIMIT=SUPPORTED; PREDICTION={plan.ExpectedPredictionVerdict}"
+                    : $"PREDICTION={plan.ExpectedPredictionVerdict}"));
         }
 
         return Array.AsReadOnly(materials.ToArray());
@@ -635,10 +652,11 @@ public static class ConceptOperationsGeneratedContentGenerator
     private static RuleExtractionTemplate SelectRuleFamily(
         GeneratedContentSeedPlan seedPlan)
     {
-        var index = (
-            SelectIndex(seedPlan.PayloadSeed, "rule-family", seedPlan.VariantIndex, RuleFamilies.Length) +
-            seedPlan.VariantIndex) %
-            RuleFamilies.Length;
+        var index = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "rule-family",
+            seedPlan.FreshnessOrdinal % RuleFamilies.Length,
+            RuleFamilies.Length);
 
         return RuleFamilies[index];
     }
@@ -646,10 +664,11 @@ public static class ConceptOperationsGeneratedContentGenerator
     private static StructureMappingTemplate SelectStructureMappingTemplate(
         GeneratedContentSeedPlan seedPlan)
     {
-        var index = (
-            SelectIndex(seedPlan.PayloadSeed, "structure-template", seedPlan.VariantIndex, StructureMappingTemplates.Length) +
-            seedPlan.VariantIndex) %
-            StructureMappingTemplates.Length;
+        var index = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "structure-template",
+            seedPlan.FreshnessOrdinal % StructureMappingTemplates.Length,
+            StructureMappingTemplates.Length);
 
         return StructureMappingTemplates[index];
     }
@@ -660,15 +679,17 @@ public static class ConceptOperationsGeneratedContentGenerator
         GeneratedContentSeedPlan seedPlan,
         string purpose)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, purpose, seedPlan.VariantIndex, source.Count) +
-            seedPlan.VariantIndex) %
-            source.Count;
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            source,
+            seedPlan.RequestFingerprint,
+            purpose,
+            SelectionOrdinal(seedPlan),
+            item => item);
         var selected = new List<string>();
 
         for (var i = 0; i < count; i++)
         {
-            selected.Add(source[(firstIndex + i) % source.Count]);
+            selected.Add(ordered[i % ordered.Count]);
         }
 
         return Array.AsReadOnly(selected.ToArray());
@@ -680,51 +701,84 @@ public static class ConceptOperationsGeneratedContentGenerator
         GeneratedContentSeedPlan seedPlan,
         string purpose)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, purpose, seedPlan.VariantIndex, source.Count) +
-            seedPlan.VariantIndex) %
-            source.Count;
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            source,
+            seedPlan.RequestFingerprint,
+            purpose,
+            SelectionOrdinal(seedPlan),
+            item => item.RelationName);
         var selected = new List<StructureRelationTemplate>();
 
         for (var i = 0; i < count; i++)
         {
-            selected.Add(source[(firstIndex + i) % source.Count]);
+            selected.Add(ordered[i % ordered.Count]);
         }
 
         return Array.AsReadOnly(selected.ToArray());
     }
 
-    private static IReadOnlyList<UnseenRuleExample> SelectFrom(
+    private static IReadOnlyList<UnseenRuleExample> SelectUnseenExamples(
         IReadOnlyList<UnseenRuleExample> source,
         int count,
         GeneratedContentSeedPlan seedPlan,
         string purpose)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, purpose, seedPlan.VariantIndex, source.Count) +
-            seedPlan.VariantIndex) %
-            source.Count;
+        var ordinal = SelectionOrdinal(seedPlan);
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            source,
+            seedPlan.RequestFingerprint,
+            purpose,
+            ordinal,
+            item => item.Text);
         var selected = new List<UnseenRuleExample>();
 
-        for (var i = 0; i < count; i++)
+        if (count >= 2)
         {
-            selected.Add(source[(firstIndex + i) % source.Count]);
+            var positiveExamples = ordered
+                .Where(item => string.Equals(item.ExpectedClassification, "positive", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var negativeExamples = ordered
+                .Where(item => string.Equals(item.ExpectedClassification, "negative", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (positiveExamples.Length > 0 && negativeExamples.Length > 0)
+            {
+                var positive = positiveExamples[GeneratedContentStableHash.OrdinalIndex(
+                    seedPlan.RequestFingerprint,
+                    purpose + "-positive",
+                    ordinal,
+                    positiveExamples.Length)];
+                var negative = negativeExamples[GeneratedContentStableHash.OrdinalIndex(
+                    seedPlan.RequestFingerprint,
+                    purpose + "-negative",
+                    ordinal,
+                    negativeExamples.Length)];
+                selected.Add(ordinal % 2 == 0 ? positive : negative);
+                selected.Add(ordinal % 2 == 0 ? negative : positive);
+            }
+        }
+
+        foreach (var item in ordered)
+        {
+            if (selected.Count >= count)
+            {
+                break;
+            }
+
+            if (!selected.Contains(item))
+            {
+                selected.Add(item);
+            }
         }
 
         return Array.AsReadOnly(selected.ToArray());
     }
 
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
+    private static int SelectionOrdinal(GeneratedContentSeedPlan seedPlan)
     {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
+        var familyCount = seedPlan.Request.Drill == DrillId.CO1RuleExtraction
+            ? RuleFamilies.Length
+            : StructureMappingTemplates.Length;
+        return seedPlan.FreshnessOrdinal / familyCount;
     }
 
     private static string LoadValueOrDefault(
@@ -779,7 +833,9 @@ public static class ConceptOperationsGeneratedContentGenerator
         string TargetContext,
         IReadOnlyList<StructureRelationTemplate> Relations,
         IReadOnlyList<string> SurfaceLures,
-        string MappingLimit);
+        string MappingLimit,
+        string PredictionProbe,
+        string ExpectedPredictionVerdict);
 
     private sealed record StructureRelationTemplate(
         string RelationName,
@@ -807,5 +863,7 @@ public static class ConceptOperationsGeneratedContentGenerator
         IReadOnlyList<StructureRelationTemplate> Relations,
         IReadOnlyList<string> SurfaceLures,
         string MappingLimit,
+        string PredictionProbe,
+        string ExpectedPredictionVerdict,
         string DomainDistance);
 }

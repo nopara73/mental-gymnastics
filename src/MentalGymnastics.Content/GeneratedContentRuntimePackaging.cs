@@ -365,6 +365,26 @@ public static class GeneratedContentRuntimePackager
             return Array.AsReadOnly(phases.ToArray());
         }
 
+        if (result.Drill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
+        {
+            phases.Add(ManualPhase("rule-declaration", GeneratedRuntimePhaseKind.ActiveWork));
+            phases.Add(ManualPhase("cue-response", GeneratedRuntimePhaseKind.CueResponse));
+            AddComponentEvidencePhase(phases, materials);
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
+        if (result.Drill == DrillId.DE2SeededAudit)
+        {
+            var delay = FirstDuration(materials, GeneratedContentMaterialKind.AuditDelay) ??
+                TimeSpan.FromMinutes(5);
+            phases.Add(ManualPhase("source-review", GeneratedRuntimePhaseKind.EncodeWindow));
+            phases.Add(TimedPhase("audit-delay", GeneratedRuntimePhaseKind.DelayWindow, delay));
+            phases.Add(ManualPhase("seeded-audit", GeneratedRuntimePhaseKind.Audit));
+            phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
         if (result.Branch == BranchCode.AI && sourceDrill.HasValue)
         {
             if (sourceDrill == DrillId.FH2DistractorHold)
@@ -372,6 +392,11 @@ public static class GeneratedContentRuntimePackager
                 var holdDuration = FirstDuration(materials, GeneratedContentMaterialKind.HoldDuration) ??
                     TimeSpan.FromMinutes(5);
                 phases.Add(TimedPhase("active-work", GeneratedRuntimePhaseKind.ActiveWork, holdDuration));
+            }
+            else if (sourceDrill == DrillId.IR2ExceptionRule)
+            {
+                phases.Add(ManualPhase("rule-declaration", GeneratedRuntimePhaseKind.ActiveWork));
+                phases.Add(ManualPhase("cue-response", GeneratedRuntimePhaseKind.CueResponse));
             }
             else
             {
@@ -478,6 +503,35 @@ public static class GeneratedContentRuntimePackager
     }
 
     private static IReadOnlyList<GeneratedRuntimeCueDefinition> BuildCues(
+        GeneratedDrillContentResult result,
+        IReadOnlyCollection<GeneratedContentMaterial> materials,
+        DrillId? sourceDrill)
+    {
+        var cues = BuildBaseCues(result, materials, sourceDrill);
+        if (result.SessionType != SessionType.Stabilization ||
+            !materials.Any(material => string.Equals(
+                material.Name,
+                StabilizationGeneratedContent.ControlledDistractorId,
+                StringComparison.Ordinal)))
+        {
+            return cues;
+        }
+
+        var controlled = new GeneratedRuntimeCueDefinition(
+            StabilizationGeneratedContent.ControlledDistractorId,
+            GeneratedRuntimeCueKind.TimedResponse,
+            "IRRELEVANT SIGNAL",
+            scheduledAtOffset: TimeSpan.FromSeconds(1),
+            responseWindow: TimeSpan.FromSeconds(2),
+            GeneratedRuntimeCueResponseExpectation.NoResponseExpected);
+        return cues
+            .Append(controlled)
+            .OrderBy(cue => cue.ScheduledAtOffset)
+            .ThenBy(cue => cue.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<GeneratedRuntimeCueDefinition> BuildBaseCues(
         GeneratedDrillContentResult result,
         IReadOnlyCollection<GeneratedContentMaterial> materials,
         DrillId? sourceDrill)

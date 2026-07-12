@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\MentalGymnastics.App\MentalGymnastics.App.csproj" />
     <ProjectReference Include="..\..\src\MentalGymnastics.Core\MentalGymnastics.Core.csproj" />
     <ProjectReference Include="..\..\src\MentalGymnastics.Content\MentalGymnastics.Content.csproj" />
     <ProjectReference Include="..\..\src\MentalGymnastics.Persistence\MentalGymnastics.Persistence.csproj" />

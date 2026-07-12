@@ -76,20 +76,25 @@ public static class RuntimeStandardEvaluationHandoffMapper
                     .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted)
                     .Select(runtimeEvent => Fact(runtimeEvent, "answer_reference"))
                     .Where(answer => !string.IsNullOrWhiteSpace(answer)));
+            var activeAnswers = RuntimeStandardEvaluationHandoffMapper.AnswersForPhase(
+                events,
+                RuntimeSessionPhaseKind.ActiveWork);
+            var reconstructionAnswers = RuntimeStandardEvaluationHandoffMapper.AnswersForPhase(
+                events,
+                RuntimeSessionPhaseKind.ReconstructionInput);
+            var auditAnswers = RuntimeStandardEvaluationHandoffMapper.AnswersForPhase(
+                events,
+                RuntimeSessionPhaseKind.Audit);
             cueScore = ScoreCues(events);
-            pairScore = ScorePairs(materials, allAnswers);
-            reconstruction = ScoreReconstruction(materials, allAnswers);
-            audit = ScoreAudit(materials, allAnswers);
+            pairScore = ScorePairs(materials, activeAnswers);
+            reconstruction = ScoreReconstruction(result.Drill, materials, reconstructionAnswers);
+            audit = ScoreAudit(materials, auditAnswers);
             classifications = ScoreIndexed(
                 materials,
                 "ExpectedClassification",
-                allAnswers,
+                reconstructionAnswers,
                 ClassificationToken);
-            mappings = ScoreIndexed(
-                materials,
-                "ExpectedMapping",
-                allAnswers,
-                MappingToken);
+            mappings = ScoreMappings(materials, reconstructionAnswers);
             components = ScoreComponents(materials, allAnswers, ErrorCount(events));
         }
 
@@ -124,8 +129,7 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 TrainingStandardMeasurements.CriticalOmissionCount => reconstruction.MissingCount,
                 TrainingStandardMeasurements.PrematureResponseCount =>
                     FactCount("error_kind", "premature_response") + cueScore.NoResponseCueResponses,
-                TrainingStandardMeasurements.ExceptionStatementPercent =>
-                    HasMaterial("ExceptionDefinition") ? 100 : 0,
+                TrainingStandardMeasurements.ExceptionStatementPercent => ExceptionStatementPercent(),
                 TrainingStandardMeasurements.UnmarkedRuleDriftCount => FactCount("error_kind", "rule_drift"),
                 TrainingStandardMeasurements.MaximumCorrectionDistance => MaximumCorrectionDistance(),
                 TrainingStandardMeasurements.AccuracyPercent => AccuracyPercent(),
@@ -173,9 +177,9 @@ public static class RuntimeStandardEvaluationHandoffMapper
                     FactCount("error_kind", "anticipatory_switch") == 0 && cueScore.NoResponseCueResponses == 0,
                 TrainingStandardConstraints.NoRereading => FactCount("error_kind", "reread_after_encode") == 0,
                 TrainingStandardConstraints.NoIntermediateNotes => FactCount("error_kind", "hidden_intermediate_note") == 0,
-                TrainingStandardConstraints.RuleStatedBeforeSet =>
-                    HasMaterial("RuleStatement") && HasStartedWork(),
-                TrainingStandardConstraints.ExceptionsStatedBeforeSet => HasMaterial("ExceptionDefinition"),
+                TrainingStandardConstraints.RuleStatedBeforeSet => RuleWasDeclaredBeforeCueSet(),
+                TrainingStandardConstraints.ExceptionsStatedBeforeSet =>
+                    RuleWasDeclaredBeforeCueSet() && ExceptionStatementPercent() >= 100,
                 TrainingStandardConstraints.GuessesMarked => FactCount("error_kind", "unmarked_guess") == 0,
                 TrainingStandardConstraints.OriginalOutputLocked =>
                     HasMaterial("LockedOriginalOutput") && FactCount("error_kind", "original_output_edit") == 0,
@@ -186,8 +190,8 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 TrainingStandardConstraints.FullRestartProhibited => FactCount("error_kind", "full_restart") == 0,
                 TrainingStandardConstraints.BranchEvidenceSeparated => components.EvidencePercent >= 100,
                 TrainingStandardConstraints.UncertaintyMarked => UncertaintyMarked(),
-                TrainingStandardConstraints.PredictionTested => ContainsAny(allAnswers, "predict", "prediction", "test result"),
-                TrainingStandardConstraints.CriticalAssumptionsNamed => ContainsAny(allAnswers, "assumption", "depends on", "limit"),
+                TrainingStandardConstraints.PredictionTested => PredictionWasTested(),
+                TrainingStandardConstraints.CriticalAssumptionsNamed => CriticalAssumptionWasNamed(),
                 _ => false,
             };
         }
@@ -217,22 +221,25 @@ public static class RuntimeStandardEvaluationHandoffMapper
 
         private bool RequiredOutputPresent()
         {
+            var componentOutputPresent = !HasMaterial("ComponentPayload") ||
+                HasAnswerInPhase(RuntimeSessionPhaseKind.ReconstructionInput);
             if (result.Branch == BranchCode.AI && result.SessionDefinition.SourceDrill is { } sourceDrill)
             {
-                return sourceDrill == DrillId.FH2DistractorHold
+                var sourceOutputPresent = sourceDrill == DrillId.FH2DistractorHold
                     ? HasStartedWork() && UnreturnedDriftCount() == 0
                     : cueScore.Total > 0 && cueScore.AllCuesResolved;
+                return sourceOutputPresent && componentOutputPresent;
             }
 
             if (result.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
             {
-                return HasStartedWork() && UnreturnedDriftCount() == 0;
+                return HasStartedWork() && UnreturnedDriftCount() == 0 && componentOutputPresent;
             }
 
             if (result.Drill is DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter or
                 DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
             {
-                return cueScore.Total > 0 && cueScore.AllCuesResolved;
+                return cueScore.Total > 0 && cueScore.AllCuesResolved && componentOutputPresent;
             }
 
             if (result.Drill == DrillId.TI2GlobalReviewTask)
@@ -242,7 +249,9 @@ public static class RuntimeStandardEvaluationHandoffMapper
                     HasAnswerInPhase(RuntimeSessionPhaseKind.ReconstructionInput);
             }
 
-            return !string.IsNullOrWhiteSpace(allAnswers);
+            return events.Any(runtimeEvent =>
+                runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+                IsSubstantiveAnswer(Fact(runtimeEvent, "answer_reference")));
         }
 
         private decimal ActiveDurationSeconds()
@@ -311,32 +320,43 @@ public static class RuntimeStandardEvaluationHandoffMapper
 
         private decimal MaximumCorrectionDistance()
         {
-            var errorIndices = events
+            var errors = events
                 .Select((runtimeEvent, index) => (runtimeEvent, index))
-                .Where(item => item.runtimeEvent.Kind == RuntimeEventKind.ErrorRecorded)
-                .Select(item => item.index)
+                .Where(item => IsCueFailure(item.runtimeEvent))
                 .ToArray();
-            if (errorIndices.Length == 0)
+            if (errors.Length == 0)
             {
                 return 0;
             }
 
             var maximum = 0;
-            foreach (var errorIndex in errorIndices)
+            foreach (var error in errors)
             {
-                var correctionIndex = events
+                var cueId = Fact(error.runtimeEvent, "cue_id");
+                var correction = events
                     .Select((runtimeEvent, index) => (runtimeEvent, index))
                     .FirstOrDefault(item =>
-                        item.index > errorIndex && item.runtimeEvent.Kind == RuntimeEventKind.CorrectionSubmitted)
-                    .index;
-                if (correctionIndex == 0)
+                        item.index > error.index &&
+                        item.runtimeEvent.Kind == RuntimeEventKind.CorrectionSubmitted &&
+                        CorrectionMatches(item.runtimeEvent, error.runtimeEvent, cueId));
+                if (correction.runtimeEvent is null)
                 {
                     return decimal.MaxValue;
                 }
 
+                if (int.TryParse(
+                        Fact(correction.runtimeEvent, "items_after_error"),
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out var recordedDistance))
+                {
+                    maximum = Math.Max(maximum, recordedDistance);
+                    continue;
+                }
+
                 var distance = events
-                    .Skip(errorIndex + 1)
-                    .Take(correctionIndex - errorIndex)
+                    .Skip(error.index + 1)
+                    .Take(correction.index - error.index)
                     .Count(runtimeEvent => runtimeEvent.Kind is
                         RuntimeEventKind.CueEmitted or RuntimeEventKind.AnswerSubmitted);
                 maximum = Math.Max(maximum, distance);
@@ -345,11 +365,132 @@ public static class RuntimeStandardEvaluationHandoffMapper
             return maximum;
         }
 
+        private static bool IsCueFailure(RuntimeEvent runtimeEvent)
+        {
+            return runtimeEvent.Kind is RuntimeEventKind.CueResponseSubmitted or RuntimeEventKind.ErrorRecorded &&
+                Fact(runtimeEvent, "cue_id") is not null &&
+                Fact(runtimeEvent, "response_outcome") is "incorrect" or "late";
+        }
+
+        private static bool CorrectionMatches(
+            RuntimeEvent correction,
+            RuntimeEvent failedEvent,
+            string? cueId)
+        {
+            var sequence = Fact(correction, "corrected_event_sequence");
+            if (sequence is not null &&
+                string.Equals(
+                    sequence,
+                    failedEvent.SequenceNumber.ToString(CultureInfo.InvariantCulture),
+                    StringComparison.Ordinal))
+            {
+                return Fact(correction, "correction_outcome") == "correct";
+            }
+
+            return cueId is not null &&
+                string.Equals(Fact(correction, "source_cue_id"), cueId, StringComparison.Ordinal) &&
+                Fact(correction, "correction_within_required_items") == "true";
+        }
+
         private bool RuleExplanationCorrect()
         {
-            var rule = materials.FirstOrDefault(material => material.Kind == "TransformRule")?.Value;
-            return !string.IsNullOrWhiteSpace(rule) && SignificantTokens(rule).Count(token =>
-                Normalize(allAnswers).Contains(token, StringComparison.Ordinal)) >= 2;
+            var explanation = AssignmentResponse(allAnswers, "RULE");
+            var operations = materials
+                .Where(material => material.Kind == "OperationStep")
+                .ToArray();
+            return explanation.Length > 0 && operations.Length > 0 && operations.All(operation =>
+                ContainsSignificantPhrase(explanation, operation.Value));
+        }
+
+        private bool RuleWasDeclaredBeforeCueSet()
+        {
+            var declaration = events.FirstOrDefault(runtimeEvent =>
+                runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+                string.Equals(runtimeEvent.PhaseId, "rule-declaration", StringComparison.Ordinal));
+            var cueSet = events.FirstOrDefault(runtimeEvent =>
+                runtimeEvent.Kind == RuntimeEventKind.PhaseStarted &&
+                runtimeEvent.PhaseKind == RuntimeSessionPhaseKind.CueResponse);
+            if (declaration is null || cueSet is null || declaration.SequenceNumber >= cueSet.SequenceNumber)
+            {
+                return false;
+            }
+
+            var declaredRule = Fact(declaration, "answer_reference") ?? string.Empty;
+            var expectedRule = materials.FirstOrDefault(material => material.Kind == "RuleStatement")?.Value;
+            if (string.IsNullOrWhiteSpace(expectedRule))
+            {
+                return false;
+            }
+
+            return RuleDeclarationMatches(expectedRule, declaredRule);
+        }
+
+        private static bool RuleDeclarationMatches(string expectedRule, string declaredRule)
+        {
+            var expected = Normalize(expectedRule);
+            var declared = Normalize(declaredRule);
+            if (expected.Contains("go cues", StringComparison.Ordinal) &&
+                expected.Contains("no-go", StringComparison.Ordinal))
+            {
+                return ContainsRuleToken(declared, "respond") &&
+                    ContainsRuleToken(declared, "go") &&
+                    ContainsRuleToken(declared, "withhold") &&
+                    ContainsRuleToken(declared, "no-go");
+            }
+
+            if (expected.Contains("round symbols", StringComparison.Ordinal) &&
+                expected.Contains("angular symbols", StringComparison.Ordinal))
+            {
+                return ContainsRuleToken(declared, "tap") &&
+                    ContainsRuleToken(declared, "round") &&
+                    ContainsRuleToken(declared, "withhold") &&
+                    ContainsRuleToken(declared, "angular");
+            }
+
+            var expectedTokens = SignificantTokens(expectedRule);
+            return expectedTokens.Count >= 4 && expectedTokens.Count(token =>
+                ContainsRuleToken(declared, token)) >= 4;
+        }
+
+        private static bool ContainsRuleToken(string declaration, string token)
+        {
+            return Regex.IsMatch(
+                declaration,
+                $@"\b{Regex.Escape(token)}\b",
+                RegexOptions.IgnoreCase);
+        }
+
+        private decimal ExceptionStatementPercent()
+        {
+            var exceptions = materials
+                .Where(material => material.Kind == "ExceptionDefinition")
+                .ToArray();
+            if (exceptions.Length == 0)
+            {
+                return 100;
+            }
+
+            var declaration = events.FirstOrDefault(runtimeEvent =>
+                runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+                string.Equals(runtimeEvent.PhaseId, "rule-declaration", StringComparison.Ordinal));
+            var answer = declaration is null
+                ? string.Empty
+                : Normalize(Fact(declaration, "answer_reference") ?? string.Empty);
+            var stated = exceptions.Count(exception =>
+            {
+                var symbol = Regex.Match(
+                    exception.Value,
+                    @"exception\s+\d+\s*:\s*([^\s]+)",
+                    RegexOptions.IgnoreCase).Groups[1].Value;
+                var action = Regex.Match(
+                    exception.Value,
+                    @"->\s*([a-z-]+)",
+                    RegexOptions.IgnoreCase).Groups[1].Value;
+                return symbol.Length > 0 && action.Length > 0 &&
+                    answer.Contains(Normalize(symbol), StringComparison.Ordinal) &&
+                    answer.Contains(Normalize(action), StringComparison.Ordinal);
+            });
+            return Percent(stated, exceptions.Length);
         }
 
         private decimal SurfaceOnlyMappingCount()
@@ -365,11 +506,30 @@ public static class RuntimeStandardEvaluationHandoffMapper
 
         private bool SourceStandardPassed()
         {
-            return OutputComplete &&
-                ErrorCount(events) == 0 &&
-                cueScore.IncorrectCount == 0 &&
-                UnreturnedDriftCount() == 0 &&
-                FactCount("error_kind", "target_substitution") == 0;
+            var sourceDrill = result.SessionDefinition.SourceDrill ?? result.Drill;
+            var sourceBranch = sourceDrill switch
+            {
+                DrillId.FH1TargetHold or DrillId.FH2DistractorHold => BranchCode.FH,
+                DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => BranchCode.FS,
+                DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => BranchCode.IR,
+                _ => (BranchCode?)null,
+            };
+            if (!sourceBranch.HasValue)
+            {
+                return false;
+            }
+
+            var sourceStandard = ExecutableStandardCatalog
+                .Get(sourceBranch.Value, GlobalLevelId.L3)
+                .EvaluatedStandard;
+            var attempt = new StandardEvaluationAttempt(
+                sourceStandard.NumericThresholds.Select(threshold =>
+                    new NumericMeasurement(threshold.MeasurementName, Measurement(threshold.MeasurementName))),
+                sourceStandard.CriticalConstraints.Select(constraint =>
+                    new CriticalConstraintCheck(constraint.Id, Constraint(constraint.Id))),
+                OutputComplete,
+                RubricOutcome(sourceStandard.RequiredRubric));
+            return StandardEvaluator.Evaluate(sourceStandard, attempt).Passed;
         }
 
         private decimal CriticalConstraintBreachCount()
@@ -407,7 +567,15 @@ public static class RuntimeStandardEvaluationHandoffMapper
         {
             if (result.Drill == DrillId.TI2GlobalReviewTask)
             {
-                return HasAnswerInPhase(RuntimeSessionPhaseKind.Audit) && ErrorCount(events) == 0;
+                var expected = materials.FirstOrDefault(material =>
+                    material.Kind == "ExpectedFinding" &&
+                    string.Equals(material.Name, "global-review-audit-key", StringComparison.Ordinal));
+                var expectedTokens = expected is null ? [] : SplitAnswer(expected.Value);
+                var actualTokens = SplitAnswer(AnswersForPhase(RuntimeSessionPhaseKind.Audit));
+                return expectedTokens.Count > 0 &&
+                    actualTokens.Count == expectedTokens.Count &&
+                    expectedTokens.All(token => actualTokens.Contains(token, StringComparer.Ordinal)) &&
+                    ErrorCount(events) == 0;
             }
 
             if (result.Drill == DrillId.CO2StructureMapping)
@@ -415,10 +583,9 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 var expected = materials.FirstOrDefault(material =>
                     material.Kind == "ExpectedFinding" &&
                     string.Equals(material.Name, "model-audit-key", StringComparison.Ordinal));
-                var auditAnswer = AnswersForPhase(RuntimeSessionPhaseKind.Audit);
+                var actualTokens = SplitAnswer(AnswersForPhase(RuntimeSessionPhaseKind.Audit));
                 return expected is not null &&
-                    SplitAnswer(expected.Value).All(token =>
-                        Normalize(auditAnswer).Contains(token, StringComparison.Ordinal)) &&
+                    SplitAnswer(expected.Value).All(token => actualTokens.Contains(token, StringComparer.Ordinal)) &&
                     ErrorCount(events) == 0;
             }
 
@@ -428,7 +595,10 @@ public static class RuntimeStandardEvaluationHandoffMapper
         private bool ReconstructionPassed()
         {
             return result.Drill == DrillId.TI2GlobalReviewTask
-                ? HasAnswerInPhase(RuntimeSessionPhaseKind.ReconstructionInput) && ErrorCount(events) == 0
+                ? reconstruction.ExpectedCount > 0 &&
+                    reconstruction.AccuracyPercent >= 100 &&
+                    reconstruction.InventedCount == 0 &&
+                    ErrorCount(events) == 0
                 : reconstruction.AccuracyPercent >= 80 && reconstruction.InventedCount == 0;
         }
 
@@ -436,6 +606,21 @@ public static class RuntimeStandardEvaluationHandoffMapper
         {
             return FactCount("error_kind", "standard_lowering") == 0 &&
                 FactCount("standard_lowering_attempt", "true") == 0;
+        }
+
+        private bool PredictionWasTested()
+        {
+            var auditAnswer = AnswersForPhase(RuntimeSessionPhaseKind.Audit);
+            var verdict = Normalize(AssignmentResponse(auditAnswer, "PREDICTION"));
+            var test = AssignmentResponse(auditAnswer, "TEST");
+            return verdict is "passed" or "failed" && SignificantTokens(test).Count >= 2;
+        }
+
+        private bool CriticalAssumptionWasNamed()
+        {
+            return SignificantTokens(AssignmentResponse(
+                AnswersForPhase(RuntimeSessionPhaseKind.Audit),
+                "ASSUMPTION")).Count >= 2;
         }
 
         private bool RuleWasSubmittedBeforeUnseenTest()
@@ -448,22 +633,48 @@ public static class RuntimeStandardEvaluationHandoffMapper
                 runtimeEvent.Kind == RuntimeEventKind.PhaseStarted &&
                 runtimeEvent.PhaseId?.Contains("unseen", StringComparison.OrdinalIgnoreCase) == true);
 
-            return ruleSubmission is not null &&
-                (unseenStart is null || ruleSubmission.SequenceNumber < unseenStart.SequenceNumber);
+            if (ruleSubmission is null ||
+                (unseenStart is not null && ruleSubmission.SequenceNumber >= unseenStart.SequenceNumber))
+            {
+                return false;
+            }
+
+            var expectedRule = materials.FirstOrDefault(material => material.Kind == "ExpectedRule")?.Value;
+            if (string.IsNullOrWhiteSpace(expectedRule))
+            {
+                return false;
+            }
+
+            var submittedRule = Normalize(Fact(ruleSubmission, "answer_reference") ?? string.Empty);
+            var expectedTokens = SignificantTokens(expectedRule);
+            var requiredMatches = Math.Min(4, expectedTokens.Count);
+            return requiredMatches >= 2 &&
+                expectedTokens.Count(token => submittedRule.Contains(token, StringComparison.Ordinal)) >= requiredMatches;
         }
 
         private bool RelationsWereNamedBeforeMapping()
         {
             var relationSubmission = events.FirstOrDefault(runtimeEvent =>
                 runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
-                (runtimeEvent.PhaseKind?.ToString().Contains("Relation", StringComparison.OrdinalIgnoreCase) == true ||
-                    Fact(runtimeEvent, "answer_id")?.Contains("relation", StringComparison.OrdinalIgnoreCase) == true));
+                string.Equals(runtimeEvent.PhaseId, "relation-naming", StringComparison.Ordinal));
             var mappingStart = events.FirstOrDefault(runtimeEvent =>
                 runtimeEvent.Kind == RuntimeEventKind.PhaseStarted &&
-                runtimeEvent.PhaseId?.Contains("mapping", StringComparison.OrdinalIgnoreCase) == true);
+                string.Equals(runtimeEvent.PhaseId, "mapping-input", StringComparison.Ordinal));
 
-            return relationSubmission is not null &&
-                (mappingStart is null || relationSubmission.SequenceNumber < mappingStart.SequenceNumber);
+            if (relationSubmission is null || mappingStart is null ||
+                relationSubmission.SequenceNumber >= mappingStart.SequenceNumber)
+            {
+                return false;
+            }
+
+            var declaration = Fact(relationSubmission, "answer_reference") ?? string.Empty;
+            var expectedSources = materials
+                .Where(material => material.Kind == "ExpectedMapping")
+                .Select(material => MappingSegment(material.Value, "expected source relation "))
+                .Where(value => value.Length > 0)
+                .ToArray();
+            return expectedSources.Length > 0 && expectedSources.All(source =>
+                ContainsSignificantPhrase(declaration, source));
         }
 
         private bool HasStartedWork()
@@ -476,19 +687,14 @@ public static class RuntimeStandardEvaluationHandoffMapper
         private bool HasAnswerInPhase(RuntimeSessionPhaseKind phase)
         {
             return events.Any(runtimeEvent =>
-                runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted && runtimeEvent.PhaseKind == phase);
+                runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+                runtimeEvent.PhaseKind == phase &&
+                IsSubstantiveAnswer(Fact(runtimeEvent, "answer_reference")));
         }
 
         private string AnswersForPhase(RuntimeSessionPhaseKind phase)
         {
-            return string.Join(
-                Environment.NewLine,
-                events
-                    .Where(runtimeEvent =>
-                        runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
-                        runtimeEvent.PhaseKind == phase)
-                    .Select(runtimeEvent => Fact(runtimeEvent, "answer_reference"))
-                    .Where(answer => !string.IsNullOrWhiteSpace(answer)));
+            return RuntimeStandardEvaluationHandoffMapper.AnswersForPhase(events, phase);
         }
 
         private bool HasMaterial(string kind) => materials.Any(material => material.Kind == kind);
@@ -592,6 +798,30 @@ public static class RuntimeStandardEvaluationHandoffMapper
         var inhibitionCorrect = inhibition.Count(cue => !responses.ContainsKey(cue.Id));
         var noResponseCueResponses = inhibition.Length - inhibitionCorrect;
         var incorrect = required.Length - requiredCorrect + noResponseCueResponses;
+        var incorrectCueIds = required
+            .Where(cue => !responses.TryGetValue(cue.Id, out var response) ||
+                Fact(response, "response_outcome") != "correct")
+            .Select(cue => cue.Id)
+            .Concat(inhibition.Where(cue => responses.ContainsKey(cue.Id)).Select(cue => cue.Id))
+            .ToHashSet(StringComparer.Ordinal);
+        var recoveredCueIds = events
+            .Where(runtimeEvent => runtimeEvent.Kind == RuntimeEventKind.CorrectionSubmitted)
+            .SelectMany(runtimeEvent =>
+            {
+                var correctedCueId = Fact(runtimeEvent, "corrected_cue_id");
+                if (correctedCueId is not null && Fact(runtimeEvent, "correction_outcome") == "correct")
+                {
+                    return new[] { correctedCueId };
+                }
+
+                var sourceCueId = Fact(runtimeEvent, "source_cue_id");
+                return sourceCueId is not null &&
+                    Fact(runtimeEvent, "correction_within_required_items") == "true"
+                        ? new[] { sourceCueId }
+                        : [];
+            })
+            .ToHashSet(StringComparer.Ordinal);
+        var unrecovered = incorrectCueIds.Count(cueId => !recoveredCueIds.Contains(cueId));
         var allResolved = emitted.Length > 0 && required.All(cue => responses.ContainsKey(cue.Id));
 
         return new CueScore(
@@ -602,7 +832,7 @@ public static class RuntimeStandardEvaluationHandoffMapper
             inhibitionCorrect,
             noResponseCueResponses,
             incorrect,
-            incorrect,
+            unrecovered,
             allResolved);
     }
 
@@ -630,11 +860,11 @@ public static class RuntimeStandardEvaluationHandoffMapper
             }
             else if (!expectedMatch && responseMatch)
             {
-                falseNegatives++;
+                falsePositives++;
             }
             else if (expectedMatch && response.Length > 0 && !responseMatch)
             {
-                falsePositives++;
+                falseNegatives++;
             }
         }
 
@@ -642,6 +872,7 @@ public static class RuntimeStandardEvaluationHandoffMapper
     }
 
     private static ReconstructionScore ScoreReconstruction(
+        DrillId drill,
         IReadOnlyList<RuntimeScoringMaterial> materials,
         string answer)
     {
@@ -649,10 +880,14 @@ public static class RuntimeStandardEvaluationHandoffMapper
             "ExpectedReconstruction" or "FinalExpectedOutput").ToArray();
         var expected = expectedMaterials
             .SelectMany(material => SplitAnswer(material.Value))
-            .Distinct(StringComparer.Ordinal)
             .ToArray();
-        var actual = SplitAnswer(answer).Distinct(StringComparer.Ordinal).ToArray();
-        var exact = expected.Count(item => actual.Contains(item, StringComparer.Ordinal));
+        var resultAssignment = AssignmentResponse(answer, "RESULT");
+        var actual = SplitAnswer(resultAssignment.Length > 0 ? resultAssignment : answer).ToArray();
+        var exact = drill is DrillId.WM1DelayedReconstruction or DrillId.WM2MentalTransform
+            ? Enumerable.Range(0, Math.Min(expected.Length, actual.Length)).Count(index =>
+                string.Equals(expected[index], actual[index], StringComparison.Ordinal))
+            : expected.Distinct(StringComparer.Ordinal).Count(item =>
+                actual.Contains(item, StringComparer.Ordinal));
         var invented = actual.Count(item =>
             item.Length > 0 &&
             !expected.Contains(item, StringComparer.Ordinal) &&
@@ -666,7 +901,8 @@ public static class RuntimeStandardEvaluationHandoffMapper
         string answer)
     {
         var seeded = materials.Where(material => material.Kind == "SeededError").ToArray();
-        var normalized = Normalize(answer);
+        var submissions = FindingAssignments(answer);
+        var matchedSubmissions = new HashSet<int>();
         var found = 0;
         var criticalCount = 0;
         var criticalFound = 0;
@@ -674,14 +910,25 @@ public static class RuntimeStandardEvaluationHandoffMapper
         var noncriticalFound = 0;
         foreach (var error in seeded)
         {
-            var id = Regex.Match(error.Value, @"seeded error\s+([^:;]+)", RegexOptions.IgnoreCase).Groups[1].Value.Trim();
             var line = Regex.Match(error.Value, @"line\s+(\d+)", RegexOptions.IgnoreCase).Groups[1].Value;
+            var type = Regex.Match(error.Value, @"type\s+([^;]+)", RegexOptions.IgnoreCase).Groups[1].Value.Trim();
             var isCritical = error.Value.Contains("criticality critical", StringComparison.OrdinalIgnoreCase);
-            var isFound = (id.Length > 0 && normalized.Contains(Normalize(id), StringComparison.Ordinal)) ||
-                (line.Length > 0 && Regex.IsMatch(normalized, $@"(?:line\s*)?{Regex.Escape(line)}\b"));
+            var index = TrailingNumber(error.Name);
+            var expected = index.HasValue
+                ? materials.FirstOrDefault(material =>
+                    material.Kind == "ExpectedFinding" && TrailingNumber(material.Name) == index)
+                : null;
+            var matchedIndex = expected is null
+                ? -1
+                : Enumerable.Range(0, submissions.Count).FirstOrDefault(
+                    submissionIndex => !matchedSubmissions.Contains(submissionIndex) &&
+                        FindingMatches(submissions[submissionIndex], line, type, expected.Value),
+                    -1);
+            var isFound = matchedIndex >= 0;
             if (isFound)
             {
                 found++;
+                matchedSubmissions.Add(matchedIndex);
             }
 
             if (isCritical)
@@ -702,9 +949,7 @@ public static class RuntimeStandardEvaluationHandoffMapper
             }
         }
 
-        var falseCorrections = materials
-            .Where(material => material.Kind == "NonErrorDistractor")
-            .Count(material => ContainsSignificantPhrase(normalized, material.Value));
+        var falseCorrections = submissions.Count - matchedSubmissions.Count;
         return new AuditScore(
             seeded.Length,
             found,
@@ -715,6 +960,74 @@ public static class RuntimeStandardEvaluationHandoffMapper
             falseCorrections);
     }
 
+    private static IReadOnlyList<string> FindingAssignments(string answer)
+    {
+        return Regex.Matches(
+                answer,
+                @"(?:^|;)\s*FINDING-\d+\s*=\s*([^;]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline)
+            .Cast<Match>()
+            .Select(match => match.Groups[1].Value.Trim())
+            .Where(value => value.Length > 0)
+            .ToArray();
+    }
+
+    private static bool FindingMatches(
+        string submission,
+        string line,
+        string type,
+        string expectedFinding)
+    {
+        if (line.Length == 0 ||
+            !Regex.IsMatch(
+                submission,
+                $@"\bline\s*#?\s*{Regex.Escape(line)}\b",
+                RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
+        var normalized = Normalize(submission);
+        var typeTokens = SignificantTokens(type);
+        var correctionTokens = AuditCorrectionTokens(expectedFinding);
+        return typeTokens.Count > 0 &&
+            typeTokens.All(token => ContainsToken(normalized, token)) &&
+            correctionTokens.Count > 0 &&
+            correctionTokens.All(token => ContainsToken(normalized, token));
+    }
+
+    private static IReadOnlyList<string> AuditCorrectionTokens(string expectedFinding)
+    {
+        var normalized = Normalize(expectedFinding);
+        var should = normalized.LastIndexOf(" should ", StringComparison.Ordinal);
+        var correction = should >= 0 ? normalized[(should + " should ".Length)..] : normalized;
+        var instead = correction.IndexOf(" instead of ", StringComparison.Ordinal);
+        if (instead >= 0)
+        {
+            correction = correction[..instead];
+        }
+
+        var ignored = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "a", "an", "as", "assign", "end", "finding", "line", "mark", "name",
+            "report", "say", "should", "the", "to", "with", "code",
+        };
+        return Regex.Matches(correction, @"[a-z0-9]+")
+            .Cast<Match>()
+            .Select(match => match.Value)
+            .Where(token => !ignored.Contains(token))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool ContainsToken(string normalized, string token)
+    {
+        return Regex.IsMatch(
+            normalized,
+            $@"\b{Regex.Escape(token)}\b",
+            RegexOptions.IgnoreCase);
+    }
+
     private static IndexedScore ScoreIndexed(
         IReadOnlyList<RuntimeScoringMaterial> materials,
         string kind,
@@ -722,18 +1035,44 @@ public static class RuntimeStandardEvaluationHandoffMapper
         Func<string, string> expectedToken)
     {
         var expected = materials.Where(material => material.Kind == kind).ToArray();
-        var normalized = Normalize(answer);
         var correct = expected.Count(material =>
         {
             var index = TrailingNumber(material.Name);
             var token = Normalize(expectedToken(material.Value));
-            if (token.Length == 0)
+            if (!index.HasValue || token.Length == 0)
             {
                 return false;
             }
 
-            var indexPresent = index is null || Regex.IsMatch(normalized, $@"\b{index.Value}\b");
-            return indexPresent && normalized.Contains(token, StringComparison.Ordinal);
+            var response = Normalize(IndexedResponse(answer, index.Value));
+            return string.Equals(response, token, StringComparison.Ordinal);
+        });
+
+        return new IndexedScore(expected.Length, correct);
+    }
+
+    private static IndexedScore ScoreMappings(
+        IReadOnlyList<RuntimeScoringMaterial> materials,
+        string answer)
+    {
+        var expected = materials.Where(material => material.Kind == "ExpectedMapping").ToArray();
+        var correct = expected.Count(material =>
+        {
+            var index = TrailingNumber(material.Name);
+            if (!index.HasValue)
+            {
+                return false;
+            }
+
+            var response = IndexedResponse(answer, index.Value);
+            var source = MappingSegment(material.Value, "expected source relation ");
+            var target = MappingSegment(material.Value, "expected target relation ");
+            return response.Length > 0 &&
+                source.Length > 0 &&
+                target.Length > 0 &&
+                ContainsSignificantPhrase(response, source) &&
+                ContainsSignificantPhrase(response, target) &&
+                ContainsAny(response, "because", "preserve", "relation", "both");
         });
 
         return new IndexedScore(expected.Length, correct);
@@ -821,10 +1160,49 @@ public static class RuntimeStandardEvaluationHandoffMapper
             : (semicolon < 0 ? value[(colon + 1)..] : value[(colon + 1)..semicolon]).Trim();
     }
 
-    private static string MappingToken(string value)
+    private static string MappingSegment(string value, string marker)
     {
-        var match = Regex.Match(value, @"'([^']+)'", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : value;
+        var start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        start += marker.Length;
+        var end = value.IndexOf(';', start);
+        return (end < 0 ? value[start..] : value[start..end]).Trim().TrimEnd('.');
+    }
+
+    private static string IndexedResponse(string answer, int index)
+    {
+        var match = Regex.Match(
+            answer,
+            $@"(?:^|[;\r\n])\s*{index.ToString(CultureInfo.InvariantCulture)}\s*=\s*([^;\r\n]+)",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
+    }
+
+    private static string AssignmentResponse(string answer, string key)
+    {
+        var match = Regex.Match(
+            answer,
+            $@"(?:^|[;\r\n])\s*{Regex.Escape(key)}\s*=\s*([^;\r\n]+)",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
+    }
+
+    private static string AnswersForPhase(
+        IReadOnlyList<RuntimeEvent> events,
+        RuntimeSessionPhaseKind phase)
+    {
+        return string.Join(
+            Environment.NewLine,
+            events
+                .Where(runtimeEvent =>
+                    runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted &&
+                    runtimeEvent.PhaseKind == phase)
+                .Select(runtimeEvent => Fact(runtimeEvent, "answer_reference"))
+                .Where(answer => !string.IsNullOrWhiteSpace(answer)));
     }
 
     private static IReadOnlyList<string> SplitAnswer(string value)
@@ -832,8 +1210,18 @@ public static class RuntimeStandardEvaluationHandoffMapper
         return value
             .Split(AnswerSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(Normalize)
-            .Where(item => item.Length > 0)
+            .Where(item => item.Length > 0 &&
+                !string.Equals(item, Normalize(RuntimeResponseMarkers.Omitted), StringComparison.Ordinal))
             .ToArray();
+    }
+
+    private static bool IsSubstantiveAnswer(string? answer)
+    {
+        return !string.IsNullOrWhiteSpace(answer) &&
+            !string.Equals(
+                Normalize(answer),
+                Normalize(RuntimeResponseMarkers.Omitted),
+                StringComparison.Ordinal);
     }
 
     private static bool IsExplanationFragment(string value)

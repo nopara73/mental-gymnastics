@@ -309,6 +309,50 @@ public sealed class RuntimeInputCommandHandlerTests
     }
 
     [Fact]
+    public void FailedCueCanBeCorrectedExactlyOnceDuringCuePhase()
+    {
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var handler = StartHandler(
+            clock,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual("cue", RuntimeSessionPhaseKind.CueResponse),
+            ]),
+            new RuntimeInputCommandOptions(
+                PauseAllowed: false,
+                CorrectionWindow: RuntimeDuration.FromSeconds(10)));
+        var failedCue = handler.EventLog.Append(
+            RuntimeEventKind.CueResponseSubmitted,
+            clock.Now,
+            "cue",
+            RuntimeSessionPhaseKind.CueResponse,
+            [
+                new RuntimeEventFact("cue_id", "cue-1"),
+                new RuntimeEventFact("expected_response", "tap"),
+                new RuntimeEventFact("response", "withhold"),
+                new RuntimeEventFact("response_outcome", "incorrect"),
+            ]);
+
+        handler.ObserveExternallyRecordedEvent(failedCue);
+
+        Assert.True(handler.AvailabilityFor(RuntimeInputCommandKind.Correct).IsAvailable);
+        var corrected = handler.Handle(RuntimeInputCommand.Correct("correction-1", "tap"));
+
+        Assert.True(corrected.IsAccepted);
+        Assert.Contains(corrected.Events.Single().Facts, fact =>
+            fact.Name == "corrected_event_sequence" && fact.Value == failedCue.SequenceNumber.ToString());
+        Assert.Contains(corrected.Events.Single().Facts, fact =>
+            fact.Name == "corrected_cue_id" && fact.Value == "cue-1");
+        Assert.Contains(corrected.Events.Single().Facts, fact =>
+            fact.Name == "correction_outcome" && fact.Value == "correct");
+        Assert.False(handler.AvailabilityFor(RuntimeInputCommandKind.Correct).IsAvailable);
+
+        var repeated = handler.Handle(RuntimeInputCommand.Correct("correction-2", "tap"));
+        Assert.False(repeated.IsAccepted);
+        Assert.Equal(RuntimeInputCommandInvalidReason.NoCorrectableEvent, repeated.InvalidReason);
+    }
+
+    [Fact]
     public void HandlerAppliesPauseResumeAndAbandonThroughLifecycle()
     {
         var clock = new ManualRuntimeClock(RuntimeInstant.Zero);

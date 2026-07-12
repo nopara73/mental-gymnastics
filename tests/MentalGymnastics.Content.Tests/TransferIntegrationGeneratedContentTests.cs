@@ -157,17 +157,29 @@ public sealed class TransferIntegrationGeneratedContentTests
 
         var audit = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.AuditPayload);
-        Assert.Contains("audit required", audit.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("original output", audit.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("critical errors", audit.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("component branch", audit.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("locked component report", audit.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one response conflicts", audit.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("name the branch", audit.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT-", audit.Value, StringComparison.Ordinal);
+
+        var expectedFinding = Assert.Single(generated.Materials, material =>
+            material.Kind == GeneratedContentMaterialKind.ExpectedFinding);
+        Assert.Equal("global-review-audit-key", expectedFinding.Name);
+        Assert.Equal(2, expectedFinding.Value.Split(';', StringSplitOptions.TrimEntries).Length);
 
         var delayedReconstruction = Assert.Single(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.DelayedReconstructionPayload);
-        Assert.Contains("delayed reconstruction required", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exact locked component report", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("5 minutes", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("critical information", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("memory gap", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BRANCH=value", delayedReconstruction.Value, StringComparison.Ordinal);
+        Assert.Contains("invented responses are scored", delayedReconstruction.Value, StringComparison.OrdinalIgnoreCase);
+
+        var expectedReconstruction = generated.Materials
+            .Where(material => material.Kind == GeneratedContentMaterialKind.ExpectedReconstruction)
+            .ToArray();
+        Assert.Equal(4, expectedReconstruction.Length);
+        Assert.All(expectedReconstruction, material => Assert.Contains("=", material.Value, StringComparison.Ordinal));
+        Assert.Single(expectedReconstruction, material => material.Value.Contains("=NOT-", StringComparison.Ordinal));
 
         var evidenceRequirements = generated.Materials
             .Where(material => material.Kind == GeneratedContentMaterialKind.ComponentEvidenceRequirement)
@@ -219,6 +231,12 @@ public sealed class TransferIntegrationGeneratedContentTests
         Assert.Contains(validation.Failures, failure =>
             failure.Kind == GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial &&
             failure.MaterialKind == GeneratedContentMaterialKind.DelayedReconstructionPayload);
+        Assert.Contains(validation.Failures, failure =>
+            failure.Kind == GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial &&
+            failure.MaterialKind == GeneratedContentMaterialKind.ExpectedFinding);
+        Assert.Contains(validation.Failures, failure =>
+            failure.Kind == GeneratedContentMaterialValidationFailureKind.MissingRequiredMaterial &&
+            failure.MaterialKind == GeneratedContentMaterialKind.ExpectedReconstruction);
         Assert.Throws<InvalidOperationException>(() =>
             ValidatedGeneratedDrillContent.Create(result, materials));
     }

@@ -47,6 +47,8 @@ public sealed class AffectiveInterferenceGeneratedContentTests
             material.Kind == GeneratedContentMaterialKind.SourceTask);
         Assert.Contains("executable source task", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FH-L3", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("wrapped source criterion", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no more than 5 drifts", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         AssertMaterial(generated.Materials, GeneratedContentMaterialKind.SourceDrill, "FH2DistractorHold");
         Assert.Contains(generated.Materials, material =>
             material.Kind == GeneratedContentMaterialKind.TargetStatement);
@@ -155,6 +157,8 @@ public sealed class AffectiveInterferenceGeneratedContentTests
         Assert.Contains("source task", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FS-L3", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FS2InvalidCueFilter", sourceTask.Value, StringComparison.Ordinal);
+        Assert.Contains("wrapped source criterion", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("invalid cues must never", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("underlying branch demand", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("does not replace", sourceTask.Value, StringComparison.OrdinalIgnoreCase);
 

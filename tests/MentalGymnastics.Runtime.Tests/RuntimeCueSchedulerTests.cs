@@ -46,12 +46,13 @@ public sealed class RuntimeCueSchedulerTests
         Assert.Equal(5, scheduler.EmittedCues.Count);
         Assert.Collection(
             remaining.Events,
+            EventIsOmitted("cue-1", TimeSpan.FromSeconds(20)),
             EventHasCue("cue-2", RuntimeCueKind.InvalidCueFilter, TimeSpan.FromSeconds(20), generatedInstance.InstanceId),
             EventHasCue("cue-3", RuntimeCueKind.GoNoGo, TimeSpan.FromSeconds(20), generatedInstance.InstanceId),
             EventHasCue("cue-4", RuntimeCueKind.Interruption, TimeSpan.FromSeconds(20), generatedInstance.InstanceId),
             EventHasCue("cue-5", RuntimeCueKind.TimedResponse, TimeSpan.FromSeconds(20), generatedInstance.InstanceId));
-        Assert.Contains(remaining.Events[0].Facts, fact => fact.Name == "scheduled_at" && fact.Value == "00:00:08");
-        Assert.Contains(remaining.Events[0].Facts, fact => fact.Name == "response_deadline" && fact.Value == "00:00:22");
+        Assert.Contains(remaining.Events[1].Facts, fact => fact.Name == "scheduled_at" && fact.Value == "00:00:08");
+        Assert.Contains(remaining.Events[1].Facts, fact => fact.Name == "response_deadline" && fact.Value == "00:00:22");
     }
 
     [Fact]
@@ -298,6 +299,59 @@ public sealed class RuntimeCueSchedulerTests
         Assert.Single(schedule.Cues);
     }
 
+    [Fact]
+    public void NonCueContentRequiresExplicitMatchingStabilizationScope()
+    {
+        var identity = new RuntimeGeneratedDrillInstanceIdentity(
+            "stabilization-equivalent-instance",
+            new PromptContentIdentity(
+                "stabilization-equivalent-content",
+                BranchCode.FS,
+                GlobalLevelId.L1,
+                DrillId.FS1CueSwitch,
+                PromptContentKind.EquivalentPrompt,
+                "fs-l1-stabilization"),
+            "v1");
+        var controlledDemand = Cue(
+            "controlled-demand",
+            RuntimeCueKind.TimedResponse,
+            "Keep the current rule while this appears.",
+            5,
+            RuntimeCueResponseExpectation.NoResponseExpected);
+
+        Assert.Throws<ArgumentException>(() => new RuntimeCueSchedule(identity, [controlledDemand]));
+        Assert.Throws<ArgumentException>(() => new RuntimeCueSchedule(
+            identity,
+            [controlledDemand],
+            SessionType.Test));
+
+        var schedule = new RuntimeCueSchedule(
+            identity,
+            [controlledDemand],
+            SessionType.Stabilization);
+        var stabilizationLog = RuntimeEventLog.Start(
+            "session-stabilization-cue",
+            CreateSessionDefinition(identity, SessionType.Stabilization),
+            RuntimeInstant.Zero);
+
+        var scheduler = new RuntimeCueScheduler(
+            schedule,
+            new ManualRuntimeClock(RuntimeInstant.Zero),
+            stabilizationLog);
+
+        Assert.Equal(SessionType.Stabilization, schedule.RuntimeSessionType);
+        Assert.Single(scheduler.PendingCues);
+
+        var practiceLog = RuntimeEventLog.Start(
+            "session-practice-cue",
+            CreateSessionDefinition(identity),
+            RuntimeInstant.Zero);
+        Assert.Throws<ArgumentException>(() => new RuntimeCueScheduler(
+            schedule,
+            new ManualRuntimeClock(RuntimeInstant.Zero),
+            practiceLog));
+    }
+
     private static Action<RuntimeEvent> EventHasCue(
         string expectedCueId,
         RuntimeCueKind expectedKind,
@@ -311,6 +365,20 @@ public sealed class RuntimeCueSchedulerTests
             Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "cue_id" && fact.Value == expectedCueId);
             Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "cue_kind" && fact.Value == StableCueKind(expectedKind));
             Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "generated_instance_id" && fact.Value == expectedGeneratedInstanceId);
+        };
+    }
+
+    private static Action<RuntimeEvent> EventIsOmitted(
+        string expectedCueId,
+        TimeSpan expectedOccurredAt)
+    {
+        return runtimeEvent =>
+        {
+            Assert.Equal(RuntimeEventKind.CueResponseSubmitted, runtimeEvent.Kind);
+            Assert.Equal(expectedOccurredAt, runtimeEvent.OccurredAt.Offset);
+            Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "cue_id" && fact.Value == expectedCueId);
+            Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "response" && fact.Value == "omitted");
+            Assert.Contains(runtimeEvent.Facts, fact => fact.Name == "response_outcome" && fact.Value == "late");
         };
     }
 
@@ -348,10 +416,11 @@ public sealed class RuntimeCueSchedulerTests
     }
 
     private static RuntimeSessionDefinition CreateSessionDefinition(
-        RuntimeGeneratedDrillInstanceIdentity generatedInstance)
+        RuntimeGeneratedDrillInstanceIdentity generatedInstance,
+        SessionType sessionType = SessionType.Practice)
     {
         return new RuntimeSessionDefinition(
-            SessionType.Practice,
+            sessionType,
             BranchCode.FS,
             GlobalLevelId.L1,
             DrillId.FS1CueSwitch,

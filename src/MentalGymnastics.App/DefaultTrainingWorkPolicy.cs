@@ -75,7 +75,8 @@ internal static class DefaultTrainingWorkPolicy
 
     public static AppTrainingSessionType SessionTypeFor(
         WeeklySessionKind weeklySession,
-        BranchLevelState branchLevelState)
+        BranchLevelState branchLevelState,
+        GlobalLevelId level)
     {
         if (branchLevelState == BranchLevelState.Decayed)
         {
@@ -90,7 +91,13 @@ internal static class DefaultTrainingWorkPolicy
         if (weeklySession == WeeklySessionKind.RecoveryOrRetest &&
             branchLevelState == BranchLevelState.TestReady)
         {
-            return AppTrainingSessionType.Test;
+            return FormalSessionTypeFor(level);
+        }
+
+        if (weeklySession == WeeklySessionKind.RecoveryOrRetest &&
+            branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing)
+        {
+            return AppTrainingSessionType.Stabilization;
         }
 
         return weeklySession switch
@@ -100,11 +107,13 @@ internal static class DefaultTrainingWorkPolicy
                 branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
                     ? AppTrainingSessionType.Stabilization
                     : branchLevelState == BranchLevelState.TestReady
-                        ? AppTrainingSessionType.Test
+                        ? FormalSessionTypeFor(level)
                         : AppTrainingSessionType.Practice,
             WeeklySessionKind.TransferOrStabilization =>
                 branchLevelState is BranchLevelState.PassedOnce or BranchLevelState.Stabilizing
                     ? AppTrainingSessionType.Stabilization
+                    : branchLevelState == BranchLevelState.TestReady && level == GlobalLevelId.L4
+                        ? AppTrainingSessionType.Transfer
                     : branchLevelState is BranchLevelState.Owned or BranchLevelState.Maintenance
                         ? AppTrainingSessionType.Transfer
                         : AppTrainingSessionType.Practice,
@@ -122,6 +131,13 @@ internal static class DefaultTrainingWorkPolicy
         };
     }
 
+    private static AppTrainingSessionType FormalSessionTypeFor(GlobalLevelId level)
+    {
+        return level == GlobalLevelId.L4
+            ? AppTrainingSessionType.Transfer
+            : AppTrainingSessionType.Test;
+    }
+
     public static SessionType CoreSessionTypeFor(AppTrainingSessionType sessionType)
     {
         return sessionType switch
@@ -133,7 +149,7 @@ internal static class DefaultTrainingWorkPolicy
             AppTrainingSessionType.Regression => SessionType.Regression,
             AppTrainingSessionType.Transfer => SessionType.Transfer,
             AppTrainingSessionType.Recovery => SessionType.Recovery,
-            AppTrainingSessionType.Maintenance => SessionType.Test,
+            AppTrainingSessionType.Maintenance => SessionType.Recovery,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(sessionType),
                 sessionType,
@@ -204,8 +220,8 @@ internal static class DefaultTrainingWorkPolicy
     {
         return state switch
         {
-            BranchLevelState.TestReady => 0,
-            BranchLevelState.PassedOnce or BranchLevelState.Stabilizing => 1,
+            BranchLevelState.PassedOnce or BranchLevelState.Stabilizing => 0,
+            BranchLevelState.TestReady => 1,
             BranchLevelState.Training => 2,
             BranchLevelState.Maintenance => 3,
             BranchLevelState.Owned => 4,

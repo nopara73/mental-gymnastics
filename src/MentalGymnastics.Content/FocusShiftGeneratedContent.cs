@@ -45,15 +45,15 @@ public static class FocusShiftGeneratedContentGenerator
     private const int DefaultCueSwitchCount = 4;
     private const int DefaultInvalidCueFilterCount = 6;
 
-    private static readonly TargetTemplate[] Targets =
-    [
-        new("blue square", "blue"),
-        new("green circle", "green"),
-        new("silver line", "silver"),
-        new("black dot", "black"),
-        new("north marker", "north"),
-        new("east marker", "east"),
-    ];
+    private static readonly string[] TargetColors = ["red", "blue", "green", "black"];
+
+    private static readonly string[] TargetShapes = ["dot", "circle", "square", "line"];
+
+    private static readonly TargetTemplate[] Targets = TargetColors
+        .SelectMany(color => TargetShapes.Select(shape => new TargetTemplate(
+            $"{color} {shape}",
+            $"{color} {shape}")))
+        .ToArray();
 
     private static readonly string[] InvalidCueValues =
     [
@@ -162,9 +162,9 @@ public static class FocusShiftGeneratedContentGenerator
         {
             ObjectiveComponentTaskCatalog.AddMaterials(
                 materials,
-                [BranchCode.FS, BranchCode.TI],
+                [BranchCode.TI],
                 seedPlan.PayloadSeed,
-                seedPlan.VariantIndex,
+                seedPlan.FreshnessOrdinal,
                 "integrated-shift");
         }
 
@@ -238,17 +238,17 @@ public static class FocusShiftGeneratedContentGenerator
     {
         var cueStepCount = SwitchCountFor(request);
         var activeTargetIndex = 0;
-        var invalidCueOffset = SelectIndex(
-            seedPlan.PayloadSeed,
+        var invalidCueOffset = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
             "invalid-cue",
-            seedPlan.VariantIndex,
+            seedPlan.FreshnessOrdinal,
             InvalidCueValues.Length);
 
         for (var i = 0; i < cueStepCount; i++)
         {
             var stepNumber = (i + 1).ToString(CultureInfo.InvariantCulture);
             var isInvalidCue = request.Drill == DrillId.FS2InvalidCueFilter &&
-                (i + seedPlan.VariantIndex + 1) % 3 == 0;
+                (i + seedPlan.FreshnessOrdinal + 1) % 3 == 0;
 
             if (isInvalidCue)
             {
@@ -328,28 +328,20 @@ public static class FocusShiftGeneratedContentGenerator
         GeneratedContentSeedPlan seedPlan,
         int targetCount)
     {
-        var firstIndex = SelectIndex(seedPlan.PayloadSeed, "target", seedPlan.VariantIndex, Targets.Length);
+        var ordered = GeneratedContentStableHash.OrderByOrdinal(
+            Targets,
+            seedPlan.RequestFingerprint,
+            "target-set",
+            seedPlan.FreshnessOrdinal,
+            target => target.Name);
         var targets = new List<TargetTemplate>();
 
         for (var i = 0; i < targetCount; i++)
         {
-            targets.Add(Targets[(firstIndex + i) % Targets.Length]);
+            targets.Add(ordered[i % ordered.Count]);
         }
 
         return Array.AsReadOnly(targets.ToArray());
-    }
-
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
     }
 
     private static int TargetCountFor(GeneratedDrillContentRequest request)

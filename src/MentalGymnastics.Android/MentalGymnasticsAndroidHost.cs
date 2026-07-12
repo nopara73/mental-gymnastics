@@ -18,6 +18,9 @@ public sealed class MentalGymnasticsAndroidHost
     private PreUiLiveSessionController? liveSessionController;
     private string? activeMainFailureModeAvoided;
     private bool startupStateReconciled;
+#if DEBUG
+    private ManualRuntimeClock? protocolAuditClock;
+#endif
 
     private MentalGymnasticsAndroidHost(
         AppStartupConfiguration configuration,
@@ -50,6 +53,27 @@ public sealed class MentalGymnasticsAndroidHost
             AppStartupConfiguration.ForAppOwnedLocalStoragePath(databasePath),
             localBackupDirectoryPath);
     }
+
+#if DEBUG
+    public static MentalGymnasticsAndroidHost CreateProtocolAudit(Activity activity)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+
+        var cacheDirectory = activity.CacheDir?.AbsolutePath
+            ?? throw new InvalidOperationException("Android did not provide an app-owned cache directory.");
+        var auditId = Guid.NewGuid().ToString("N");
+        var databasePath = Path.Combine(
+            cacheDirectory,
+            $"mental-gymnastics-protocol-audit-{auditId}.json");
+        var backupDirectoryPath = Path.Combine(
+            cacheDirectory,
+            $"protocol-audit-backups-{auditId}");
+
+        return new MentalGymnasticsAndroidHost(
+            AppStartupConfiguration.ForAppOwnedLocalStoragePath(databasePath),
+            backupDirectoryPath);
+    }
+#endif
 
     public async Task<AndroidTrainingStateSnapshot> LoadTodayAsync(
         CancellationToken cancellationToken = default)
@@ -113,6 +137,249 @@ public sealed class MentalGymnasticsAndroidHost
         liveSessionController = null;
         return preparedSessionStart;
     }
+
+#if DEBUG
+    public async Task<AndroidSessionStartSnapshot> PrepareProtocolAuditSessionAsync(
+        DrillId drill,
+        GlobalLevelId? level = null,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = ExecutableStandardCatalog.Standards
+            .Where(item => item.Drill == drill && (!level.HasValue || item.Level == level.Value))
+            .OrderBy(item => item.Level)
+            .FirstOrDefault()
+            ?? throw new ArgumentOutOfRangeException(
+                nameof(drill),
+                drill,
+                $"Drill has no executable standard{(level.HasValue ? $" at {level.Value}" : string.Empty)}.");
+        var today = DateTime.Now.Date;
+        var trainingDate = TrainingDate.From(today.Year, today.Month, today.Day);
+
+        await new LocalPractitionerStateStore(Configuration.LocalDatabaseOptions)
+            .SaveAsync(
+                new PractitionerState(
+                [
+                    new BranchLevelStatus(
+                        definition.Branch,
+                        definition.Level,
+                        BranchLevelState.Maintenance),
+                ]),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var preparation = await workflowService.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    trainingDate,
+                    new RequestedTrainingWork(
+                        definition.Branch,
+                        definition.Level,
+                        drill,
+                        AppTrainingSessionType.Maintenance)),
+                preparationSource: $"android-protocol-audit-{drill}-{definition.Level}-{Guid.NewGuid():N}"),
+            cancellationToken).ConfigureAwait(false);
+        if (!preparation.IsPrepared || preparation.RuntimeSession is null)
+        {
+            throw new InvalidOperationException(PreparationRejectionDetail(preparation));
+        }
+
+        preparedSessionStart = new AndroidSessionStartSnapshot(
+            preparation,
+            Capabilities,
+            Configuration.LocalDatabasePath,
+            today,
+            await localDataService.LoadAsync(cancellationToken).ConfigureAwait(false));
+        liveSessionController = null;
+        activeMainFailureModeAvoided = null;
+        return preparedSessionStart;
+    }
+
+    public async Task<AndroidLiveSessionSnapshot> StartPreparedProtocolAuditSessionAsync(
+        bool beginWork = true,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = preparedSessionStart?.Preparation
+            ?? throw new InvalidOperationException("No protocol-audit exercise is ready to start.");
+        var runtimeSession = prepared.RuntimeSession
+            ?? throw new InvalidOperationException("The protocol-audit exercise has no runtime session.");
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        protocolAuditClock = clock;
+        var started = await workflowService.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                runtimeSession,
+                clock,
+                saveActiveSnapshot: false),
+            cancellationToken).ConfigureAwait(false);
+        if (!started.IsStarted)
+        {
+            throw new InvalidOperationException(StartRejectionDetail(started));
+        }
+
+        liveSessionController = new PreUiLiveSessionController(
+            workflowService,
+            runtimeSession,
+            started,
+            saveActiveSnapshot: false);
+        var state = liveSessionController.CaptureState();
+        if (beginWork && state.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep)
+        {
+            state = await liveSessionController.HandleCommandAsync(
+                new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse &&
+            state.ActiveCue is null)
+        {
+            AdvanceProtocolAuditClockToFirstCue(clock);
+            state = await liveSessionController.RefreshAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return LiveSnapshot(state);
+    }
+
+    public async Task<AndroidLiveSessionSnapshot> AdvanceProtocolAuditToResponseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var controller = liveSessionController
+            ?? throw new InvalidOperationException("No protocol-audit session is active.");
+        var clock = protocolAuditClock
+            ?? throw new InvalidOperationException("The protocol-audit clock is not available.");
+        var state = controller.CaptureState();
+        var effectiveDrill = state.SourceDrill ?? state.Drill;
+
+        if (effectiveDrill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule &&
+            state.CurrentPhaseId == "rule-declaration")
+        {
+            var declaration = string.Join(
+                "; ",
+                state.CurrentMaterials
+                    .Where(material => material.Kind is "RuleStatement" or "ExceptionDefinition")
+                    .Select(material => material.Value));
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.SubmitAnswer,
+                declaration,
+                cancellationToken).ConfigureAwait(false);
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.FinishPhase,
+                value: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (state.Drill is DrillId.CO1RuleExtraction or DrillId.CO2StructureMapping &&
+            state.CurrentPhaseKind == RuntimeSessionPhaseKind.ActiveWork)
+        {
+            var answer = state.Drill == DrillId.CO1RuleExtraction
+                ? "One testable rule covering the shown positive and negative examples."
+                : "Screens reports before escalation; accepted reports carry evidence tags.";
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.SubmitAnswer,
+                answer,
+                cancellationToken).ConfigureAwait(false);
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.FinishPhase,
+                value: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.EncodeWindow)
+        {
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.FinishPhase,
+                value: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        while (state.CurrentPhaseKind == RuntimeSessionPhaseKind.DelayWindow)
+        {
+            var remaining = state.Timer.Remaining
+                ?? throw new InvalidOperationException("A protocol-audit delay has no remaining duration.");
+            clock.AdvanceBy(new RuntimeDuration(remaining));
+            state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (state.Drill == DrillId.AI2DisruptionRecovery &&
+            state.CurrentPhaseKind is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse)
+        {
+            AdvanceProtocolAuditClockToFirstCue(
+                clock,
+                RuntimeCueResponseExpectation.ResponseRequired,
+                RuntimeCueKind.Interruption);
+            state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse &&
+            effectiveDrill is DrillId.FS2InvalidCueFilter or DrillId.IR2ExceptionRule)
+        {
+            AdvanceProtocolAuditClockToFirstCue(
+                clock,
+                RuntimeCueResponseExpectation.NoResponseExpected);
+            state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.CueResponse && state.ActiveCue is null)
+        {
+            AdvanceProtocolAuditClockToFirstCue(clock);
+            state = await controller.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (state.CurrentPhaseKind == RuntimeSessionPhaseKind.Audit &&
+            state.Commands.Any(command =>
+                command.Command == RuntimeInputCommandKind.StartAudit && command.IsAvailable))
+        {
+            state = await AuditCommandAsync(
+                controller,
+                RuntimeInputCommandKind.StartAudit,
+                value: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return LiveSnapshot(state);
+    }
+
+    private void AdvanceProtocolAuditClockToFirstCue(
+        ManualRuntimeClock clock,
+        RuntimeCueResponseExpectation? expectation = null,
+        RuntimeCueKind? kind = null)
+    {
+        var cues = preparedSessionStart?.Preparation.RuntimeSession?.CueSchedule?.Cues
+            ?? throw new InvalidOperationException("The protocol-audit exercise has no scheduled cue.");
+        var cue = cues.FirstOrDefault(item =>
+            (!expectation.HasValue || item.ResponseExpectation == expectation.Value) &&
+            (!kind.HasValue || item.Kind == kind.Value));
+        if (cue is null)
+        {
+            throw new InvalidOperationException(
+                $"The protocol-audit exercise has no matching cue ({kind?.ToString() ?? "any kind"}, " +
+                $"{expectation?.ToString() ?? "any response"}).");
+        }
+
+        if (cue.ScheduledAt.Offset > clock.Now.Offset)
+        {
+            clock.AdvanceTo(cue.ScheduledAt);
+        }
+    }
+
+    private static async Task<PreUiLiveSessionState> AuditCommandAsync(
+        PreUiLiveSessionController controller,
+        RuntimeInputCommandKind command,
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        var state = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(command, value: value),
+            cancellationToken).ConfigureAwait(false);
+        if (state.LastCommand?.IsAccepted != true)
+        {
+            throw new InvalidOperationException(
+                $"Protocol-audit command {command} was rejected: {state.LastCommand?.Detail}");
+        }
+
+        return state;
+    }
+#endif
 
     public async Task<AndroidTrainingStateSnapshot> CompleteDueGlobalReviewAsync(
         CancellationToken cancellationToken = default)

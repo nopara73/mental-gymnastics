@@ -86,7 +86,8 @@ public sealed class CurrentTrainingStateReadModel
         CurrentGlobalReviewReadModel globalReview,
         RecoveryDecisionResult? recoveryDecision,
         DeloadDecisionResult deloadDecision,
-        GlobalReviewResult? lastCompletedGlobalReview)
+        GlobalReviewResult? lastCompletedGlobalReview,
+        ProgramCompletionResult programCompletion)
     {
         ArgumentNullException.ThrowIfNull(currentPractitionerState);
         ArgumentNullException.ThrowIfNull(branchLevelStates);
@@ -100,6 +101,7 @@ public sealed class CurrentTrainingStateReadModel
         ArgumentNullException.ThrowIfNull(availableNextWork);
         ArgumentNullException.ThrowIfNull(globalReview);
         ArgumentNullException.ThrowIfNull(deloadDecision);
+        ArgumentNullException.ThrowIfNull(programCompletion);
 
         CurrentPractitionerState = currentPractitionerState;
         BranchLevelStates = branchLevelStates.ToArray();
@@ -115,6 +117,7 @@ public sealed class CurrentTrainingStateReadModel
         RecoveryDecision = recoveryDecision;
         DeloadDecision = deloadDecision;
         LastCompletedGlobalReview = lastCompletedGlobalReview;
+        ProgramCompletion = programCompletion;
     }
 
     public PractitionerState CurrentPractitionerState { get; }
@@ -144,6 +147,8 @@ public sealed class CurrentTrainingStateReadModel
     public DeloadDecisionResult DeloadDecision { get; }
 
     public GlobalReviewResult? LastCompletedGlobalReview { get; }
+
+    public ProgramCompletionResult ProgramCompletion { get; }
 
     public bool RecoveryRequired =>
         RecoveryDecision?.ShouldRecover == true || DeloadDecision.ShouldDeload;
@@ -287,7 +292,11 @@ public sealed class CurrentTrainingStateLoader
             globalReview,
             pressure.RecoveryDecision,
             pressure.DeloadDecision,
-            lastCompletedGlobalReview);
+            lastCompletedGlobalReview,
+            ProgramCompletionEvaluator.Evaluate(
+                currentState,
+                maintenanceCurrency,
+                lastCompletedGlobalReview));
     }
 
     private async ValueTask<IReadOnlyList<MaintenanceCurrencyResult>> LoadMaintenanceCurrencyAsync(
@@ -296,7 +305,7 @@ public sealed class CurrentTrainingStateLoader
         CancellationToken cancellationToken)
     {
         var results = new List<MaintenanceCurrencyResult>();
-        foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
+        foreach (var status in MaintenanceScope.HighestEarnedByBranch(currentState))
         {
             var currency = await repository.LoadMaintenanceCurrencyAsync(
                 status.Branch,
@@ -312,7 +321,7 @@ public sealed class CurrentTrainingStateLoader
             .ToArray();
     }
 
-    private static WeeklyProgrammingRequest BuildWeeklyProgrammingRequest(
+    internal static WeeklyProgrammingRequest BuildWeeklyProgrammingRequest(
         PractitionerState currentState,
         IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
         PractitionerCategoryClassificationResult categoryClassification,
@@ -578,24 +587,43 @@ public sealed class CurrentTrainingStateLoader
         PractitionerState currentState,
         BranchCode fallback)
     {
-        return FirstMatchingBranch(
-            FoundationalBranches,
-            branch => currentState.BranchLevels.Any(status =>
-                status.Branch == branch &&
+        return currentState.BranchLevels
+            .Where(status =>
+                FoundationalBranches.Contains(status.Branch) &&
                 status.State is BranchLevelState.TestReady
                     or BranchLevelState.PassedOnce
-                    or BranchLevelState.Stabilizing))
-            ?? fallback;
+                    or BranchLevelState.Stabilizing)
+            .OrderBy(status => status.State is
+                BranchLevelState.PassedOnce or BranchLevelState.Stabilizing ? 0 : 1)
+            .ThenBy(status => status.Level)
+            .ThenBy(status => BranchOrder(status.Branch))
+            .Select(status => status.Branch)
+            .FirstOrDefault(fallback);
     }
 
     private static BranchCode SelectSelectedAdvancedBranch(PractitionerState currentState)
     {
-        return FirstMatchingBranch(
-            AdvancedBranches,
-            branch => currentState.BranchLevels.Any(status =>
+        return AdvancedBranches
+            .Where(branch => currentState.BranchLevels.Any(status =>
                 status.Branch == branch &&
                 status.State != BranchLevelState.Unopened))
-            ?? BranchCode.CO;
+            .OrderBy(branch => HasActiveAdvancementState(currentState, branch) ? 0 : 1)
+            .ThenBy(branch => HighestOwnedRank(currentState, branch))
+            .ThenBy(BranchOrder)
+            .FirstOrDefault(BranchCode.CO);
+    }
+
+    private static bool HasActiveAdvancementState(
+        PractitionerState currentState,
+        BranchCode branch)
+    {
+        return currentState.BranchLevels.Any(status =>
+            status.Branch == branch &&
+            status.State is
+                BranchLevelState.Training or
+                BranchLevelState.TestReady or
+                BranchLevelState.PassedOnce or
+                BranchLevelState.Stabilizing);
     }
 
     private static BranchCode SelectPrerequisiteSupportBranch(

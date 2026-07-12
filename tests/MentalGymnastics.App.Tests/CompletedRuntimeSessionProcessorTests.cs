@@ -134,6 +134,55 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadinessKeepsRelevantPracticeWhenUnrelatedHistoryIsNewer()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.Training));
+        await SaveFormalLoadPracticeSessionAsync(
+            configuration,
+            "fh-clean-before-unrelated-history",
+            TrainingDate.From(2026, 6, 1),
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold);
+        for (var day = 2; day <= 11; day++)
+        {
+            await SaveFormalLoadPracticeSessionAsync(
+                configuration,
+                $"fs-unrelated-{day}",
+                TrainingDate.From(2026, 6, day),
+                BranchCode.FS,
+                GlobalLevelId.L1,
+                DrillId.FS1CueSwitch);
+        }
+
+        var demand = ProgramCatalog.Standards.Single(standard =>
+            standard.Branch == BranchCode.FH &&
+            standard.Level == GlobalLevelId.L1).Demand;
+        var session = CreateSessionDefinition(
+            SessionType.Practice,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold);
+        var result = CompleteWithEvidence(
+            "fh-clean-after-unrelated-history",
+            session,
+            RuntimeEvidenceCaptureKind.BestSet,
+            [new RuntimeEventFact("score", "formal-load target held cleanly")]);
+
+        var processed = await new CompletedRuntimeSessionProcessor(configuration).ProcessAsync(
+            new CompletedRuntimeSessionProcessingRequest(
+                result,
+                Metadata(LocalSessionIntensity.Moderate, cleanPerformance: true, "Second clean FH L1 exposure."),
+                readinessPractice: new RuntimeReadinessPracticeHandoffInput(demand, clean: true),
+                refreshProgressSummary: false));
+
+        var stored = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
+        Assert.NotNull(processed.StateTransition);
+        Assert.Equal(BranchLevelState.TestReady, stored?.GetBranchLevelState(BranchCode.FH, GlobalLevelId.L1));
+    }
+
+    [Fact]
     public async Task FailedFormalTestPersistsFailureEvidenceAndReturnsTrainingWithoutAppGrantingProgress()
     {
         var configuration = Configuration();
@@ -718,6 +767,56 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 PromptContentKind.EquivalentPrompt,
                 $"{branch.ToString().ToLowerInvariant()}-{level.ToString().ToLowerInvariant()}-equivalent"),
             "v1");
+    }
+
+    private static LocalSessionHistoryRecord FormalLoadPracticeSession(
+        string sessionId,
+        TrainingDate date,
+        BranchCode branch,
+        GlobalLevelId level,
+        DrillId drill)
+    {
+        return new LocalSessionHistoryRecord(
+            sessionId,
+            date,
+            LocalCompletedSessionType.Practice,
+            [new LocalSessionBranchLevel(branch, level)],
+            drill,
+            transferTask: null,
+            LocalSessionIntensity.Moderate,
+            TrainingLoadProfileCatalog.Get(branch, level).TargetStage.LoadVariables,
+            cleanPerformance: true,
+            notes: "Clean practice at the formal standard load.",
+            recoveryMarked: false,
+            deloadMarked: false,
+            evidenceArtifactIds: [$"artifact-{sessionId}"]);
+    }
+
+    private static async ValueTask SaveFormalLoadPracticeSessionAsync(
+        AppStartupConfiguration configuration,
+        string sessionId,
+        TrainingDate date,
+        BranchCode branch,
+        GlobalLevelId level,
+        DrillId drill)
+    {
+        var artifactId = $"artifact-{sessionId}";
+        await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new LocalEvidenceArtifactRecord(
+                artifactId,
+                new LocalProgrammingEventReference(
+                    sessionId,
+                    LocalProgrammingEventKind.Practice,
+                    branch,
+                    level,
+                    drill),
+                Artifact(
+                    EvidenceArtifactCategory.Practice,
+                    date,
+                    ObservableEvidenceKind.OutputSample,
+                    $"{sessionId} clean formal-load practice evidence.")));
+        await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions).SaveAsync(
+            FormalLoadPracticeSession(sessionId, date, branch, level, drill));
     }
 
     private static LocalDailyTrainingPrescriptionRecord DailyPrescription(string sessionId)

@@ -223,7 +223,7 @@ public static class WeeklyProgrammingPlanner
             Day(3, WeeklySessionKind.Maintenance, FoundationalBranches),
             Day(4, WeeklySessionKind.Practice, request.SelectedAdvancedBranch, request.PrerequisiteSupportBranch),
             Day(5, WeeklySessionKind.TransferOrStabilization, request.SelectedAdvancedBranch),
-            Day(6, WeeklySessionKind.Recovery, FoundationalBranches),
+            Day(6, WeeklySessionKind.RecoveryOrRetest),
             Day(7, WeeklySessionKind.Off),
         ];
     }

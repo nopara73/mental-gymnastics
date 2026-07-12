@@ -1,5 +1,10 @@
 namespace MentalGymnastics.Runtime;
 
+public static class RuntimeResponseMarkers
+{
+    public const string Omitted = "OMITTED";
+}
+
 public enum RuntimeInputCommandKind
 {
     MarkDrift,
@@ -289,6 +294,26 @@ public sealed class RuntimeInputCommandHandler
 
     public IReadOnlyList<RuntimeEvent> Events => EventLog.Events;
 
+    public void ObserveExternallyRecordedEvent(RuntimeEvent runtimeEvent)
+    {
+        ArgumentNullException.ThrowIfNull(runtimeEvent);
+
+        if (!string.Equals(runtimeEvent.SessionId, EventLog.SessionId, StringComparison.Ordinal) ||
+            !EventLog.Events.Any(item => item.SequenceNumber == runtimeEvent.SequenceNumber))
+        {
+            throw new ArgumentException(
+                "Observed runtime events must belong to this command handler's event log.",
+                nameof(runtimeEvent));
+        }
+
+        if (IsFailedCueEvent(runtimeEvent) &&
+            (_lastCorrectableEvent is null ||
+                runtimeEvent.SequenceNumber > _lastCorrectableEvent.SequenceNumber))
+        {
+            _lastCorrectableEvent = runtimeEvent;
+        }
+    }
+
     public RuntimeSessionSnapshot CaptureSnapshot()
     {
         return new RuntimeSessionSnapshot(
@@ -556,7 +581,7 @@ public sealed class RuntimeInputCommandHandler
             return Rejected(RuntimeInputCommandInvalidReason.NoActivePhase);
         }
 
-        if (!IsAllowedInPhase(command.Kind, phase.Kind))
+        if (!IsAllowedInCurrentPhase(command.Kind, phase.Kind))
         {
             return Rejected(RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase);
         }
@@ -593,14 +618,24 @@ public sealed class RuntimeInputCommandHandler
             }
         }
 
+        var facts = BuildCommandFacts(command).ToList();
+        if (command.Kind == RuntimeInputCommandKind.Correct && _lastCorrectableEvent is not null)
+        {
+            AddCorrectionTargetFacts(facts, _lastCorrectableEvent, command);
+        }
+
         var appendedEvent = EventLog.Append(
             MapCommandEventKind(command.Kind),
             _clock.Now,
             phase.Id,
             phase.Kind,
-            BuildCommandFacts(command));
+            facts);
 
-        if (IsCorrectable(command.Kind))
+        if (command.Kind == RuntimeInputCommandKind.Correct)
+        {
+            _lastCorrectableEvent = null;
+        }
+        else if (IsCorrectable(command.Kind))
         {
             _lastCorrectableEvent = appendedEvent;
         }
@@ -626,7 +661,7 @@ public sealed class RuntimeInputCommandHandler
             return Availability(command, false, RuntimeInputCommandInvalidReason.NoActivePhase);
         }
 
-        if (!IsAllowedInPhase(command, phase.Kind))
+        if (!IsAllowedInCurrentPhase(command, phase.Kind))
         {
             return Availability(command, false, RuntimeInputCommandInvalidReason.CommandNotAllowedInCurrentPhase);
         }
@@ -946,16 +981,61 @@ public sealed class RuntimeInputCommandHandler
                 phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or
                     RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit or RuntimeSessionPhaseKind.Recovery,
             RuntimeInputCommandKind.Correct =>
-                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
+                phase is RuntimeSessionPhaseKind.ActiveWork or RuntimeSessionPhaseKind.CueResponse or
+                    RuntimeSessionPhaseKind.ReconstructionInput or RuntimeSessionPhaseKind.Audit,
             RuntimeInputCommandKind.StartAudit =>
                 phase == RuntimeSessionPhaseKind.Audit,
             _ => false,
         };
     }
 
+    private bool IsAllowedInCurrentPhase(
+        RuntimeInputCommandKind command,
+        RuntimeSessionPhaseKind phase)
+    {
+        return IsAllowedInPhase(command, phase) ||
+            command == RuntimeInputCommandKind.RespondToCue &&
+            phase == RuntimeSessionPhaseKind.ActiveWork &&
+            EventLog.SessionDefinition.Drill == MentalGymnastics.Core.DrillId.AI2DisruptionRecovery;
+    }
+
     private static bool IsCorrectable(RuntimeInputCommandKind command)
     {
         return command is RuntimeInputCommandKind.SubmitAnswer or RuntimeInputCommandKind.MarkGuess;
+    }
+
+    private static bool IsFailedCueEvent(RuntimeEvent runtimeEvent)
+    {
+        return runtimeEvent.Kind is RuntimeEventKind.CueResponseSubmitted or RuntimeEventKind.ErrorRecorded &&
+            FactValue(runtimeEvent.Facts, "cue_id") is not null &&
+            FactValue(runtimeEvent.Facts, "response_outcome") is "incorrect" or "late";
+    }
+
+    private static void AddCorrectionTargetFacts(
+        ICollection<RuntimeEventFact> facts,
+        RuntimeEvent correctionTarget,
+        RuntimeInputCommand command)
+    {
+        facts.Add(new RuntimeEventFact(
+            "corrected_event_sequence",
+            correctionTarget.SequenceNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        facts.Add(new RuntimeEventFact("corrected_event_kind", correctionTarget.Kind.ToString()));
+
+        var cueId = FactValue(correctionTarget.Facts, "cue_id");
+        if (cueId is null)
+        {
+            facts.Add(new RuntimeEventFact("correction_outcome", "recorded"));
+            return;
+        }
+
+        facts.Add(new RuntimeEventFact("corrected_cue_id", cueId));
+        var expected = FactValue(correctionTarget.Facts, "expected_response") ?? string.Empty;
+        var replacement = FactValue(command.Facts, "correction_reference") ?? string.Empty;
+        facts.Add(new RuntimeEventFact(
+            "correction_outcome",
+            string.Equals(expected.Trim(), replacement.Trim(), StringComparison.OrdinalIgnoreCase)
+                ? "correct"
+                : "incorrect"));
     }
 
     private static RuntimeEventKind MapCommandEventKind(RuntimeInputCommandKind command)

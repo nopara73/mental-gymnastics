@@ -203,7 +203,10 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
 
         Assert.True(preflight.CanStart);
         Assert.Equal("Tap round. Withhold angular. Exceptions win.", preflight.Work!.Exercise.PrimaryMaterial);
-        Assert.Equal(3, preflight.Work.Exercise.SetupItems.Count);
+        var generatedExceptionCount = prepared.RuntimeSession!.InputMaterials.Count(material =>
+            material.Kind == MentalGymnastics.Content.GeneratedContentMaterialKind.ExceptionDefinition);
+        Assert.True(generatedExceptionCount > 0);
+        Assert.Equal(generatedExceptionCount, preflight.Work.Exercise.SetupItems.Count);
         Assert.All(preflight.Work.Exercise.SetupItems, item =>
         {
             Assert.Contains(':', item);
@@ -310,7 +313,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
 
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
-        Assert.Equal("Say the target once. Start when ready.", presentation.CurrentInstruction);
+        Assert.Equal("Eyes open. Keep the target visible. Say it once.", presentation.CurrentInstruction);
         Assert.DoesNotContain("Prep", presentation.CurrentInstruction);
         Assert.Equal("Target Hold", presentation.Work.Exercise.ExerciseName);
         Assert.Equal("blue square", presentation.Work.Exercise.PrimaryMaterial);
@@ -375,7 +378,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
 
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
-        Assert.Equal("Hold the target.", presentation.CurrentInstruction);
+        Assert.Equal("Eyes open. Hold the target.", presentation.CurrentInstruction);
         Assert.Equal(RuntimeInputCommandKind.MarkDrift, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
     }
@@ -539,6 +542,50 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
                 presentation.CurrentInstruction,
                 StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Theory]
+    [InlineData(DrillId.FS2InvalidCueFilter, "Invalid cue. Do not tap.")]
+    [InlineData(DrillId.IR2ExceptionRule, "No-go. Do not tap.")]
+    public void NoTouchCuesStateThatNoTouchIsRequired(DrillId drill, string expectedInstruction)
+    {
+        var live = LiveStateForDrill(drill, RuntimeSessionPhaseKind.CueResponse) with
+        {
+            ActiveCue = new PreUiLiveSessionCueState(
+                "no-touch-cue",
+                RuntimeCueKind.InvalidCueFilter,
+                "lure",
+                RuntimeCueResponseExpectation.NoResponseExpected,
+                TimeSpan.FromSeconds(2),
+                ExpectedResponse: null),
+        };
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal(expectedInstruction, presentation.CurrentInstruction);
+        Assert.False(presentation.ActiveCue!.RequiresResponse);
+    }
+
+    [Theory]
+    [InlineData(DrillId.FS1CueSwitch, "Valid cue. Tap the named target.")]
+    [InlineData(DrillId.IR1GoNoGoRule, "Go. Tap now.")]
+    public void ActionCuesStateTheRequiredTouch(DrillId drill, string expectedInstruction)
+    {
+        var live = LiveStateForDrill(drill, RuntimeSessionPhaseKind.CueResponse) with
+        {
+            ActiveCue = new PreUiLiveSessionCueState(
+                "action-cue",
+                RuntimeCueKind.GoNoGo,
+                "go",
+                RuntimeCueResponseExpectation.ResponseRequired,
+                TimeSpan.FromSeconds(2),
+                ExpectedResponse: "tap"),
+        };
+
+        var presentation = TrainingPresentationMapper.FromLiveSession(live);
+
+        Assert.Equal(expectedInstruction, presentation.CurrentInstruction);
+        Assert.True(presentation.ActiveCue!.RequiresResponse);
     }
 
     public void Dispose()

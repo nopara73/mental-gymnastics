@@ -253,9 +253,9 @@ public static class InhibitionGeneratedContentGenerator
         {
             ObjectiveComponentTaskCatalog.AddMaterials(
                 materials,
-                [BranchCode.IR, BranchCode.TI],
+                [BranchCode.TI],
                 seedPlan.PayloadSeed,
-                seedPlan.VariantIndex,
+                seedPlan.FreshnessOrdinal,
                 "integrated-inhibition");
         }
 
@@ -333,18 +333,30 @@ public static class InhibitionGeneratedContentGenerator
         int noGoInterval,
         string responseWindow)
     {
-        var goStart = SelectIndex(seedPlan.PayloadSeed, "go-cue", seedPlan.VariantIndex, GoCues.Length);
-        var noGoStart = SelectIndex(seedPlan.PayloadSeed, "no-go-cue", seedPlan.VariantIndex, NoGoCues.Length);
+        var orderedGoCues = GeneratedContentStableHash.OrderByOrdinal(
+            GoCues,
+            seedPlan.RequestFingerprint,
+            "go-cue",
+            seedPlan.FreshnessOrdinal,
+            cue => cue.Symbol);
+        var orderedNoGoCues = GeneratedContentStableHash.OrderByOrdinal(
+            NoGoCues,
+            seedPlan.RequestFingerprint,
+            "no-go-cue",
+            seedPlan.FreshnessOrdinal,
+            cue => cue.Symbol);
+        var goIndex = 0;
+        var noGoIndex = 0;
 
         for (var i = 0; i < DefaultCueCount; i++)
         {
             var cueNumber = i + 1;
             var cueName = cueNumber.ToString(CultureInfo.InvariantCulture);
-            var isNoGoCue = (cueNumber + seedPlan.VariantIndex) % noGoInterval == 0;
+            var isNoGoCue = (cueNumber + seedPlan.FreshnessOrdinal) % noGoInterval == 0;
 
             if (isNoGoCue)
             {
-                var cue = NoGoCues[(noGoStart + i) % NoGoCues.Length];
+                var cue = orderedNoGoCues[noGoIndex++ % orderedNoGoCues.Count];
                 materials.Add(new GeneratedContentMaterial(
                     GeneratedContentMaterialKind.GoNoGoCue,
                     $"cue-{cueName}",
@@ -356,7 +368,7 @@ public static class InhibitionGeneratedContentGenerator
                 continue;
             }
 
-            var goCue = GoCues[(goStart + i) % GoCues.Length];
+            var goCue = orderedGoCues[goIndex++ % orderedGoCues.Count];
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.GoNoGoCue,
                 $"cue-{cueName}",
@@ -374,7 +386,15 @@ public static class InhibitionGeneratedContentGenerator
         IReadOnlyList<ExceptionTemplate> exceptions,
         string responseWindow)
     {
-        var baseStart = SelectIndex(seedPlan.PayloadSeed, "base-rule-item", seedPlan.VariantIndex, BaseRuleItems.Length);
+        var exceptionPermutationCount = GeneratedContentStableHash.PermutationCount(
+            ExceptionTemplates.Length,
+            exceptions.Count);
+        var baseCycle = seedPlan.FreshnessOrdinal / exceptionPermutationCount;
+        var baseStart = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "base-rule-item",
+            baseCycle,
+            BaseRuleItems.Length);
         var exceptionIndex = 0;
 
         for (var i = 0; i < DefaultExceptionCueCount; i++)
@@ -498,19 +518,6 @@ public static class InhibitionGeneratedContentGenerator
             "exception cues and base-rule cues remain separately observable in the expected action key");
     }
 
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
-    }
-
     private static int NoGoIntervalFor(string noGoFrequency)
     {
         var digits = new string(noGoFrequency.Where(char.IsDigit).ToArray());
@@ -537,18 +544,14 @@ public static class InhibitionGeneratedContentGenerator
         GeneratedContentSeedPlan seedPlan,
         int exceptionCount)
     {
-        var firstIndex = (
-            SelectIndex(seedPlan.PayloadSeed, "exception-definition", seedPlan.VariantIndex, ExceptionTemplates.Length) +
-            (seedPlan.VariantIndex * exceptionCount)) %
-            ExceptionTemplates.Length;
-        var exceptions = new List<ExceptionTemplate>();
-
-        for (var i = 0; i < exceptionCount; i++)
-        {
-            exceptions.Add(ExceptionTemplates[(firstIndex + i) % ExceptionTemplates.Length]);
-        }
-
-        return Array.AsReadOnly(exceptions.ToArray());
+        return GeneratedContentStableHash.OrderByOrdinal(
+                ExceptionTemplates,
+                seedPlan.RequestFingerprint,
+                "exception-definition",
+                seedPlan.FreshnessOrdinal,
+                exception => exception.Symbol)
+            .Take(exceptionCount)
+            .ToArray();
     }
 
     private static string CuePaceFor(string responseWindow)

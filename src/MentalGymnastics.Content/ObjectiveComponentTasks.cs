@@ -90,7 +90,7 @@ internal static class ObjectiveComponentTaskCatalog
     {
         ArgumentNullException.ThrowIfNull(task);
 
-        return $"component branch {task.Branch}: level {level}; drill {drill}; task role {taskRole}; challenge {task.Prompt}; response format {task.Branch}=<answer>; source demand {sourceDemand}; source standard {sourceStandard}; component honesty constraint {honestyConstraint}; component boundary and evidence remain separate.";
+        return $"component branch {task.Branch}: level {level}; drill {drill}; task role {taskRole}; challenge {task.Prompt}; response format {task.Branch}=<answer>; pass criterion exact response matches the hidden key and no {task.Branch} error is recorded; capacity reference {sourceDemand}; owned standard reference {sourceStandard}; component honesty constraint {honestyConstraint}; this integrated check does not replace branch ownership evidence; component boundary and evidence remain separate.";
     }
 
     public static string ScoringKeyValue(

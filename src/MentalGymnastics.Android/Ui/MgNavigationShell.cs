@@ -24,6 +24,7 @@ internal sealed class MgNavigationShell
     private AndroidLiveSessionSnapshot? liveSessionSnapshot;
     private AndroidLiveSessionCompletionSnapshot? liveCompletionSnapshot;
     private LiveTrainingScreenView? liveTrainingView;
+    private Bundle? pendingLiveSessionDraft;
     private AndroidActiveSessionResumeSnapshot? activeSessionResumeSnapshot;
     private LocalDataBackupOperationResult? localDataOperation;
     private string liveSessionInput = string.Empty;
@@ -374,6 +375,19 @@ internal sealed class MgNavigationShell
         }
 
         RenderCurrentScreen(resetScroll: phaseChanged);
+    }
+
+    public void RestoreLiveSessionDraft(Bundle state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        pendingLiveSessionDraft = state;
+        liveTrainingView?.RestoreDraft(state);
+    }
+
+    public void SaveLiveSessionDraft(Bundle state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        liveTrainingView?.SaveDraft(state);
     }
 
     public void ShowLiveSessionCompletionLoading(AndroidLiveSessionSnapshot terminalSnapshot)
@@ -792,11 +806,13 @@ internal sealed class MgNavigationShell
 
         var label = new TextView(context)
         {
-            Text = $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}",
+            Text = presentation.DailyEstimatedMinutes > 0
+                ? $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}  ·  ~{presentation.DailyEstimatedMinutes} min"
+                : $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}",
         };
         MgTypography.ApplyLabel(label);
         label.SetTextColor(MgColors.InkMuted);
-        label.SetMinWidth(Dp(48));
+        label.SetMinWidth(Dp(112));
         label.SetSingleLine(true);
         row.AddView(label, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WrapContent,
@@ -1398,9 +1414,74 @@ internal sealed class MgNavigationShell
         }
 
         var panel = FocusedPanel();
+        AddProgramCompletion(panel, state.CurrentState.ProgramCompletion);
         AddBranchMapSection(panel, state, BranchType.Foundational, "Foundations");
         AddBranchMapSection(panel, state, BranchType.Advanced, "Advanced");
         content.AddView(panel, MatchWrapWithBottom());
+    }
+
+    private void AddProgramCompletion(
+        LinearLayout panel,
+        ProgramCompletionResult completion)
+    {
+        var header = new LinearLayout(context)
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        header.SetGravity(GravityFlags.CenterVertical);
+        var title = new TextView(context)
+        {
+            Text = completion.CurriculumComplete
+                ? "Curriculum complete"
+                : $"{completion.EarnedLevelCount} of {completion.TotalLevelCount} levels earned",
+        };
+        MgTypography.ApplyHeading(title);
+        header.AddView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1));
+        var review = new TextView(context)
+        {
+            Text = completion.GlobalReviewPassed ? "REVIEW PASSED" : "REVIEW PENDING",
+        };
+        MgTypography.ApplyLabel(review);
+        review.SetTextColor(completion.GlobalReviewPassed ? MgColors.Owned : MgColors.InkMuted);
+        header.AddView(review, WrapWrap());
+        panel.AddView(header, MatchWrap());
+
+        var progress = new ProgressBar(
+            context,
+            null,
+            global::Android.Resource.Attribute.ProgressBarStyleHorizontal)
+        {
+            Max = Math.Max(1, completion.TotalLevelCount),
+            Progress = completion.EarnedLevelCount,
+        };
+        panel.AddView(progress, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            Dp(8))
+        {
+            TopMargin = Dp(MgSpacing.Sm),
+        });
+
+        if (!completion.CurriculumComplete)
+        {
+            var forecast = ProgramDurationForecastCatalog.FirstInstallPerfectPath;
+            var scope = new LinearLayout(context)
+            {
+                Orientation = Orientation.Horizontal,
+            };
+            AddMetricBox(scope, "Best case", $"{forecast.BestCaseCalendarDays}+ days");
+            AddMetricBox(scope, "Typical day", $"~{forecast.AverageMinutesPerTrainingDay} min", last: true);
+            panel.AddView(scope, MatchWrapWithTop(MgSpacing.Md));
+            AddMuted(panel, "Perfect clean path. Missed days, failed gates, and restoration extend it.");
+        }
+
+        if (completion.State == ProgramCompletionState.CompleteMaintenanceRequired)
+        {
+            AddWarningRow(
+                panel,
+                "Maintenance",
+                $"{completion.MaintenanceRequirementCount} requirement(s) need service.",
+                MgColors.Maintenance);
+        }
     }
 
     private void AddBranchMapSection(
@@ -2391,21 +2472,16 @@ internal sealed class MgNavigationShell
         if (preflight.Work is { } work)
         {
             var requiresFailureMode = RequiresFailureModeSelection(work);
-            AddCompactScreenHeading(panel, work.Exercise.ExerciseName, work.Exercise.BranchLevelLabel);
+            if (work.Drill != DrillId.FH1TargetHold)
+            {
+                AddCompactScreenHeading(panel, work.Exercise.ExerciseName, work.Exercise.BranchLevelLabel);
+            }
 
             if (work.Drill == DrillId.FH1TargetHold)
             {
                 var target = new TargetMaterialView(context, compact: true);
                 target.Update(work.Exercise.PrimaryMaterial);
                 panel.AddView(target, MatchWrapWithTop(MgSpacing.Md));
-
-                AddFailureModeSelector(panel, work);
-
-                AddPrimaryButton(
-                    panel,
-                    preflight.CanStart ? PreflightStartLabel(work) : "Blocked",
-                    preflight.CanStart && (!requiresFailureMode || selectedMainFailureMode is not null),
-                    HandlePreflightStartRequested);
 
                 var prompt = new TextView(context)
                 {
@@ -2415,12 +2491,13 @@ internal sealed class MgNavigationShell
                 MgTypography.ApplyHeading(prompt);
                 panel.AddView(prompt, MatchWrapWithTop(MgSpacing.Md));
                 panel.AddView(FocusHoldCriteriaStrip(work.LoadVariables), MatchWrapWithTop(MgSpacing.Md));
-                AddSetupSteps(panel);
+                AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
+                AddFailureModeSelector(panel, work);
             }
             else
             {
                 AddPreflightMaterial(panel, work);
-                AddDrillSetupSteps(panel, work.Drill ?? throw new InvalidOperationException("Prepared work must identify its drill."));
+                AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
                 AddFocusedBlock(
                     panel,
                     StandardBlockLabel(work),
@@ -2428,14 +2505,11 @@ internal sealed class MgNavigationShell
                 AddFailureModeSelector(panel, work);
             }
 
-            if (work.Drill != DrillId.FH1TargetHold)
-            {
-                AddPrimaryButton(
-                    panel,
-                    preflight.CanStart ? PreflightStartLabel(work) : "Blocked",
-                    preflight.CanStart && (!requiresFailureMode || selectedMainFailureMode is not null),
-                    HandlePreflightStartRequested);
-            }
+            AddPrimaryButton(
+                panel,
+                preflight.CanStart ? PreflightStartLabel(work) : "Blocked",
+                preflight.CanStart && (!requiresFailureMode || selectedMainFailureMode is not null),
+                HandlePreflightStartRequested);
         }
         else
         {
@@ -2527,6 +2601,81 @@ internal sealed class MgNavigationShell
         AddSetupStep(steps, MgGlyphKind.Hold, "Hold", MgColors.TestReady);
         AddSetupStep(steps, MgGlyphKind.Drift, "Mark + return", MgColors.PassedOnce);
         panel.AddView(steps, MatchWrapWithTop(MgSpacing.Md));
+    }
+
+    private void AddInteractionProtocol(
+        LinearLayout panel,
+        DrillInteractionProtocol protocol)
+    {
+        var steps = new LinearLayout(context)
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        var glyphs = new[] { MgGlyphKind.Target, MgGlyphKind.Hold, MgGlyphKind.Check };
+        var colors = new[] { MgColors.TrainingDark, MgColors.TestReady, MgColors.PassedOnce };
+        for (var index = 0; index < protocol.Steps.Count; index++)
+        {
+            AddSetupStep(
+                steps,
+                glyphs[Math.Min(index, glyphs.Length - 1)],
+                protocol.Steps[index].Label,
+                colors[Math.Min(index, colors.Length - 1)]);
+        }
+
+        panel.AddView(steps, MatchWrapWithTop(MgSpacing.Md));
+
+        AddInteractionLine(panel, MgGlyphKind.Target, "EYES", protocol.AttentionInstruction);
+        AddInteractionLine(panel, MgGlyphKind.Hold, "PHONE", protocol.DeviceInstruction);
+        AddInteractionLine(panel, MgGlyphKind.Check, "ACTION", protocol.ActionInstruction, emphasized: true);
+    }
+
+    private void AddInteractionLine(
+        LinearLayout panel,
+        MgGlyphKind glyph,
+        string label,
+        string instruction,
+        bool emphasized = false)
+    {
+        var row = new LinearLayout(context)
+        {
+            Orientation = Orientation.Horizontal,
+            Background = emphasized
+                ? MgTheme.TintedSurface(context, MgColors.TrainingTint, MgColors.Training, cornerRadius: 8)
+                : null,
+        };
+        row.SetGravity(GravityFlags.CenterVertical);
+        row.SetPadding(
+            emphasized ? Dp(MgSpacing.Sm) : 0,
+            Dp(MgSpacing.Sm),
+            emphasized ? Dp(MgSpacing.Sm) : 0,
+            Dp(MgSpacing.Sm));
+        row.AddView(
+            new MgGlyphView(context, glyph, emphasized ? MgColors.TrainingDark : MgColors.InkMuted, filled: false),
+            new LinearLayout.LayoutParams(Dp(34), Dp(34)));
+
+        var body = new LinearLayout(context)
+        {
+            Orientation = Orientation.Vertical,
+        };
+        var bodyLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
+        bodyLayout.SetMargins(Dp(MgSpacing.Sm), 0, 0, 0);
+        row.AddView(body, bodyLayout);
+
+        var labelView = new TextView(context)
+        {
+            Text = label,
+        };
+        MgTypography.ApplyLabel(labelView);
+        labelView.SetTextColor(emphasized ? MgColors.TrainingDark : MgColors.InkMuted);
+        body.AddView(labelView, MatchWrap());
+
+        var instructionView = new TextView(context)
+        {
+            Text = instruction,
+        };
+        MgTypography.ApplyBody(instructionView);
+        body.AddView(instructionView, MatchWrapWithTop(MgSpacing.Xs));
+        panel.AddView(row, MatchWrapWithTop(MgSpacing.Xs));
     }
 
     private void AddPreflightMaterial(
@@ -2816,6 +2965,12 @@ internal sealed class MgNavigationShell
             liveTrainingView = new LiveTrainingScreenView(context);
             liveTrainingView.CommandRequested += (command, targetId, value) =>
                 LiveSessionCommandRequested?.Invoke(command, targetId, value);
+        }
+
+        if (pendingLiveSessionDraft is { } draft)
+        {
+            liveTrainingView.RestoreDraft(draft);
+            pendingLiveSessionDraft = null;
         }
 
         liveTrainingView.Update(liveSnapshot);

@@ -1,3 +1,4 @@
+using MentalGymnastics.App;
 using MentalGymnastics.Content;
 using MentalGymnastics.Core;
 
@@ -82,6 +83,59 @@ public sealed class ExecutableCurriculumContentTests
         Assert.Contains(generated.Materials, item => item.Kind == GeneratedContentMaterialKind.SourceBranchStandard);
         Assert.True(package.CanBeConsumedByRuntime);
         Assert.Contains(package.Phases, phase => phase.Kind is not GeneratedRuntimePhaseKind.InstructionPrep);
+    }
+
+    [Fact]
+    public void EveryDrillFamilyProvidesEnoughFreshMaterialForThePerfectPathDemand()
+    {
+        var failures = new List<string>();
+        foreach (var profile in TrainingLoadProfileCatalog.Profiles
+                     .GroupBy(item => item.Drill)
+                     .Select(group => group.First()))
+        {
+            var protocol = DrillProtocolCatalog.StandardDrills.Single(item => item.Id == profile.Drill);
+            var requiredSessions = ProgramDurationForecastCatalog
+                .FirstInstallPerfectPathSessionsByDrill[profile.Drill];
+            var usedContentIds = new List<string>(requiredSessions);
+            var signatures = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < requiredSessions; index++)
+            {
+                var request = new GeneratedDrillContentRequest(
+                    profile.Branch,
+                    profile.Level,
+                    profile.Drill,
+                    SessionType.Test,
+                    ContentKindFor(profile.Drill),
+                    $"offline-diversity-{profile.Drill}",
+                    PromptFreshnessPolicy.FreshEquivalentRequired,
+                    profile.TargetStage.LoadVariables,
+                    protocol.HonestyConstraints.Select(item => new CriticalConstraint(item.Description)),
+                    usedContentIds);
+                var selection = GeneratedContentSelectionCoordinator.Select(
+                    GeneratedContentSelectionNeed.ForStandardContent(request),
+                    new GeneratedContentSeed($"offline-diversity-{profile.Drill}-{index}"));
+                if (!selection.IsValid)
+                {
+                    failures.Add($"{profile.Drill}: session {index + 1} was not valid");
+                    break;
+                }
+
+                usedContentIds.Add(selection.Result.ContentId);
+                signatures.Add(string.Join(
+                    Environment.NewLine,
+                    selection.Materials
+                        .OrderBy(material => material.Kind)
+                        .ThenBy(material => material.Name, StringComparer.Ordinal)
+                        .Select(material => $"{material.Kind}|{material.Value}")));
+            }
+
+            if (signatures.Count < requiredSessions)
+            {
+                failures.Add($"{profile.Drill}: {signatures.Count}/{requiredSessions} distinct sessions");
+            }
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 
     private static PromptContentKind ContentKindFor(DrillId drill)

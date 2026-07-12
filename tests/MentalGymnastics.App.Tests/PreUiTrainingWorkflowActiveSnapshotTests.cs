@@ -310,6 +310,35 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task DelayedRefreshPresentsTheLatestDueCue()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await PrepareCuePracticeAsync(workflow, "workflow-delayed-cue-refresh");
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var dueCues = prepared.RuntimeSession!.CueSchedule!.Cues.Take(3).ToArray();
+
+        clock.AdvanceTo(dueCues[^1].ScheduledAt);
+        var refreshed = await controller.RefreshAsync();
+
+        Assert.Equal(3, refreshed.Evidence.CueCount);
+        Assert.Equal(dueCues[^1].Id, refreshed.ActiveCue?.CueId);
+    }
+
+    [Fact]
     public async Task IncorrectAndOmittedCueResponsesRemainVisibleAsFailureEvidence()
     {
         var configuration = Configuration();
@@ -404,6 +433,249 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.NotNull(firstCue.ActiveCue);
         Assert.Equal(1, firstCue.Evidence.CueCount);
         Assert.True(CommandState(firstCue, RuntimeInputCommandKind.RespondToCue).IsAvailable);
+    }
+
+    [Fact]
+    public async Task FailedCueExposesStructuredCorrectionAndRecordsExactRecovery()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await PrepareCuePracticeAsync(workflow, "workflow-cue-correction");
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(5));
+        var cueState = await controller.RefreshAsync();
+        var cue = Assert.IsType<PreUiLiveSessionCueState>(cueState.ActiveCue);
+        var expectedResponse = Assert.IsType<string>(cue.ExpectedResponse);
+
+        var missed = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.RespondToCue,
+                cue.CueId,
+                "withhold"));
+
+        var correction = Assert.IsType<PreUiLiveSessionCorrectionState>(missed.PendingCorrection);
+        Assert.Equal(cue.CueId, correction.CueId);
+        Assert.Equal(cue.Cue, correction.Cue);
+        Assert.Equal("withhold", correction.SubmittedResponse);
+        Assert.Contains(expectedResponse, correction.ResponseOptions);
+        Assert.Contains("withhold", correction.ResponseOptions);
+        Assert.True(CommandState(missed, RuntimeInputCommandKind.Correct).IsAvailable);
+        var presentation = TrainingPresentationMapper.FromLiveSession(missed);
+        Assert.NotNull(presentation.PendingCorrection);
+        Assert.Equal(cue.Cue, presentation.PendingCorrection.Cue);
+
+        var recovered = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.Correct,
+                correction.SourceEventSequenceNumber.ToString(),
+                expectedResponse));
+
+        Assert.Null(recovered.PendingCorrection);
+        Assert.Equal(expectedResponse, recovered.CurrentFocusTarget);
+        Assert.False(CommandState(recovered, RuntimeInputCommandKind.Correct).IsAvailable);
+        Assert.Equal(1, recovered.Evidence.CorrectionCount);
+        Assert.Contains(started.CommandHandler!.Events, runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.CorrectionSubmitted &&
+            runtimeEvent.Facts.Any(fact =>
+                fact.Name == "correction_outcome" && fact.Value == "correct") &&
+            runtimeEvent.Facts.Any(fact =>
+                fact.Name == "corrected_cue_id" && fact.Value == cue.CueId));
+    }
+
+    [Fact]
+    public async Task InvalidCueRemainsTappableSoAnInhibitionErrorIsObservable()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.FS, GlobalLevelId.L3, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.FS,
+                        GlobalLevelId.L3,
+                        DrillId.FS2InvalidCueFilter,
+                        AppTrainingSessionType.Maintenance)),
+                "workflow-invalid-cue-capture"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+        var invalidCue = prepared.RuntimeSession!.CueSchedule!.Cues.First(cue =>
+            cue.ResponseExpectation == RuntimeCueResponseExpectation.NoResponseExpected);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(new RuntimeDuration(invalidCue.ScheduledAt.Offset));
+        var withhold = await controller.RefreshAsync();
+
+        Assert.Equal(invalidCue.Id, withhold.ActiveCue?.CueId);
+        Assert.Equal(RuntimeCueResponseExpectation.NoResponseExpected, withhold.ActiveCue?.ResponseExpectation);
+        Assert.False(string.IsNullOrWhiteSpace(withhold.CurrentFocusTarget));
+        Assert.True(CommandState(withhold, RuntimeInputCommandKind.RespondToCue).IsAvailable);
+
+        var tapped = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.RespondToCue,
+                invalidCue.Id,
+                "switched anyway"));
+
+        Assert.Equal(RuntimeCueResponseOutcome.Incorrect, tapped.LastCommand?.CueOutcome);
+        Assert.Equal(1, tapped.Evidence.ErrorCount);
+        Assert.NotNull(tapped.PendingCorrection);
+        Assert.Null(tapped.CurrentFocusTarget);
+        Assert.Contains("withhold", tapped.PendingCorrection.ResponseOptions);
+    }
+
+    [Fact]
+    public async Task FocusHoldDisruptionExposesAResumeControlAndRecordsTheSemanticResponse()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.AI, GlobalLevelId.L3, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var profile = TrainingLoadProfileCatalog.Get(BranchCode.AI, GlobalLevelId.L3);
+        var prepared = await workflow.PrepareNextSessionAsync(new PreUiTrainingWorkflowPreparationRequest(
+            new NextTrainingWorkSelectionQuery(
+                SessionDate,
+                new RequestedTrainingWork(
+                    BranchCode.AI,
+                    GlobalLevelId.L3,
+                    DrillId.AI2DisruptionRecovery,
+                    AppTrainingSessionType.Maintenance,
+                    profile.TargetStage.LoadVariables)),
+            PromptContentKind.EquivalentPrompt,
+            "ai2-fh-source",
+            PromptFreshnessPolicy.FreshEquivalentRequired,
+            new GeneratedContentSeed("workflow-ai2-fh-disruption-seed"),
+            "workflow-ai2-fh-disruption"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+        Assert.Equal(DrillId.FH2DistractorHold, prepared.RuntimeSession?.SessionDefinition?.SourceDrill);
+        var interruption = prepared.RuntimeSession!.CueSchedule!.Cues.Single(cue =>
+            cue.Kind == RuntimeCueKind.Interruption &&
+            string.Equals(cue.ExpectedResponse, "resume", StringComparison.OrdinalIgnoreCase));
+        var distractor = prepared.RuntimeSession.CueSchedule.Cues.First(cue =>
+            cue.Kind == RuntimeCueKind.Interruption &&
+            cue.ResponseExpectation == RuntimeCueResponseExpectation.NoResponseExpected &&
+            cue.ScheduledAt.Offset < interruption.ScheduledAt.Offset);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceTo(distractor.ScheduledAt);
+        var distracted = await controller.RefreshAsync();
+
+        Assert.Equal(RuntimeCueResponseExpectation.NoResponseExpected, distracted.ActiveCue?.ResponseExpectation);
+        Assert.DoesNotContain(distracted.Commands, command =>
+            command.Command == RuntimeInputCommandKind.RespondToCue && command.IsAvailable);
+        Assert.DoesNotContain(
+            "source rule still applies",
+            TrainingPresentationMapper.FromLiveSession(distracted).CurrentInstruction,
+            StringComparison.OrdinalIgnoreCase);
+
+        clock.AdvanceTo(interruption.ScheduledAt);
+        var disrupted = await controller.RefreshAsync();
+
+        Assert.Equal(RuntimeCueKind.Interruption, disrupted.ActiveCue?.Kind);
+        Assert.True(CommandState(disrupted, RuntimeInputCommandKind.RespondToCue).IsAvailable);
+
+        var resumed = await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+            RuntimeInputCommandKind.RespondToCue,
+            interruption.Id,
+            "resume"));
+
+        Assert.True(resumed.LastCommand?.IsAccepted);
+        Assert.Equal(RuntimeCueResponseOutcome.Correct, resumed.LastCommand?.CueOutcome);
+    }
+
+    [Fact]
+    public async Task PairChoicesPersistIndividuallyAndThePhaseUnlocksOnlyAfterEveryPair()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(configuration, Status(BranchCode.DE, GlobalLevelId.L1, BranchLevelState.Training));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.DE,
+                        GlobalLevelId.L1,
+                        DrillId.DE1PairDiscrimination,
+                        AppTrainingSessionType.Practice)),
+                "workflow-pair-item-persistence"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: true));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: true);
+        var active = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var pairs = active.CurrentMaterials
+            .Where(material => material.Kind == "DiscriminationPair")
+            .ToArray();
+        Assert.True(pairs.Length > 1);
+
+        for (var index = 0; index < pairs.Length; index++)
+        {
+            active = await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.SubmitAnswer,
+                pairs[index].Name,
+                $"{pairs[index].Name}=same"));
+
+            Assert.Equal(index + 1, active.Evidence.AnswerCount);
+            if (index < pairs.Length - 1)
+            {
+                Assert.True(CommandState(active, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+                Assert.False(CommandState(active, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+            }
+        }
+
+        Assert.False(CommandState(active, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.True(CommandState(active, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+        var stored = await new LocalActiveRuntimeSessionSnapshotStore(configuration.LocalDatabaseOptions)
+            .LoadAsync(prepared.RuntimeSession!.SessionId);
+        Assert.Equal(pairs.Length, stored?.RuntimeEvents.Count(runtimeEvent =>
+            runtimeEvent.Kind == RuntimeEventKind.AnswerSubmitted.ToString()));
     }
 
     [Fact]
@@ -1054,6 +1326,229 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task InhibitionLiveFlowRequiresRuleDeclarationBeforeCueSet()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.IR, GlobalLevelId.L2, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.IR,
+                        GlobalLevelId.L2,
+                        DrillId.IR2ExceptionRule,
+                        AppTrainingSessionType.Maintenance)),
+                "ir-live-declaration"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                new ManualRuntimeClock(RuntimeInstant.Zero),
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var declaration = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal("rule-declaration", declaration.CurrentPhaseId);
+        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, declaration.CurrentPhaseKind);
+        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "RuleStatement");
+        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "ExceptionDefinition");
+        Assert.True(CommandState(declaration, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.False(CommandState(declaration, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        var submitted = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.SubmitAnswer,
+                value: "Tap round; withhold angular; state every listed exception."));
+        Assert.False(CommandState(submitted, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.True(CommandState(submitted, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        var cues = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal("cue-response", cues.CurrentPhaseId);
+        Assert.Equal(RuntimeSessionPhaseKind.CueResponse, cues.CurrentPhaseKind);
+    }
+
+    [Fact]
+    public async Task PressureRepeatWithInhibitionSourceCannotSkipRuleDeclaration()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.AI, GlobalLevelId.L1, BranchLevelState.Maintenance));
+        var profile = TrainingLoadProfileCatalog.Get(BranchCode.AI, GlobalLevelId.L1);
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionAsync(
+            new PreUiTrainingWorkflowPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.AI,
+                        GlobalLevelId.L1,
+                        DrillId.AI1PressureRepeat,
+                        AppTrainingSessionType.Maintenance,
+                        profile.TargetStage.LoadVariables)),
+                PromptContentKind.EquivalentPrompt,
+                "ai-l1-pressure-repeat-ir-l3",
+                PromptFreshnessPolicy.FreshEquivalentRequired,
+                new GeneratedContentSeed("ai-ir-live-declaration"),
+                "ai-ir-live-declaration",
+                additionalCriticalConstraints:
+                [
+                    new CriticalConstraint("Original standard cannot be lowered."),
+                ]));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+        Assert.Equal(DrillId.IR2ExceptionRule, prepared.RuntimeSession!.SessionDefinition!.SourceDrill);
+        var preflight = TrainingPresentationMapper.FromPreflight(prepared);
+        Assert.Contains(preflight.Work!.Exercise.SetupItems, item =>
+            item.StartsWith("KEEP PASSING  88% correct", StringComparison.Ordinal));
+
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession,
+                new ManualRuntimeClock(RuntimeInstant.Zero),
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession,
+            started,
+            saveActiveSnapshot: false);
+        Assert.Contains(controller.CaptureState().CurrentMaterials, material =>
+            material.Kind == "SourceBranchStandard");
+
+        var declaration = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal("rule-declaration", declaration.CurrentPhaseId);
+        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, declaration.CurrentPhaseKind);
+        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "RuleStatement");
+        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "ExceptionDefinition");
+        Assert.Contains(declaration.CurrentMaterials, material => material.Kind == "SourceBranchStandard");
+        Assert.True(CommandState(declaration, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
+        Assert.False(CommandState(declaration, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+
+        var submitted = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(
+                RuntimeInputCommandKind.SubmitAnswer,
+                value: "Tap round; withhold angular; apply every listed exception first."));
+        Assert.True(CommandState(submitted, RuntimeInputCommandKind.FinishPhase).IsAvailable);
+    }
+
+    [Fact]
+    public async Task SeededAuditShowsSourceThenLocksReportAfterDelay()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.DE, GlobalLevelId.L3, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.DE,
+                        GlobalLevelId.L3,
+                        DrillId.DE2SeededAudit,
+                        AppTrainingSessionType.Maintenance)),
+                "de2-live-locked-original"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var source = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal("source-review", source.CurrentPhaseId);
+        Assert.Equal(RuntimeSessionPhaseKind.EncodeWindow, source.CurrentPhaseKind);
+        Assert.Contains(source.CurrentMaterials, material => material.Kind == "AuditReference");
+        Assert.DoesNotContain(source.CurrentMaterials, material => material.Kind == "LockedOriginalOutput");
+        Assert.DoesNotContain(source.CurrentMaterials, IsHiddenAnswerMaterial);
+
+        var delay = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.DelayWindow, delay.CurrentPhaseKind);
+        Assert.Empty(delay.CurrentMaterials);
+
+        var audit = await AdvancePhaseAsync(controller, clock, delay);
+        Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
+        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "LockedOriginalOutput");
+        Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "AuditReference");
+        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "AuditInstruction");
+        Assert.DoesNotContain(audit.CurrentMaterials, IsHiddenAnswerMaterial);
+    }
+
+    [Fact]
+    public async Task IntegratedComponentPromptsDisappearBeforeReconstruction()
+    {
+        var configuration = Configuration();
+        await SaveStateAsync(
+            configuration,
+            Status(BranchCode.WM, GlobalLevelId.L5, BranchLevelState.Maintenance));
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(
+                    SessionDate,
+                    new RequestedTrainingWork(
+                        BranchCode.WM,
+                        GlobalLevelId.L5,
+                        DrillId.WM2MentalTransform,
+                        AppTrainingSessionType.Maintenance)),
+                "wm2-live-integrated-components"));
+        Assert.Equal(PreUiTrainingWorkflowPreparationStatus.Prepared, prepared.Status);
+
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                prepared.RuntimeSession!,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            prepared.RuntimeSession!,
+            started,
+            saveActiveSnapshot: false);
+
+        var active = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        Assert.Equal(RuntimeSessionPhaseKind.ActiveWork, active.CurrentPhaseKind);
+        Assert.Contains(active.CurrentMaterials, material => material.Kind == "ComponentPayload");
+        Assert.Contains(active.CurrentMaterials, material => material.Kind == "ComponentEvidenceRequirement");
+        await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
+            RuntimeInputCommandKind.SubmitAnswer,
+            value: "FH=held; FS=switched"));
+
+        var state = await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        while (state.CurrentPhaseKind != RuntimeSessionPhaseKind.ReconstructionInput)
+        {
+            state = await AdvancePhaseAsync(controller, clock, state);
+        }
+
+        Assert.DoesNotContain(state.CurrentMaterials, material => material.Kind == "ComponentPayload");
+        Assert.Contains(state.CurrentMaterials, material => material.Kind == "ComponentEvidenceRequirement");
+        Assert.DoesNotContain(state.CurrentMaterials, IsHiddenAnswerMaterial);
+    }
+
+    [Fact]
     public async Task GlobalReviewLiveFlowRunsWorkAuditDelayThenReconstruction()
     {
         var configuration = Configuration();
@@ -1086,6 +1581,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "BranchScoringKey");
         Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "AuditPayload");
         Assert.DoesNotContain(active.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.DoesNotContain(active.CurrentMaterials, IsHiddenAnswerMaterial);
         Assert.False(CommandState(active, RuntimeInputCommandKind.FinishPhase).IsAvailable);
 
         await controller.HandleCommandAsync(new PreUiLiveSessionCommandRequest(
@@ -1094,8 +1590,11 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         var audit = await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         Assert.Equal(RuntimeSessionPhaseKind.Audit, audit.CurrentPhaseKind);
-        Assert.Contains(audit.CurrentMaterials, material => material.Kind == "AuditPayload");
+        Assert.Contains(audit.CurrentMaterials, material =>
+            material.Kind == "AuditPayload" &&
+            material.Value.Contains("locked component report", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(audit.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.DoesNotContain(audit.CurrentMaterials, IsHiddenAnswerMaterial);
         Assert.True(CommandState(audit, RuntimeInputCommandKind.StartAudit).IsAvailable);
         Assert.False(CommandState(audit, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
 
@@ -1112,8 +1611,11 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
 
         var reconstruct = await AdvancePhaseAsync(controller, clock, delay);
         Assert.Equal(RuntimeSessionPhaseKind.ReconstructionInput, reconstruct.CurrentPhaseKind);
-        Assert.Contains(reconstruct.CurrentMaterials, material => material.Kind == "DelayedReconstructionPayload");
+        Assert.Contains(reconstruct.CurrentMaterials, material =>
+            material.Kind == "DelayedReconstructionPayload" &&
+            material.Value.Contains("exact locked component report", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(reconstruct.CurrentMaterials, material => material.Kind == "AuditPayload");
+        Assert.DoesNotContain(reconstruct.CurrentMaterials, IsHiddenAnswerMaterial);
         Assert.True(CommandState(reconstruct, RuntimeInputCommandKind.SubmitAnswer).IsAvailable);
         Assert.False(CommandState(reconstruct, RuntimeInputCommandKind.FinishPhase).IsAvailable);
     }
@@ -1304,6 +1806,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             "SeededError" or
             "ExpectedFinding" or
             "ExpectedClassification" or
+            "ExpectedRule" or
             "ExpectedMapping" or
             "BranchScoringKey";
     }

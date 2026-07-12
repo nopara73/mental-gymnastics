@@ -359,10 +359,15 @@ public sealed class CompletedRuntimeSessionProcessor
         CancellationToken cancellationToken)
     {
         var recentSessions = await sessionHistoryStore.ListAsync(cancellationToken).ConfigureAwait(false);
-        var existingPractice = TestReadinessRequestFactory.FromSessionHistory(
-            recentSessions.TakeLast(9));
+        var existingPractice = TestReadinessRequestFactory.FromSessionHistory(recentSessions)
+            .Where(session =>
+                session.Branch == currentPractice.Branch &&
+                session.Level == currentPractice.Level &&
+                session.Drill == currentPractice.Drill)
+            .TakeLast(9)
+            .ToArray();
         var maintenanceCurrency = new List<MaintenanceCurrencyResult>();
-        foreach (var status in currentState.BranchLevels.Where(IsMaintenanceRelevant))
+        foreach (var status in MaintenanceScope.HighestEarnedByBranch(currentState))
         {
             var currency = await repository.LoadMaintenanceCurrencyAsync(
                 status.Branch,
@@ -391,26 +396,28 @@ public sealed class CompletedRuntimeSessionProcessor
         var formalPasses = await formalTestAttemptStore
             .ListByBranchLevelAsync(currentPass.Branch, currentPass.Level, cancellationToken)
             .ConfigureAwait(false);
-        var firstFormalPass = formalPasses
+        var latestFormalPass = formalPasses
             .Where(record => record.Attempt.PassState == FormalTestPassState.PassOnce)
             .OrderBy(record => record.Attempt.Date.Year)
             .ThenBy(record => record.Attempt.Date.Month)
             .ThenBy(record => record.Attempt.Date.Day)
             .Select(record => record.Attempt)
-            .FirstOrDefault();
+            .LastOrDefault();
         var passes = existing
+            .Where(record => latestFormalPass is null ||
+                latestFormalPass.Date.DaysUntil(record.Evidence.Date) >= 0)
             .Select(record => record.Evidence)
-            .Prepend(firstFormalPass is null
+            .Prepend(latestFormalPass is null
                 ? null
                 : new StabilizationPassEvidence(
-                    firstFormalPass.Branch,
-                    firstFormalPass.Level,
-                    firstFormalPass.Date,
-                    firstFormalPass.Standard,
-                    firstFormalPass.PassState,
+                    latestFormalPass.Branch,
+                    latestFormalPass.Level,
+                    latestFormalPass.Date,
+                    latestFormalPass.Standard,
+                    latestFormalPass.PassState,
                     new StandardEvaluationResult(Passed: true, Failures: []),
                     afterAdjacentWorkOrControlledDistractor: false,
-                    firstFormalPass.MainFailureModeAvoided ?? string.Empty))
+                    latestFormalPass.MainFailureModeAvoided ?? string.Empty))
             .OfType<StabilizationPassEvidence>()
             .Append(currentPass)
             .ToArray();
@@ -619,6 +626,14 @@ public sealed class CompletedRuntimeSessionProcessor
         if (ownership is not null &&
             TryCurrentStatus(currentState, result.Branch, result.Level, out var stabilizationStatus))
         {
+            if (ownership.Failures.Any(failure =>
+                    failure.Kind == StabilizationOwnershipFailureKind.StabilizationWindowMissed))
+            {
+                return ValidTransitionOrNull(
+                    stabilizationStatus,
+                    BranchLevelTransition.FailStabilization);
+            }
+
             if (ownership.IsOwned)
             {
                 return ValidTransitionOrNull(stabilizationStatus, BranchLevelTransition.CompleteStabilization);
@@ -668,9 +683,7 @@ public sealed class CompletedRuntimeSessionProcessor
         CancellationToken cancellationToken)
     {
         var results = new List<MaintenanceCurrencyResult>();
-        foreach (var status in state.BranchLevels
-            .Where(IsMaintenanceRelevant)
-            .DistinctBy(item => (item.Branch, item.Level)))
+        foreach (var status in MaintenanceScope.HighestEarnedByBranch(state))
         {
             var result = justEvaluated is not null &&
                 justEvaluated.Branch == status.Branch &&

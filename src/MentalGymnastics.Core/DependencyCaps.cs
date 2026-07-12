@@ -149,9 +149,12 @@ public static class DependencyCapEvaluator
         IReadOnlyList<MaintenanceCurrencyResult> maintenanceCurrency,
         BranchLevelRequirement requirement)
     {
-        var currency = maintenanceCurrency.SingleOrDefault(item =>
-            item.Branch == requirement.Branch &&
-            item.OwnedLevel == requirement.Level);
+        var currency = maintenanceCurrency
+            .Where(item =>
+                item.Branch == requirement.Branch &&
+                item.OwnedLevel >= requirement.Level)
+            .OrderByDescending(item => item.OwnedLevel)
+            .FirstOrDefault();
 
         return currency is null ||
             currency.State is MaintenanceCurrencyState.Due or MaintenanceCurrencyState.Failed;

@@ -94,7 +94,11 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         if (request.Drill == DrillId.AI2DisruptionRecovery)
         {
             var plan = BuildDisruptionRecoveryPlan(request, seedPlan);
-            var source = GenerateExecutableSourceTask(request, plan.SourceStandard, seedPlan);
+            var source = GenerateExecutableSourceTask(
+                request,
+                plan.SourceStandard,
+                plan.SourceContentOrdinal,
+                seedPlan);
             materials = MergeSourceMaterials(
                 BuildDisruptionRecoveryMaterials(request, plan),
                 source.Materials);
@@ -104,7 +108,11 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         else
         {
             var plan = BuildPressureRepeatPlan(request, seedPlan);
-            var source = GenerateExecutableSourceTask(request, plan.SourceStandard, seedPlan);
+            var source = GenerateExecutableSourceTask(
+                request,
+                plan.SourceStandard,
+                plan.SourceContentOrdinal,
+                seedPlan);
             materials = MergeSourceMaterials(
                 BuildPressureRepeatMaterials(request, plan),
                 source.Materials);
@@ -148,9 +156,12 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         GeneratedDrillContentRequest request,
         GeneratedContentSeedPlan seedPlan)
     {
+        var sourceSelection = SelectSourceStandard(request, seedPlan);
+        var pressureOrdinal = seedPlan.FreshnessOrdinal / sourceSelection.OptionCount;
         return new PressureRepeatPlan(
-            SelectSourceStandard(request),
-            SelectPressureSource(seedPlan));
+            sourceSelection.Source,
+            SelectPressureSource(seedPlan, pressureOrdinal),
+            pressureOrdinal / PressureSources.Length);
     }
 
     private static IReadOnlyList<GeneratedContentMaterial> BuildPressureRepeatMaterials(
@@ -181,7 +192,7 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.SourceTask,
             "source-content-reference",
-            $"{plan.SourceStandard.StandardId} executable source task; complete {plan.SourceStandard.Drill} without lowering its standard."));
+            $"{plan.SourceStandard.StandardId} executable source task; wrapped source criterion {SourceCriterionFor(plan.SourceStandard)}; complete {plan.SourceStandard.Drill} without lowering its standard."));
 
         AddPressureMetadataMaterials(materials, request);
 
@@ -202,9 +213,12 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         GeneratedDrillContentRequest request,
         GeneratedContentSeedPlan seedPlan)
     {
+        var sourceSelection = SelectSourceStandard(request, seedPlan);
+        var disruptionOrdinal = seedPlan.FreshnessOrdinal / sourceSelection.OptionCount;
         return new DisruptionRecoveryPlan(
-            SelectSourceStandard(request),
-            SelectDisruptionEvent(seedPlan),
+            sourceSelection.Source,
+            SelectDisruptionEvent(seedPlan, disruptionOrdinal),
+            disruptionOrdinal / DisruptionEvents.Length,
             LoadValueOrDefault(request, "interruption timing", DefaultInterruptionTiming),
             LoadValueOrDefault(request, "restart delay", DefaultRestartDelay),
             LoadValueOrDefault(request, "task complexity", DefaultTaskComplexity),
@@ -239,7 +253,7 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.SourceTask,
             "source-task",
-            $"source task {plan.SourceStandard.StandardId}: branch {plan.SourceStandard.Branch}; level {plan.SourceStandard.Level}; drill {plan.SourceStandard.Drill}; underlying branch demand and source standard remain visible; task complexity {plan.TaskComplexity}; this disruption wrapper does not replace, reset, or reduce the source task."));
+            $"source task {plan.SourceStandard.StandardId}: branch {plan.SourceStandard.Branch}; level {plan.SourceStandard.Level}; drill {plan.SourceStandard.Drill}; wrapped source criterion {SourceCriterionFor(plan.SourceStandard)}; underlying branch demand and source standard remain visible; task complexity {plan.TaskComplexity}; this disruption wrapper does not replace, reset, or reduce the source task."));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.DisruptionEvent,
             plan.DisruptionEvent.EventId,
@@ -270,14 +284,15 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             $"record recovery time within {plan.RecoveryWindow}; post-disruption errors; post-error cascade; whether the source standard remained visible; no full restart."));
 
         AddPressureMetadataMaterials(materials, request, includeDefaults: false);
-        AddComponentMaterials(materials, request);
+        AddComponentMaterials(materials, request, plan.SourceStandard.Branch);
 
         return Array.AsReadOnly(materials.ToArray());
     }
 
     private static void AddComponentMaterials(
         ICollection<GeneratedContentMaterial> materials,
-        GeneratedDrillContentRequest request)
+        GeneratedDrillContentRequest request,
+        BranchCode sourceBranch)
     {
         var count = ParseLoadCount(request, "number of branches") ??
             ParseLoadCount(request, "branch count");
@@ -296,7 +311,10 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             BranchCode.CO,
             BranchCode.TI,
         };
-        foreach (var branch in branches.Take(Math.Clamp(count.Value, 1, branches.Length)))
+        var additionalBranchCount = Math.Clamp(count.Value - 1, 1, branches.Length - 1);
+        foreach (var branch in branches
+            .Where(branch => branch != sourceBranch)
+            .Take(additionalBranchCount))
         {
             var level = GlobalLevelId.L3;
             var standard = ProgramCatalog.Standards.Single(item =>
@@ -535,8 +553,12 @@ public static class AffectiveInterferenceGeneratedContentGenerator
     private static SourceGeneratedContent GenerateExecutableSourceTask(
         GeneratedDrillContentRequest wrapperRequest,
         SourceStandardTemplate source,
+        int sourceContentOrdinal,
         GeneratedContentSeedPlan seedPlan)
     {
+        var priorSourceContentIds = Enumerable.Range(0, sourceContentOrdinal)
+            .Select(index => $"ai-source-prior-{source.StandardId.ToLowerInvariant()}-{index.ToString(CultureInfo.InvariantCulture)}")
+            .ToArray();
         var request = new GeneratedDrillContentRequest(
             source.Branch,
             source.Level,
@@ -547,7 +569,8 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             PromptFreshnessPolicy.FreshEquivalentRequired,
             SourceLoadVariables(source.Drill),
             [new CriticalConstraint(
-                ProgramCatalog.Drills.Single(drill => drill.Id == source.Drill).HonestyConstraint)]);
+                ProgramCatalog.Drills.Single(drill => drill.Id == source.Drill).HonestyConstraint)],
+            priorSourceContentIds);
         var sourceSeed = new GeneratedContentSeed($"{seedPlan.PayloadSeed}|ai-source|{source.StandardId}");
 
         return source.Branch switch
@@ -625,48 +648,52 @@ public static class AffectiveInterferenceGeneratedContentGenerator
     private static SourceGeneratedContent From(InhibitionGeneratedContent content) =>
         new(content.Result, content.Materials);
 
-    private static SourceStandardTemplate SelectSourceStandard(GeneratedDrillContentRequest request)
+    private static SourceStandardSelection SelectSourceStandard(
+        GeneratedDrillContentRequest request,
+        GeneratedContentSeedPlan seedPlan)
     {
-        var equivalenceClass = request.EquivalenceClass;
-        if (equivalenceClass.Contains("fh", StringComparison.OrdinalIgnoreCase))
+        var tokens = request.EquivalenceClass
+            .Split(['-', '_', '.', '|', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var explicitSource = SourceStandards.FirstOrDefault(source =>
+            tokens.Contains(source.Branch.ToString()));
+        if (explicitSource is not null)
         {
-            return SourceStandards.Single(source => source.Branch == BranchCode.FH);
+            return new SourceStandardSelection(explicitSource, OptionCount: 1);
         }
 
-        if (equivalenceClass.Contains("fs", StringComparison.OrdinalIgnoreCase))
-        {
-            return SourceStandards.Single(source => source.Branch == BranchCode.FS);
-        }
-
-        if (equivalenceClass.Contains("ir", StringComparison.OrdinalIgnoreCase))
-        {
-            return SourceStandards.Single(source => source.Branch == BranchCode.IR);
-        }
-
-        var index = SelectIndex(equivalenceClass, "source-standard", variantIndex: 0, SourceStandards.Length);
-        return SourceStandards[index];
+        var index = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "source-standard",
+            seedPlan.FreshnessOrdinal,
+            SourceStandards.Length);
+        return new SourceStandardSelection(SourceStandards[index], SourceStandards.Length);
     }
 
-    private static PressureSourceTemplate SelectPressureSource(GeneratedContentSeedPlan seedPlan)
+    private static PressureSourceTemplate SelectPressureSource(
+        GeneratedContentSeedPlan seedPlan,
+        int pressureOrdinal)
     {
-        var baseIndex = SelectIndex(
+        var index = GeneratedContentStableHash.OrdinalIndex(
             seedPlan.RequestFingerprint,
             "pressure-source",
-            variantIndex: 0,
+            pressureOrdinal,
             PressureSources.Length);
 
-        return PressureSources[(baseIndex + seedPlan.VariantIndex) % PressureSources.Length];
+        return PressureSources[index];
     }
 
-    private static DisruptionEventTemplate SelectDisruptionEvent(GeneratedContentSeedPlan seedPlan)
+    private static DisruptionEventTemplate SelectDisruptionEvent(
+        GeneratedContentSeedPlan seedPlan,
+        int disruptionOrdinal)
     {
-        var baseIndex = SelectIndex(
+        var index = GeneratedContentStableHash.OrdinalIndex(
             seedPlan.RequestFingerprint,
             "disruption-event",
-            variantIndex: 0,
+            disruptionOrdinal,
             DisruptionEvents.Length);
 
-        return DisruptionEvents[(baseIndex + seedPlan.VariantIndex) % DisruptionEvents.Length];
+        return DisruptionEvents[index];
     }
 
     private static string BuildSourceBranchStandardValue(SourceStandardTemplate source)
@@ -677,6 +704,15 @@ public static class AffectiveInterferenceGeneratedContentGenerator
         var drill = ProgramCatalog.Drills.Single(item => item.Id == source.Drill);
 
         return $"original branch standard {source.StandardId}: branch {source.Branch}; level {source.Level}; drill {source.Drill}; demand {standard.Demand}; standard {standard.Standard}; source honesty constraint {drill.HonestyConstraint}; pressure repeat requires this branch standard remains visible and passing.";
+    }
+
+    private static string SourceCriterionFor(SourceStandardTemplate source)
+    {
+        var standard = ProgramCatalog.Standards.Single(item =>
+            item.Branch == source.Branch &&
+            item.Level == source.Level).Standard;
+        var honestyConstraint = ProgramCatalog.Drills.Single(item => item.Id == source.Drill).HonestyConstraint;
+        return $"{standard}; {honestyConstraint}";
     }
 
     private static string LoadValueOrDefault(
@@ -708,19 +744,6 @@ public static class AffectiveInterferenceGeneratedContentGenerator
             out var count)
                 ? count
                 : null;
-    }
-
-    private static int SelectIndex(
-        string seedMaterial,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", seedMaterial, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
     }
 
     private static string StableMaterialName(
@@ -759,13 +782,19 @@ public static class AffectiveInterferenceGeneratedContentGenerator
 
     private sealed record PressureRepeatPlan(
         SourceStandardTemplate SourceStandard,
-        PressureSourceTemplate PressureSource);
+        PressureSourceTemplate PressureSource,
+        int SourceContentOrdinal);
 
     private sealed record DisruptionRecoveryPlan(
         SourceStandardTemplate SourceStandard,
         DisruptionEventTemplate DisruptionEvent,
+        int SourceContentOrdinal,
         string InterruptionTiming,
         string RestartDelay,
         string TaskComplexity,
         string RecoveryWindow);
+
+    private sealed record SourceStandardSelection(
+        SourceStandardTemplate Source,
+        int OptionCount);
 }

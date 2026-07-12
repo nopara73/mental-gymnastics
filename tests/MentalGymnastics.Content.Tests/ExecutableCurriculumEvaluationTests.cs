@@ -184,7 +184,7 @@ public sealed class ExecutableCurriculumEvaluationTests
         {
             var kind = Enum.Parse<RuntimeSessionPhaseKind>(phase.Kind.ToString());
             events.Add(Event(sequence++, RuntimeEventKind.PhaseStarted, phase.Id, kind));
-            var answer = AnswerForPhase(package.Drill, kind, materials);
+            var answer = AnswerForPhase(package.SourceDrill ?? package.Drill, kind, materials);
             if (!string.IsNullOrWhiteSpace(answer))
             {
                 events.Add(Event(
@@ -246,6 +246,14 @@ public sealed class ExecutableCurriculumEvaluationTests
         {
             parts.Add("rule stated; relations named; assumption stated; prediction test result passed; confidence certain");
             parts.AddRange(ComponentAnswers(materials));
+            if (drill is DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule)
+            {
+                parts.AddRange(materials
+                    .Where(material => material.Kind is
+                        GeneratedContentMaterialKind.RuleStatement or
+                        GeneratedContentMaterialKind.ExceptionDefinition)
+                    .Select(material => material.Value));
+            }
             if (drill == DrillId.DE1PairDiscrimination)
             {
                 parts.AddRange(PairAnswers(materials));
@@ -253,24 +261,47 @@ public sealed class ExecutableCurriculumEvaluationTests
 
             if (drill == DrillId.CO1RuleExtraction)
             {
-                parts.Add("rule derived before unseen test");
+                parts.AddRange(materials
+                    .Where(material => material.Kind == GeneratedContentMaterialKind.ExpectedRule)
+                    .Select(material => material.Value));
+            }
+
+            if (drill == DrillId.CO2StructureMapping)
+            {
+                parts.AddRange(materials
+                    .Where(material => material.Kind == GeneratedContentMaterialKind.ExpectedMapping)
+                    .Select(material => Segment(material.Value, "expected source relation ")));
             }
         }
 
         if (phase == RuntimeSessionPhaseKind.ReconstructionInput)
         {
-            parts.AddRange(materials
-                .Where(material => material.Kind is
-                    GeneratedContentMaterialKind.ExpectedReconstruction or
-                    GeneratedContentMaterialKind.FinalExpectedOutput)
-                .Select(material => material.Value));
+            if (drill == DrillId.WM2MentalTransform)
+            {
+                parts.AddRange(materials
+                    .Where(material => material.Kind == GeneratedContentMaterialKind.FinalExpectedOutput)
+                    .Select(material => $"RESULT={material.Value}"));
+                parts.Add("RULE=" + string.Join(
+                    " then ",
+                    materials
+                        .Where(material => material.Kind == GeneratedContentMaterialKind.OperationStep)
+                        .Select(material => material.Value)));
+            }
+            else
+            {
+                parts.AddRange(materials
+                    .Where(material => material.Kind is
+                        GeneratedContentMaterialKind.ExpectedReconstruction or
+                        GeneratedContentMaterialKind.FinalExpectedOutput)
+                    .Select(material => material.Value));
+            }
             parts.AddRange(ClassificationAnswers(materials));
             parts.AddRange(MappingAnswers(materials));
-            parts.AddRange(ComponentAnswers(materials));
-            parts.AddRange(materials
-                .Where(material => material.Kind == GeneratedContentMaterialKind.TransformRule)
-                .Select(material => $"rule: {material.Value}"));
-            if (drill is DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask)
+            if (drill != DrillId.TI2GlobalReviewTask)
+            {
+                parts.AddRange(ComponentAnswers(materials));
+            }
+            if (drill == DrillId.TI1CompositeTask)
             {
                 parts.Add("delayed artifact complete; reconstruction complete");
             }
@@ -282,13 +313,17 @@ public sealed class ExecutableCurriculumEvaluationTests
             parts.AddRange(materials
                 .Where(material =>
                     material.Kind == GeneratedContentMaterialKind.ExpectedFinding &&
-                    material.Name == "model-audit-key")
+                    material.Name is "model-audit-key" or "global-review-audit-key")
                 .Select(material => material.Value));
             if (drill == DrillId.CO2StructureMapping)
             {
-                parts.Add("critical assumption named; prediction tested");
+                parts.Add("ASSUMPTION=evidence relation remains valid");
+                parts.Add("TEST=held out relation evidence decides verdict");
             }
-            parts.Add("audit complete with supported findings");
+            if (drill != DrillId.TI2GlobalReviewTask)
+            {
+                parts.Add("audit complete with supported findings");
+            }
         }
 
         return string.Join("; ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
@@ -349,22 +384,41 @@ public sealed class ExecutableCurriculumEvaluationTests
             material.Kind == GeneratedContentMaterialKind.ExpectedMapping))
         {
             var index = Regex.Match(expected.Name, @"(\d+)$").Value;
-            var token = Regex.Match(expected.Value, @"'([^']+)'", RegexOptions.IgnoreCase).Groups[1].Value;
-            yield return $"{index}={token}";
+            var source = Segment(expected.Value, "expected source relation ");
+            var target = Segment(expected.Value, "expected target relation ");
+            yield return $"{index}={source} -> {target} because both preserve the relation";
         }
+    }
+
+    private static string Segment(string value, string marker)
+    {
+        var start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        start += marker.Length;
+        var end = value.IndexOf(';', start);
+        return (end < 0 ? value[start..] : value[start..end]).Trim().TrimEnd('.');
     }
 
     private static IEnumerable<string> AuditAnswers(
         IEnumerable<GeneratedContentMaterial> materials)
     {
+        var materialArray = materials.ToArray();
         foreach (var error in materials.Where(material =>
             material.Kind == GeneratedContentMaterialKind.SeededError))
         {
-            var id = Regex.Match(error.Value, @"seeded error\s+([^:;]+)", RegexOptions.IgnoreCase)
-                .Groups[1].Value.Trim();
+            var index = Regex.Match(error.Name, @"(\d+)$").Value;
             var line = Regex.Match(error.Value, @"line\s+(\d+)", RegexOptions.IgnoreCase)
                 .Groups[1].Value;
-            yield return id.Length > 0 ? id : $"line {line}";
+            var type = Regex.Match(error.Value, @"type\s+([^;]+)", RegexOptions.IgnoreCase)
+                .Groups[1].Value.Trim();
+            var expected = materialArray.First(material =>
+                material.Kind == GeneratedContentMaterialKind.ExpectedFinding &&
+                material.Name.EndsWith($"-{index}", StringComparison.Ordinal));
+            yield return $"FINDING-{index}=line {line}, {type}, {expected.Value}";
         }
     }
 

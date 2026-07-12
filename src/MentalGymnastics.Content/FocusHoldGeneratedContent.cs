@@ -43,15 +43,13 @@ public static class FocusHoldGeneratedContentGenerator
     private const string DefaultDistractorFrequency = "periodic";
     private const string DefaultDistractorSalience = "low";
 
-    private static readonly TargetTemplate[] Targets =
-    [
-        new("visual phrase", "Hold target phrase: red dot"),
-        new("visual phrase", "Hold target phrase: blue dot"),
-        new("visual phrase", "Hold target phrase: green dot"),
-        new("visual phrase", "Hold target phrase: black line"),
-        new("visual phrase", "Hold target phrase: blue square"),
-        new("visual phrase", "Hold target phrase: red circle"),
-    ];
+    private static readonly string[] TargetColors = ["red", "blue", "green", "black"];
+
+    private static readonly string[] TargetSizes = ["small", "medium", "large"];
+
+    private static readonly string[] TargetPositions = ["left", "center", "right"];
+
+    private static readonly string[] TargetShapes = ["dot", "line", "square", "circle"];
 
     private static readonly string[] DistractorPrompts =
     [
@@ -169,9 +167,9 @@ public static class FocusHoldGeneratedContentGenerator
         {
             ObjectiveComponentTaskCatalog.AddMaterials(
                 materials,
-                [BranchCode.FH, BranchCode.TI],
+                [BranchCode.TI],
                 seedPlan.PayloadSeed,
-                seedPlan.VariantIndex,
+                seedPlan.FreshnessOrdinal,
                 "integrated-hold");
         }
 
@@ -237,7 +235,14 @@ public static class FocusHoldGeneratedContentGenerator
         var salience = LoadValueOrDefault(request, "distractor salience", DefaultDistractorSalience);
         var duration = LoadValueOrDefault(request, "duration", DefaultDistractorHoldDuration);
         var distractorCount = DistractorCountFor(frequency);
-        var firstIndex = SelectIndex(seedPlan.PayloadSeed, "distractor", seedPlan.VariantIndex, DistractorPrompts.Length);
+        var targetCombinationCount = TargetColors.Length * TargetSizes.Length *
+            TargetPositions.Length * TargetShapes.Length;
+        var distractorCycle = seedPlan.FreshnessOrdinal / targetCombinationCount;
+        var firstIndex = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "distractor",
+            distractorCycle,
+            DistractorPrompts.Length);
 
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.DistractorFrequency,
@@ -292,20 +297,23 @@ public static class FocusHoldGeneratedContentGenerator
 
     private static TargetTemplate SelectTarget(GeneratedContentSeedPlan seedPlan)
     {
-        return Targets[SelectIndex(seedPlan.PayloadSeed, "target", seedPlan.VariantIndex, Targets.Length)];
-    }
-
-    private static int SelectIndex(
-        string payloadSeed,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", payloadSeed, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
+        var combinationCount = TargetColors.Length * TargetSizes.Length *
+            TargetPositions.Length * TargetShapes.Length;
+        var combinationIndex = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
+            "target",
+            seedPlan.FreshnessOrdinal,
+            combinationCount);
+        var color = TargetColors[combinationIndex % TargetColors.Length];
+        combinationIndex /= TargetColors.Length;
+        var size = TargetSizes[combinationIndex % TargetSizes.Length];
+        combinationIndex /= TargetSizes.Length;
+        var position = TargetPositions[combinationIndex % TargetPositions.Length];
+        combinationIndex /= TargetPositions.Length;
+        var shape = TargetShapes[combinationIndex % TargetShapes.Length];
+        return new TargetTemplate(
+            "visual phrase",
+            $"Hold target phrase: {size} {color} {position} {shape}");
     }
 
     private static string SelectDistractorPrompt(TargetTemplate target, int index)

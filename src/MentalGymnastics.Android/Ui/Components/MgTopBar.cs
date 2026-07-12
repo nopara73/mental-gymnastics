@@ -65,6 +65,9 @@ internal sealed class MgTopBar : LinearLayout
         bool showDataAction = true)
     {
         title.Text = screenTitle;
+        title.SetTextSize(
+            global::Android.Util.ComplexUnitType.Sp,
+            screenTitle.Length > 20 ? 18 : MgTypography.HeadingSp);
         backIcon.Visibility = canGoBack ? ViewStates.Visible : ViewStates.Gone;
         brandIcon.Visibility = canGoBack ? ViewStates.Gone : ViewStates.Visible;
         leadingAction.Clickable = canGoBack;

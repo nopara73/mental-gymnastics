@@ -33,7 +33,7 @@ public sealed class WeeklyProgrammingTemplateTests
         AssertDay(plan, 3, WeeklySessionKind.Maintenance, BranchCode.FH, BranchCode.FS, BranchCode.WM, BranchCode.IR, BranchCode.DE);
         AssertDay(plan, 4, WeeklySessionKind.Practice, BranchCode.CO, BranchCode.WM);
         AssertDay(plan, 5, WeeklySessionKind.TransferOrStabilization, BranchCode.CO);
-        AssertDay(plan, 6, WeeklySessionKind.Recovery, BranchCode.FH, BranchCode.FS, BranchCode.WM, BranchCode.IR, BranchCode.DE);
+        AssertDay(plan, 6, WeeklySessionKind.RecoveryOrRetest);
         AssertDay(plan, 7, WeeklySessionKind.Off);
     }
 

@@ -1,6 +1,6 @@
 # UI/UX Overhaul Release Captures
 
-Captured from the fully trimmed Release package on `emulator-5554` on 2026-07-11. The authoritative final APK has SHA-256 `E858994135A880B003B7740116747FF131C869F8BDC7E329CC2EE967BA499686`.
+Captured from a fully trimmed Release candidate on `emulator-5554` on 2026-07-11. The later completion, content-depth, and FH preflight corrections are verified in `docs/android-ui-ux-overhaul-acceptance-2026-07-11.md`; the authoritative final APK has SHA-256 `F5EF17BB7583F55A0D1B93088B488C3ECC4BDD09E310BBB133B5AACBD684DA19`.
 
 ## Sequence
 

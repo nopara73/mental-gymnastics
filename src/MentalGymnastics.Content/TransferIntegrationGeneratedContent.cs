@@ -175,7 +175,7 @@ public static class TransferIntegrationGeneratedContentGenerator
         var components = request.Drill == DrillId.TI2GlobalReviewTask
             ? SelectGlobalReviewComponents(request, seedPlan)
             : SelectComponents(request, seedPlan);
-        var taskFrame = SelectTaskFrame(seedPlan);
+        var taskFrame = SelectTaskFrame(request, seedPlan);
         var materials = request.Drill == DrillId.TI2GlobalReviewTask
             ? BuildGlobalReviewMaterials(request, components, taskFrame, seedPlan)
             : BuildMaterials(request, components, taskFrame, seedPlan);
@@ -256,12 +256,18 @@ public static class TransferIntegrationGeneratedContentGenerator
             GeneratedContentMaterialKind.Interference,
             "interference");
 
-        foreach (var component in components)
+        var componentTasks = components
+            .Select(component => new ComponentTaskSelection(
+                component,
+                ObjectiveComponentTaskCatalog.Select(
+                    component.Branch,
+                    seedPlan.PayloadSeed,
+                    seedPlan.FreshnessOrdinal)))
+            .ToArray();
+        foreach (var item in componentTasks)
         {
-            var task = ObjectiveComponentTaskCatalog.Select(
-                component.Branch,
-                seedPlan.PayloadSeed,
-                seedPlan.VariantIndex);
+            var component = item.Component;
+            var task = item.Task;
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentPayload,
                 ComponentMaterialName("component", component.Branch),
@@ -370,12 +376,18 @@ public static class TransferIntegrationGeneratedContentGenerator
             GeneratedContentMaterialKind.Interference,
             "interference");
 
-        foreach (var component in components)
+        var componentTasks = components
+            .Select(component => new ComponentTaskSelection(
+                component,
+                ObjectiveComponentTaskCatalog.Select(
+                    component.Branch,
+                    seedPlan.PayloadSeed,
+                    seedPlan.FreshnessOrdinal)))
+            .ToArray();
+        foreach (var item in componentTasks)
         {
-            var task = ObjectiveComponentTaskCatalog.Select(
-                component.Branch,
-                seedPlan.PayloadSeed,
-                seedPlan.VariantIndex);
+            var component = item.Component;
+            var task = item.Task;
             materials.Add(new GeneratedContentMaterial(
                 GeneratedContentMaterialKind.ComponentPayload,
                 ComponentMaterialName("global-review-component", component.Branch),
@@ -394,14 +406,26 @@ public static class TransferIntegrationGeneratedContentGenerator
             GeneratedContentMaterialKind.CompositeTaskPrompt,
             "global-review-task-prompt",
             BuildGlobalReviewTaskPrompt(taskFrame, components, taskLength, pressure, ambiguity, delay)));
+        var auditPlan = BuildGlobalReviewAuditPlan(componentTasks, ambiguity, seedPlan.FreshnessOrdinal);
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.AuditPayload,
             "global-review-audit-payload",
-            BuildGlobalReviewAuditPayload(components, ambiguity)));
+            auditPlan.Payload));
+        materials.Add(new GeneratedContentMaterial(
+            GeneratedContentMaterialKind.ExpectedFinding,
+            "global-review-audit-key",
+            auditPlan.ExpectedFinding));
         materials.Add(new GeneratedContentMaterial(
             GeneratedContentMaterialKind.DelayedReconstructionPayload,
             "global-review-delayed-reconstruction-payload",
             BuildGlobalReviewDelayedReconstructionPayload(components, delay)));
+        for (var index = 0; index < auditPlan.LockedResponses.Count; index++)
+        {
+            materials.Add(new GeneratedContentMaterial(
+                GeneratedContentMaterialKind.ExpectedReconstruction,
+                $"global-review-reconstruction-{index + 1}",
+                auditPlan.LockedResponses[index]));
+        }
 
         return Array.AsReadOnly(materials.ToArray());
     }
@@ -501,12 +525,35 @@ public static class TransferIntegrationGeneratedContentGenerator
         return $"{taskFrame.Description}; global review task combines {componentList} for {taskLength}; pressure source {pressure}; ambiguity {ambiguity}; delayed reconstruction after {delay}; composite output, audit, and delayed reconstruction all matter; branch-specific scoring stays visible for every component branch; pressure rule remains intact.";
     }
 
-    private static string BuildGlobalReviewAuditPayload(
-        IReadOnlyCollection<ComponentTemplate> components,
-        string ambiguity)
+    private static GlobalReviewAuditPlan BuildGlobalReviewAuditPlan(
+        IReadOnlyList<ComponentTaskSelection> componentTasks,
+        string ambiguity,
+        int variantIndex)
     {
-        var componentList = string.Join(", ", components.Select(component => component.Branch));
-        return $"audit required: lock the original output, inspect each component branch ({componentList}) for critical errors under {ambiguity}, record unsupported changes and false corrections, and keep audit failure separate from composite output quality.";
+        if (componentTasks.Count == 0)
+        {
+            throw new InvalidOperationException("A global review requires at least one component task.");
+        }
+
+        var errorIndex = (int)(Math.Abs((long)variantIndex) % componentTasks.Count);
+        var lockedResponses = componentTasks
+            .Select((item, index) =>
+            {
+                var task = item.Task;
+                var component = item.Component;
+                var response = index == errorIndex
+                    ? $"NOT-{task.ExpectedResponse}"
+                    : task.ExpectedResponse;
+                return $"{component.Branch}={response}";
+            })
+            .ToArray();
+        var errorTask = componentTasks[errorIndex].Task;
+        var errorComponent = componentTasks[errorIndex].Component;
+        var report = string.Join("; ", lockedResponses);
+        return new GlobalReviewAuditPlan(
+            $"locked component report: {report}; under {ambiguity}, one response conflicts with its component challenge. Name the branch and give the correct response. Do not edit the report.",
+            $"BRANCH={errorComponent.Branch}; CORRECTION={errorTask.ExpectedResponse}",
+            lockedResponses);
     }
 
     private static string BuildGlobalReviewDelayedReconstructionPayload(
@@ -514,7 +561,7 @@ public static class TransferIntegrationGeneratedContentGenerator
         string delay)
     {
         var componentList = string.Join(", ", components.Select(component => component.Branch));
-        return $"delayed reconstruction required after {delay}: reconstruct critical information from component branches ({componentList}) without rereading, record omissions and memory gap evidence, and keep delayed reconstruction failure separate from audit or composite score.";
+        return $"After {delay}, reconstruct the exact locked component report from memory as one BRANCH=value response for each of {componentList}. Do not reopen the report. Submit only what you remember; omissions and invented responses are scored.";
     }
 
     private static IEnumerable<GeneratedContentPayloadFact> BuildPayloadFacts(
@@ -612,7 +659,7 @@ public static class TransferIntegrationGeneratedContentGenerator
         if ((int)request.Level >= (int)GlobalLevelId.L3 && selected.All(component => component.Branch is not BranchCode.CO and not BranchCode.AI))
         {
             var advanced = ComponentTemplates.First(component => component.Branch ==
-                (seedPlan.VariantIndex % 2 == 0 ? BranchCode.CO : BranchCode.AI));
+                (seedPlan.FreshnessOrdinal % 2 == 0 ? BranchCode.CO : BranchCode.AI));
             selected[^1] = advanced;
         }
 
@@ -653,15 +700,23 @@ public static class TransferIntegrationGeneratedContentGenerator
 
         if (selected.Count < componentCount)
         {
-            var startIndex = SelectIndex(
-                seedPlan.PayloadSeed,
+            var permutationCount = GeneratedContentStableHash.PermutationCount(
+                templates.Count,
+                componentCount);
+            var orderedTemplates = GeneratedContentStableHash.OrderByOrdinal(
+                templates,
+                seedPlan.RequestFingerprint,
                 purpose,
-                seedPlan.VariantIndex,
-                templates.Count);
+                seedPlan.FreshnessOrdinal % permutationCount,
+                component => component.Branch.ToString());
 
-            for (var i = 0; selected.Count < componentCount && i < templates.Count * 2; i++)
+            foreach (var candidate in orderedTemplates)
             {
-                var candidate = templates[(startIndex + i) % templates.Count];
+                if (selected.Count >= componentCount)
+                {
+                    break;
+                }
+
                 if (selected.All(component => component.Branch != candidate.Branch))
                 {
                     selected.Add(candidate);
@@ -672,12 +727,31 @@ public static class TransferIntegrationGeneratedContentGenerator
         return Array.AsReadOnly(selected.Take(componentCount).ToArray());
     }
 
-    private static CompositeTaskFrame SelectTaskFrame(GeneratedContentSeedPlan seedPlan)
+    private static CompositeTaskFrame SelectTaskFrame(
+        GeneratedDrillContentRequest request,
+        GeneratedContentSeedPlan seedPlan)
     {
-        var index = SelectIndex(
-            seedPlan.PayloadSeed,
+        var templates = request.Drill == DrillId.TI2GlobalReviewTask
+            ? GlobalReviewComponentTemplates
+            : ComponentTemplates;
+        var minimumComponentCount = request.Drill == DrillId.TI2GlobalReviewTask ? 3 : 2;
+        var defaultComponentCount = request.Drill == DrillId.TI2GlobalReviewTask
+            ? Math.Max(4, BranchTokens(request.EquivalenceClass, templates).Count)
+            : 2;
+        var componentCount = Math.Clamp(
+            ParseLoadCount(request, "number of branches") ??
+                ParseLoadCount(request, "branch count") ??
+                defaultComponentCount,
+            minimumComponentCount,
+            templates.Length);
+        var componentPermutationCount = GeneratedContentStableHash.PermutationCount(
+            templates.Length,
+            componentCount);
+        var frameOrdinal = seedPlan.FreshnessOrdinal / componentPermutationCount;
+        var index = GeneratedContentStableHash.OrdinalIndex(
+            seedPlan.RequestFingerprint,
             "task-frame",
-            seedPlan.VariantIndex,
+            frameOrdinal,
             TaskFrames.Length);
 
         return TaskFrames[index];
@@ -747,19 +821,6 @@ public static class TransferIntegrationGeneratedContentGenerator
             ?.Value ?? defaultValue;
     }
 
-    private static int SelectIndex(
-        string seedMaterial,
-        string purpose,
-        int variantIndex,
-        int length)
-    {
-        var hash = GeneratedContentStableHash.HashSegment(
-            string.Join("|", seedMaterial, purpose, variantIndex.ToString(CultureInfo.InvariantCulture)));
-        var baseIndex = Convert.ToInt32(hash[..6], 16);
-
-        return (baseIndex + variantIndex) % length;
-    }
-
     private static string ComponentMaterialName(string prefix, BranchCode branch)
     {
         return prefix + "-" + branch.ToString().ToLowerInvariant();
@@ -776,4 +837,13 @@ public static class TransferIntegrationGeneratedContentGenerator
     private sealed record CompositeTaskFrame(
         string FrameId,
         string Description);
+
+    private sealed record GlobalReviewAuditPlan(
+        string Payload,
+        string ExpectedFinding,
+        IReadOnlyList<string> LockedResponses);
+
+    private sealed record ComponentTaskSelection(
+        ComponentTemplate Component,
+        ObjectiveComponentTask Task);
 }
