@@ -321,10 +321,8 @@ internal sealed class MgNavigationShell
 
     public void ShowGlobalReviewCompletionLoading()
     {
-        currentScreen = Screen.Review;
-        RenderFrame();
-        AddPanel("Recording review", "Applying the current evidence.", "The review result will close today's prescription.");
-        ResetScrollPosition();
+        // Keep the completed review visible until its final result is ready. Rendering an
+        // intermediate message here creates a brief, unreadable flash on fast devices.
     }
 
     public void RenderSessionStart(AndroidSessionStartSnapshot snapshot)
@@ -445,10 +443,8 @@ internal sealed class MgNavigationShell
 
         liveSessionSnapshot = terminalSnapshot;
         liveCompletionSnapshot = null;
-        currentScreen = Screen.Result;
-        RenderFrame();
-        AddPanel("Recording result", "Saving what happened.", "Progress changes only when the program state changes.");
-        ResetScrollPosition();
+        // Keep the review screen stable until the processed result replaces it. A transient
+        // result panel is not useful feedback because it disappears before it can be read.
     }
 
     public void RenderLiveSessionCompletion(AndroidLiveSessionCompletionSnapshot snapshot)
@@ -946,11 +942,18 @@ internal sealed class MgNavigationShell
         };
         row.SetGravity(GravityFlags.CenterVertical);
 
+        var plannedDuration = presentation.PrimaryPrescribedWork?.Drill is
+            DrillId.FH1TargetHold or DrillId.FH2DistractorHold
+                ? $"{FocusHoldDurationValue(presentation.PrimaryPrescribedWork.LoadVariables)} hold"
+                : $"about {presentation.DailyEstimatedMinutes} min";
+        var progressText = presentation.DailyStatus == DailyTrainingWorkflowStatus.Done
+            ? $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount} complete"
+            : presentation.DailyEstimatedMinutes > 0
+                ? $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}  ·  {plannedDuration}"
+                : $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}";
         var label = new TextView(context)
         {
-            Text = presentation.DailyEstimatedMinutes > 0
-                ? $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}  ·  ~{presentation.DailyEstimatedMinutes} min"
-                : $"{presentation.DailyCompletedBlockCount} of {presentation.DailyTotalBlockCount}",
+            Text = progressText,
         };
         MgTypography.ApplyLabel(label);
         label.SetTextColor(MgColors.InkMuted);
@@ -994,7 +997,7 @@ internal sealed class MgNavigationShell
     {
         return presentation.DailyStatus switch
         {
-            DailyTrainingWorkflowStatus.Done => "Today's recorded workout is complete.",
+            DailyTrainingWorkflowStatus.Done => "Today's practice is complete.",
             DailyTrainingWorkflowStatus.Stopped => "No more work can be started today.",
             DailyTrainingWorkflowStatus.OffDay => "No training is prescribed today.",
             _ => "No startable exercise right now.",
@@ -1241,7 +1244,7 @@ internal sealed class MgNavigationShell
             "Decision",
             ReviewDecisionLabel(decision),
             ColorForReviewDecision(review, decision));
-        AddPrimaryButton(panel, "Review evidence", enabled: true, () =>
+        AddPrimaryButton(panel, "Review practice records", enabled: true, () =>
         {
             currentScreen = Screen.Review;
             RenderCurrentScreen();
@@ -1601,7 +1604,7 @@ internal sealed class MgNavigationShell
                 Orientation = Orientation.Horizontal,
             };
             AddMetricBox(scope, "Best case", $"{forecast.BestCaseCalendarDays}+ days");
-            AddMetricBox(scope, "Typical day", $"~{forecast.AverageMinutesPerTrainingDay} min", last: true);
+            AddMetricBox(scope, "Typical day", $"about {forecast.AverageMinutesPerTrainingDay} min", last: true);
             panel.AddView(scope, MatchWrapWithTop(MgSpacing.Md));
             AddMuted(panel, "Perfect clean path. Missed days, failed gates, and restoration extend it.");
         }
@@ -2035,7 +2038,7 @@ internal sealed class MgNavigationShell
             .ToArray();
         if (artifacts.Length == 0)
         {
-            AddMuted(panel, "No detailed evidence is available in the current record window.");
+            AddMuted(panel, "No session details are available in the current record window.");
         }
         else if (session.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
@@ -2070,8 +2073,8 @@ internal sealed class MgNavigationShell
                 context,
                 [
                     (completed ? FocusHoldDurationLabel(session.LoadVariables) : "Stopped", "hold"),
-                    (drifts.ToString(), "wanders"),
-                    (changes.ToString(), "changes"),
+                    (drifts.ToString(), drifts == 1 ? "wander" : "wanders"),
+                    (changes > 0 ? "Changed" : "Same", "target"),
                 ]),
             MatchWrapWithTop(MgSpacing.Md));
 
@@ -2084,7 +2087,7 @@ internal sealed class MgNavigationShell
             ? $"The hold ended before {FocusHoldDurationLabel(session.LoadVariables)}."
             : changes > 0
                 ? "The target changed during the hold."
-                : "The recorded hold exceeded this level's wander limit or missed required evidence.";
+                : "The hold exceeded this level's wander limit or did not finish cleanly.";
         AddWarningRow(panel, "Why it missed", reason, MgColors.Blocked);
     }
 
@@ -2134,7 +2137,7 @@ internal sealed class MgNavigationShell
 
         if (shown == 0)
         {
-            AddMuted(panel, "No readable evidence was saved for this set.");
+            AddMuted(panel, "No readable session details were saved for this set.");
         }
     }
 
@@ -2720,7 +2723,7 @@ internal sealed class MgNavigationShell
             variable.Name,
             "duration",
             StringComparison.OrdinalIgnoreCase))?.Value;
-        return string.IsNullOrWhiteSpace(value) ? "3 minutes" : value;
+        return string.IsNullOrWhiteSpace(value) ? "Planned hold" : value;
     }
 
     private void AddFocusHoldDurationCue(
@@ -3373,7 +3376,7 @@ internal sealed class MgNavigationShell
     {
         if (completion is null)
         {
-            AddPanel("Result", "Result is being recorded.", "Progress changes only when the program state changes.");
+            AddPanel("Finishing practice", "Please wait.", string.Empty);
             return;
         }
 
@@ -3451,9 +3454,8 @@ internal sealed class MgNavigationShell
                 (result.RuntimeCompletionStatus == RuntimeSessionCompletionStatus.Completed
                     ? FocusHoldDurationLabel(result.Work.LoadVariables)
                     : "Stopped", "hold"),
-                (evidence.DriftCount.ToString(), "wanders"),
-                (evidence.TargetChangeCount.ToString(), "target changes"),
-                (evidence.EvidenceFactCount.ToString(), "evidence facts"),
+                (evidence.DriftCount.ToString(), evidence.DriftCount == 1 ? "wander" : "wanders"),
+                (evidence.TargetChangeCount > 0 ? "Changed" : "Same", "target"),
             ]);
         panel.AddView(strip, MatchWrapWithTop(MgSpacing.Md));
     }
@@ -3513,7 +3515,7 @@ internal sealed class MgNavigationShell
         return result.Outcome switch
         {
             TrainingResultPresentationOutcomeKind.Cancelled => "No attempt recorded",
-            TrainingResultPresentationOutcomeKind.CleanPractice => "Clean practice counted",
+            TrainingResultPresentationOutcomeKind.CleanPractice => "This practice counted",
             TrainingResultPresentationOutcomeKind.TestReady => "Practice requirement met",
             TrainingResultPresentationOutcomeKind.Abandoned => "Did not count · training closed for today",
             TrainingResultPresentationOutcomeKind.Failed or
@@ -3521,7 +3523,7 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.PassedOnce => "First pass counted",
             TrainingResultPresentationOutcomeKind.Stabilizing => "Clean repeat counted",
             TrainingResultPresentationOutcomeKind.Owned => "Level owned",
-            TrainingResultPresentationOutcomeKind.NoAdvancement => "Practice recorded",
+            TrainingResultPresentationOutcomeKind.NoAdvancement => "Practice saved",
             _ => "Result saved",
         };
     }
@@ -3765,23 +3767,14 @@ internal sealed class MgNavigationShell
         if (presentation.Work.Drill == DrillId.FH1TargetHold)
         {
             AddMetricBox(row, "Wanders", evidence.DriftCount.ToString());
-            AddMetricBox(
-                row,
-                "Saved",
-                $"{Math.Min(evidence.EvidenceFactCount, evidence.ExpectedEvidenceFactCount)}/{evidence.ExpectedEvidenceFactCount}",
-                last: true);
+            AddMetricBox(row, "Target", evidence.TargetChangeCount > 0 ? "Changed" : "Same", last: true);
         }
         else
         {
             AddMetricBox(row, "Drifts", evidence.DriftCount.ToString());
             AddMetricBox(row, "Guesses", evidence.GuessCount.ToString());
             AddMetricBox(row, "Errors", evidence.ErrorCount.ToString());
-            AddMetricBox(row, "Fixes", evidence.CorrectionCount.ToString());
-            AddMetricBox(
-                row,
-                "Recorded",
-                $"{Math.Min(evidence.EvidenceFactCount, evidence.ExpectedEvidenceFactCount)}/{evidence.ExpectedEvidenceFactCount}",
-                last: true);
+            AddMetricBox(row, "Fixes", evidence.CorrectionCount.ToString(), last: true);
         }
 
         panel.AddView(row, MatchWrap());
@@ -3955,7 +3948,7 @@ internal sealed class MgNavigationShell
             AddInspectionRow(
                 panel,
                 EvidenceMarker(summary.LatestEvidenceCategory.Value),
-                "Latest artifact",
+                "Latest record",
                 $"{EvidenceCategoryLabel(summary.LatestEvidenceCategory.Value)} · {target}",
                 ColorForEvidenceCategory(summary.LatestEvidenceCategory.Value));
         }
@@ -4318,7 +4311,9 @@ internal sealed class MgNavigationShell
         var branch = artifact.Event.Branch.HasValue && artifact.Event.Level.HasValue
             ? FormatBranchLevel(artifact.Event.Branch.Value, artifact.Event.Level.Value)
             : "Program";
-        var detail = $"{FormatDate(artifact.Artifact.Date)} · {branch} · {artifact.Artifact.ObservableEvidence.Count} observable";
+        var detailCount = artifact.Artifact.ObservableEvidence.Count;
+        var detail = $"{FormatDate(artifact.Artifact.Date)} · {branch} · " +
+            (detailCount == 1 ? "1 detail" : $"{detailCount} details");
         AddInspectionRow(
             panel,
             EvidenceMarker(artifact.Artifact.Category),
@@ -5927,8 +5922,8 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.TimedOut => "Timed out",
             TrainingResultPresentationOutcomeKind.Failed => "Failed",
             TrainingResultPresentationOutcomeKind.NoAdvancement => "Recorded",
-            TrainingResultPresentationOutcomeKind.CleanPractice => "Clean set",
-            TrainingResultPresentationOutcomeKind.TestReady => "Test ready",
+            TrainingResultPresentationOutcomeKind.CleanPractice => "Practice complete",
+            TrainingResultPresentationOutcomeKind.TestReady => "Practice complete",
             TrainingResultPresentationOutcomeKind.PassedOnce => "Successful set",
             TrainingResultPresentationOutcomeKind.Stabilizing => "Needs repeat",
             TrainingResultPresentationOutcomeKind.Owned => "Level stable",

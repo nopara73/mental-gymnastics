@@ -223,7 +223,7 @@ internal sealed class ImmersiveFocusSurfaceView : FrameLayout
 
         if (cleaned.Contains("artifact-check", StringComparison.OrdinalIgnoreCase))
         {
-            return "Artifact check";
+            return "Result check";
         }
 
         return cleaned.Split(';', 2, StringSplitOptions.TrimEntries)[0];

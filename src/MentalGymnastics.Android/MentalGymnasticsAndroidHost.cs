@@ -288,7 +288,7 @@ public sealed class MentalGymnasticsAndroidHost
         {
             var answer = state.Drill == DrillId.CO1RuleExtraction
                 ? "One testable rule covering the shown positive and negative examples."
-                : "Screens reports before escalation; accepted reports carry evidence tags.";
+                : "Screens reports before escalation; accepted reports keep their supporting details.";
             state = await AuditCommandAsync(
                 controller,
                 RuntimeInputCommandKind.SubmitAnswer,

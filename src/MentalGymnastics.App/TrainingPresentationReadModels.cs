@@ -1271,13 +1271,16 @@ public static class TrainingPresentationMapper
                 DrillId.WM2MentalTransform => "Enter the final result and explain the rule.",
                 DrillId.CO1RuleExtraction => "Apply the locked rule to every unseen example.",
                 DrillId.CO2StructureMapping => "Map the named relations. Reject surface matches.",
-                DrillId.TI1CompositeTask => "Reconstruct the component order and evidence after the delay.",
+                DrillId.TI1CompositeTask => "Reconstruct the component order and key results after the delay.",
                 _ => "Reconstruct from memory. Do not reopen the items.",
             },
             RuntimeSessionPhaseKind.Audit => AuditInstructionFor(live),
             RuntimeSessionPhaseKind.Rest => "Rest. The next set will appear when ready.",
             RuntimeSessionPhaseKind.Recovery => "Restart from the last stable step.",
-            RuntimeSessionPhaseKind.Review => "Check the evidence, then finish.",
+            RuntimeSessionPhaseKind.Review => (live.SourceDrill ?? live.Drill) is
+                DrillId.FH1TargetHold or DrillId.FH2DistractorHold
+                    ? "Did you keep the same shape in mind for the whole hold?"
+                    : "Review what you entered, then finish.",
             _ => "Session complete.",
         };
     }
@@ -1382,7 +1385,7 @@ public static class TrainingPresentationMapper
 
         if (drill == DrillId.FH1TargetHold)
         {
-            var duration = LoadVariableValue(loadVariables, "duration", "3 minutes");
+            var duration = LoadVariableValue(loadVariables, "duration", "the planned time");
             var interaction = DrillInteractionProtocolCatalog.Get(drill);
             return new TrainingExercisePresentation(
                 drillDefinition.Name,
@@ -1395,7 +1398,7 @@ public static class TrainingPresentationMapper
                 $"Counts when: {standard}",
                 $"Does not count when the attempt stops early or this honesty rule is broken: {honestyConstraint}",
                 interaction.ActionInstruction,
-                "The app saves wander taps, target changes, and whether you finished or stopped. It does not time your return.",
+                "The app saves how many times you tapped for a wander, whether you switched to another shape, and whether you finished or stopped.",
                 primaryMaterial,
                 setupItems ?? [],
                 interaction,
@@ -2040,7 +2043,7 @@ public static class TrainingPresentationMapper
 
     private static string DurationLabel(IReadOnlyList<LoadVariable> loadVariables)
     {
-        var value = LoadVariableValue(loadVariables, "duration", "3 minutes");
+        var value = LoadVariableValue(loadVariables, "duration", "the planned time");
 
         var numberText = value.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
         if (!int.TryParse(numberText, out var amount))
@@ -2117,7 +2120,7 @@ public static class TrainingPresentationMapper
     {
         var reveals = new List<TrainingPresentationReveal>();
         AddReveal(reveals, TrainingPresentationRevealKind.RuntimeProtocolDetails, live.Commands.Count, "Available controls");
-        AddReveal(reveals, TrainingPresentationRevealKind.EvidenceArtifacts, live.Evidence.EvidenceFactCount, "Recorded events");
+        AddReveal(reveals, TrainingPresentationRevealKind.EvidenceArtifacts, live.Evidence.EvidenceFactCount, "Session record");
         return reveals;
     }
 

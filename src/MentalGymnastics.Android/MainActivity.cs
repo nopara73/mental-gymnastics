@@ -958,7 +958,7 @@ public class MainActivity : Activity
     {
         return command switch
         {
-            RuntimeInputCommandKind.MarkTargetChange => "Target change recorded.",
+            RuntimeInputCommandKind.MarkTargetChange => "Shape switch noted.",
             RuntimeInputCommandKind.MarkError => "Error recorded.",
             _ => null,
         };

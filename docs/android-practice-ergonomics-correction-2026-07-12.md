@@ -32,6 +32,14 @@ The durable rule is:
 - A wander is now one standalone event. The practitioner taps when they notice it and immediately resumes the target.
 - Current FH standards, generated content, Runtime handoff, App read models, and Android UI no longer require or score a second `BACK ON TARGET` action, return latency, late-return count, open-drift count, or return countdown.
 - Consecutive wander taps are valid. Pause/restore does not create a hidden return obligation.
+
+### Review And Completion
+
+- The post-hold review asks one ordinary question: whether the practitioner kept the same shape in mind for the whole hold. The actions answer that question directly: `Yes — same shape` or `No — I switched shapes`.
+- The review may state the number of recorded wanders. It must not expose runtime-event counts, evidence-fact counts, expected-fact ratios, or an unexplained zero-change metric.
+- A completed Focus Hold result shows only the prescribed hold duration, recorded wanders, and `Same` or `Changed` for the target. Persistence and Runtime bookkeeping remain available to the program but are not presented as practitioner results.
+- Finishing does not navigate through a transient loading message. The review remains visually stable until the final result is ready, preventing text that appears too briefly to read.
+- Focus Hold duration means the Runtime-owned hold duration. Planning may estimate setup/review overhead internally, but that estimate is not displayed as though it were time spent holding the target.
 - Runtime retains the legacy return command only for old snapshot/direct-client compatibility; the current App neither presents nor sends it.
 - Target substitution remains decisive evidence, but its report belongs in review rather than beside the held target.
 

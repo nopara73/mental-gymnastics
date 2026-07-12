@@ -238,7 +238,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.DoesNotContain("Focus Hold", preflight.Work.Exercise.BranchLevelLabel);
         Assert.Contains("Practice one loop", preflight.Work.Exercise.Purpose);
         Assert.Contains("honest noticing", preflight.Work.Exercise.PracticeGain);
-        Assert.Contains("does not time your return", preflight.Work.Exercise.EvidenceRecorded);
+        Assert.Contains("whether you switched to another shape", preflight.Work.Exercise.EvidenceRecorded);
         Assert.Contains("After this is stable", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("longer holds", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("distraction", preflight.Work.Exercise.WhereItGoes);
@@ -254,7 +254,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Contains("Target is stated before set", preflight.Work.Exercise.FailureCriteria);
         Assert.Contains("WANDERED", preflight.Work.Exercise.HonestyInstruction);
         Assert.Contains("same shape", preflight.Work.Exercise.HonestyInstruction);
-        Assert.Contains("saves wander taps", preflight.Work.Exercise.EvidenceRecorded);
+        Assert.Contains("saves how many times you tapped", preflight.Work.Exercise.EvidenceRecorded);
         var primaryMaterial = Assert.IsType<string>(preflight.Work.Exercise.PrimaryMaterial);
         Assert.False(string.IsNullOrWhiteSpace(primaryMaterial));
         Assert.False(primaryMaterial.EndsWith(".", StringComparison.Ordinal));
@@ -566,7 +566,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Contains("Session details", labels);
         Assert.Contains("Saved exercise material", labels);
         Assert.Contains("Available controls", labels);
-        Assert.Contains("Recorded events", labels);
+        Assert.Contains("Session record", labels);
         Assert.Contains("Program result", labels);
         Assert.Contains("Saved records", labels);
         Assert.Contains("Saved result", labels);
@@ -606,6 +606,20 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
                 presentation.CurrentInstruction,
                 StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Theory]
+    [InlineData(DrillId.FH1TargetHold)]
+    [InlineData(DrillId.FH2DistractorHold)]
+    public void FocusHoldReviewAsksThePractitionerAPlainQuestion(DrillId drill)
+    {
+        var presentation = TrainingPresentationMapper.FromLiveSession(
+            LiveStateForDrill(drill, RuntimeSessionPhaseKind.Review));
+
+        Assert.Equal(
+            "Did you keep the same shape in mind for the whole hold?",
+            presentation.CurrentInstruction);
+        Assert.DoesNotContain("evidence", presentation.CurrentInstruction, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

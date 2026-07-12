@@ -26,6 +26,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     private readonly TextView workLabel;
     private readonly TimerRingView timer;
     private readonly TextView instruction;
+    private readonly TextView focusReviewSummary;
     private readonly LinearLayout focusTargetBand;
     private readonly VisualStimulusView focusTargetStimulus;
     private readonly LinearLayout cueBand;
@@ -99,6 +100,15 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         };
         MgTypography.ApplyHeading(instruction);
         AddView(instruction, MatchWrapWithTop(MgSpacing.Sm));
+
+        focusReviewSummary = new TextView(context)
+        {
+            Gravity = GravityFlags.Center,
+            Visibility = ViewStates.Gone,
+        };
+        MgTypography.ApplyBody(focusReviewSummary);
+        focusReviewSummary.SetTextColor(MgColors.InkMuted);
+        AddView(focusReviewSummary, MatchWrapWithTop(MgSpacing.Sm));
 
         focusTargetBand = new LinearLayout(context)
         {
@@ -410,6 +420,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             material.Kind == "ComponentPayload");
         var effectiveDrill = presentation.SourceDrill ?? drill;
         var isFocusHold = effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold;
+        var isReview = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Review;
+        var isFocusReview = isFocusHold && isReview;
         var usesCompactFocusLayout = isFocusHold && hasIntegratedComponents;
         workLabel.Text = presentation.Work.Exercise.BranchLevelLabel;
         workLabel.Visibility = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep
@@ -418,16 +430,17 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         timer.Update(presentation.Timer, presentation.LifecycleStatus);
         UpdateTimerSize(effectiveDrill, presentation.CurrentPhaseKind, hasIntegratedComponents);
         var isPrep = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.InstructionPrep;
-        instruction.Text = isPrep && isFocusHold
-            ? FocusHoldReadyInstruction(presentation)
-            : usesCompactFocusLayout
-                ? CompactFocusInstruction(presentation)
-                : presentation.CurrentInstruction;
+        instruction.Text = isFocusReview
+            ? FocusHoldReviewInstruction(presentation.Evidence)
+            : isPrep && isFocusHold
+                ? FocusHoldReadyInstruction(presentation)
+                : usesCompactFocusLayout
+                    ? CompactFocusInstruction(presentation)
+                    : presentation.CurrentInstruction;
         var isRest = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Rest;
         timer.Visibility = isRest && presentation.Timer.IsTimed
             ? ViewStates.Visible
             : ViewStates.Gone;
-        var isReview = presentation.CurrentPhaseKind == RuntimeSessionPhaseKind.Review;
         instruction.Visibility = presentation.CurrentPhaseKind is
             RuntimeSessionPhaseKind.InstructionPrep or
             RuntimeSessionPhaseKind.Review or
@@ -435,7 +448,11 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             RuntimeSessionPhaseKind.Rest
                 ? ViewStates.Visible
                 : ViewStates.Gone;
-        evidenceStrip.Visibility = isReview || presentation.IsTerminal
+        focusReviewSummary.Text = isFocusReview
+            ? FocusHoldReviewSummary(presentation.Evidence)
+            : string.Empty;
+        focusReviewSummary.Visibility = isFocusReview ? ViewStates.Visible : ViewStates.Gone;
+        evidenceStrip.Visibility = (isReview || presentation.IsTerminal) && !isFocusHold
             ? ViewStates.Visible
             : ViewStates.Gone;
         var activeFocusStimulus = presentation.CurrentFocusVisualStimulus;
@@ -1372,9 +1389,26 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             variable.Name,
             "duration",
             StringComparison.OrdinalIgnoreCase))?.Value;
-        duration = string.IsNullOrWhiteSpace(duration) ? "3 minutes" : duration;
+        duration = string.IsNullOrWhiteSpace(duration) ? "Planned hold" : duration;
         return $"{duration} · ends automatically{Environment.NewLine}" +
             "Tap when attention wanders. A brief flash confirms it.";
+    }
+
+    private static string FocusHoldReviewInstruction(LiveEvidencePresentationSummary evidence)
+    {
+        return evidence.TargetChangeCount > 0
+            ? "You reported switching to another shape. Finish if that is correct."
+            : "Did you keep the same shape in mind for the whole hold?";
+    }
+
+    private static string FocusHoldReviewSummary(LiveEvidencePresentationSummary evidence)
+    {
+        var wanders = evidence.DriftCount == 1
+            ? "1 wander recorded."
+            : $"{evidence.DriftCount} wanders recorded.";
+        return evidence.TargetChangeCount > 0
+            ? $"{wanders} Shape switch reported."
+            : wanders;
     }
 
     private static string FormatCueTime(TimeSpan value)
@@ -1473,7 +1507,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         return value.Contains("artifact-check", StringComparison.OrdinalIgnoreCase)
-            ? "Evidence check"
+            ? "Result check"
             : "Interruption";
     }
 
@@ -1593,10 +1627,10 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
         if (effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
-            SetEvidence(0, evidence.DriftCount.ToString(), "wanders", MgColors.Ink);
-            SetEvidence(1, evidence.TargetChangeCount.ToString(), "changes", evidence.TargetChangeCount > 0 ? MgColors.Blocked : MgColors.Ink);
-            SetEvidence(2, evidence.RuntimeEventCount.ToString(), "events", MgColors.Ink);
-            SetEvidence(3, evidence.EvidenceFactCount.ToString(), "facts", MgColors.Ink);
+            SetEvidence(0, evidence.DriftCount.ToString(), evidence.DriftCount == 1 ? "wander" : "wanders", MgColors.Ink);
+            SetEvidence(1, evidence.TargetChangeCount > 0 ? "Changed" : "Same", "target", evidence.TargetChangeCount > 0 ? MgColors.Blocked : MgColors.Ink);
+            SetEvidence(2, string.Empty, string.Empty, MgColors.Ink);
+            SetEvidence(3, string.Empty, string.Empty, MgColors.Ink);
             return;
         }
 
@@ -2456,7 +2490,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 branch,
                 presentation.Work.Drill == DrillId.TI2GlobalReviewTask
                     ? "Exact response from the locked report"
-                    : "Critical result or evidence remembered for this branch");
+                    : "Critical result remembered for this branch");
         }
     }
 
@@ -2559,7 +2593,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 presentation,
                 relationIndex,
                 $"RELATION {relationIndex}",
-                "Relation name; source -> target; preserving evidence");
+                "Relation name; source -> target; what stays the same");
         }
     }
 
@@ -2910,6 +2944,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             .Where(command => command.Command != RuntimeInputCommandKind.MarkError ||
                 presentation.Evidence.AnswerCount > 0 ||
                 presentation.Evidence.CueResponseCount > 0)
+            .Where(command => command.Command != RuntimeInputCommandKind.MarkTargetChange ||
+                presentation.Evidence.TargetChangeCount == 0)
             .ToArray();
         var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
         var focusRecoveryCommand = presentation.ActiveCue is
@@ -2948,6 +2984,9 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var effectiveDrill = presentation.SourceDrill ?? drill;
         return command.Command switch
         {
+            RuntimeInputCommandKind.FinishPhase when phase == RuntimeSessionPhaseKind.Review &&
+                effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
+                presentation.Evidence.TargetChangeCount > 0 ? "Finish" : "Yes — same shape",
             RuntimeInputCommandKind.FinishPhase => FinishPhaseLabel(drill, effectiveDrill, phase, primary),
             RuntimeInputCommandKind.RespondToCue when presentation.ActiveCue is
                 { Kind: RuntimeCueKind.Interruption } =>
@@ -2962,7 +3001,10 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess when drill == DrillId.DE2SeededAudit => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess => "I guessed",
-            RuntimeInputCommandKind.MarkTargetChange => "I changed the target",
+            RuntimeInputCommandKind.MarkTargetChange when phase == RuntimeSessionPhaseKind.Review &&
+                effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
+                "No — I switched shapes",
+            RuntimeInputCommandKind.MarkTargetChange => "I switched targets",
             RuntimeInputCommandKind.MarkError => "Report error",
             RuntimeInputCommandKind.Correct => "Correct last response",
             RuntimeInputCommandKind.Abandon when phase == RuntimeSessionPhaseKind.InstructionPrep => "Cancel setup",
@@ -3440,7 +3482,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var branch = value.StartsWith("branch ", StringComparison.OrdinalIgnoreCase)
             ? value["branch ".Length..].Split(' ', 2)[0]
             : "Each branch";
-        return $"{branch}: passing evidence required";
+        return $"{branch}: must meet its own standard";
     }
 
     private static string CompactPressure(string value)
