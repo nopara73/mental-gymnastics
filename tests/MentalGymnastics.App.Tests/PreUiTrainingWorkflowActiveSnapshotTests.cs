@@ -752,14 +752,13 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
             runtimeEvent.Kind == RuntimeEventKind.RecoveryCompleted);
 
         clock.AdvanceBy(new RuntimeDuration(secondWander.Timer.Remaining!.Value));
-        var review = await controller.RefreshAsync();
+        var terminal = await controller.RefreshAsync();
 
-        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
-        Assert.True(CommandState(review, RuntimeInputCommandKind.MarkTargetChange).IsAvailable);
-        var targetChange = await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.MarkTargetChange));
-        Assert.True(targetChange.LastCommand!.IsAccepted);
-        Assert.Equal(1, targetChange.Evidence.TargetChangeCount);
+        Assert.True(terminal.IsTerminal);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Completed, terminal.LifecycleStatus);
+        Assert.DoesNotContain(
+            terminal.Commands,
+            command => command.Command == RuntimeInputCommandKind.MarkTargetChange && command.IsAvailable);
     }
 
     [Fact]
@@ -832,18 +831,13 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.Equal(TimeSpan.FromMinutes(2), active.Timer.Remaining);
 
         clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(2)));
-        var review = await controller.RefreshAsync();
-        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
-        Assert.Equal(RuntimeSessionLifecycleStatus.Running, review.LifecycleStatus);
-        Assert.Contains(
-            "Runtime advanced due timed phase events",
-            review.Detail,
-            StringComparison.OrdinalIgnoreCase);
-
-        var terminal = await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var terminal = await controller.RefreshAsync();
         Assert.True(terminal.IsTerminal);
         Assert.Equal(RuntimeSessionLifecycleStatus.Completed, terminal.LifecycleStatus);
+        Assert.Contains(
+            "Runtime advanced due timed phase events",
+            terminal.Detail,
+            StringComparison.OrdinalIgnoreCase);
 
         var completed = await controller.CompleteAsync(
             new PreUiLiveSessionCompletionRequest(SessionDate));
@@ -876,6 +870,62 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         Assert.Equal(LocalGeneratedDrillInstanceState.Completed, generated.State);
         Assert.Null(await new LocalActiveRuntimeSessionSnapshotStore(configuration.LocalDatabaseOptions)
             .LoadAsync(prepared.RuntimeSession!.SessionId));
+    }
+
+    [Fact]
+    public async Task LegacyFocusHoldReviewIsCompletedWithoutPresentingAQuestion()
+    {
+        var configuration = Configuration();
+        var workflow = new PreUiTrainingWorkflowService(configuration);
+        var prepared = await workflow.PrepareNextSessionWithDefaultsAsync(
+            new PreUiTrainingWorkflowDefaultPreparationRequest(
+                new NextTrainingWorkSelectionQuery(SessionDate),
+                "legacy-focus-review"));
+        var current = prepared.RuntimeSession!;
+        var legacy = SelectedWorkRuntimeSessionPreparationResult.Prepared(
+            current.SessionId,
+            current.GeneratedContent,
+            current.SessionDefinition!,
+            new RuntimeSessionPhasePlan(
+            [
+                RuntimeSessionPhaseDefinition.Manual(
+                    "instruction-prep",
+                    RuntimeSessionPhaseKind.InstructionPrep),
+                RuntimeSessionPhaseDefinition.Timed(
+                    "active-work",
+                    RuntimeSessionPhaseKind.ActiveWork,
+                    RuntimeDuration.FromSeconds(120)),
+                RuntimeSessionPhaseDefinition.Manual(
+                    "review",
+                    RuntimeSessionPhaseKind.Review),
+            ]),
+            current.CueSchedule,
+            current.InputOptions,
+            current.InputMaterials,
+            current.ExpectedEvidenceFacts);
+        var clock = new ManualRuntimeClock(RuntimeInstant.Zero);
+        var started = await workflow.StartResumableSessionAsync(
+            new PreUiTrainingWorkflowStartRequest(
+                legacy,
+                clock,
+                saveActiveSnapshot: false));
+        var controller = new PreUiLiveSessionController(
+            workflow,
+            legacy,
+            started,
+            saveActiveSnapshot: false);
+
+        await controller.HandleCommandAsync(
+            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        clock.AdvanceBy(RuntimeDuration.FromSeconds(120));
+        var terminal = await controller.RefreshAsync();
+
+        Assert.True(terminal.IsTerminal);
+        Assert.Equal(RuntimeSessionLifecycleStatus.Completed, terminal.LifecycleStatus);
+        Assert.NotEqual(RuntimeSessionPhaseKind.Review, terminal.CurrentPhaseKind);
+        Assert.DoesNotContain(
+            terminal.Commands,
+            command => command.Command == RuntimeInputCommandKind.MarkTargetChange && command.IsAvailable);
     }
 
     [Fact]
@@ -1183,10 +1233,8 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
                 RuntimeInputCommandKind.MarkTargetChange,
                 value: "red circle"));
         clock.AdvanceBy(RuntimeDuration.FromSeconds(169));
-        var review = await controller.RefreshAsync();
-        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
-        await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var terminal = await controller.RefreshAsync();
+        Assert.True(terminal.IsTerminal);
 
         var completed = await controller.CompleteAsync(
             new PreUiLiveSessionCompletionRequest(SessionDate));

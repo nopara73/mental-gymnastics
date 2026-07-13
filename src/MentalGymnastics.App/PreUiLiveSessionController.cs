@@ -1123,6 +1123,7 @@ public sealed class PreUiLiveSessionController
         PreUiLiveSessionCommandOutcome? lastCommand,
         string detail)
     {
+        FinishLegacyDirectFocusHoldReview();
         var snapshot = commandHandler.CaptureSnapshot();
         var cueSnapshot = cueScheduler?.CaptureSnapshot();
         var activePhase = ActivePhase(snapshot);
@@ -1175,6 +1176,26 @@ public sealed class PreUiLiveSessionController
                 ? null
                 : TimeUntilNextCue(cueScheduler, cueSnapshot),
             snapshot.SessionDefinition.LoadVariables);
+    }
+
+    private void FinishLegacyDirectFocusHoldReview()
+    {
+        var definition = commandHandler.EventLog.SessionDefinition;
+        if (definition.Drill is not (DrillId.FH1TargetHold or DrillId.FH2DistractorHold) ||
+            definition.SourceDrill.HasValue ||
+            appSessionType == AppTrainingSessionType.Transfer ||
+            commandHandler.LifecycleState.Status != RuntimeSessionLifecycleStatus.Running ||
+            commandHandler.CurrentPhase?.Kind != RuntimeSessionPhaseKind.Review)
+        {
+            return;
+        }
+
+        var result = commandHandler.Handle(RuntimeInputCommand.FinishPhase());
+        if (!result.IsAccepted)
+        {
+            throw new InvalidOperationException(
+                "A legacy direct Focus Hold review could not be completed automatically.");
+        }
     }
 
     private string? CurrentFocusTarget(RuntimeSessionSnapshot snapshot)

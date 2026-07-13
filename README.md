@@ -37,7 +37,7 @@ The product can be understood as:
 
 > Meditation with progressive overload, observable standards, and transfer tests.
 
-Focus Hold makes the distinction concrete. Choose a target, keep it visible, mark every wander, return to the same target, and meet a defined duration and recovery standard. The rest of the curriculum extends that discipline into switching, working memory, inhibition, discrimination, conceptual operations, pressure recovery, and integrated performance.
+Focus Hold makes the distinction concrete. Look at one visible target, mark every noticed wander, look back at it, and meet a defined duration standard. The rest of the curriculum extends that discipline into switching, working memory, inhibition, discrimination, conceptual operations, pressure recovery, and integrated performance.
 
 | Common contemplative framing | Mental Gymnastics |
 | --- | --- |

@@ -73,10 +73,7 @@ public sealed class StabilizationLiveWorkflowTests : IDisposable
         Assert.Equal(RuntimeCueResponseExpectation.NoResponseExpected, distracted.ActiveCue?.ResponseExpectation);
 
         clock.AdvanceBy(new RuntimeDuration(TimeSpan.FromMinutes(3)));
-        var review = await controller.RefreshAsync();
-        Assert.Equal(RuntimeSessionPhaseKind.Review, review.CurrentPhaseKind);
-        var terminal = await controller.HandleCommandAsync(
-            new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
+        var terminal = await controller.RefreshAsync();
         Assert.True(terminal.IsTerminal);
 
         var completed = await controller.CompleteAsync(

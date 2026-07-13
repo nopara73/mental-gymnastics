@@ -83,12 +83,12 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal("Target Hold", presentation.PrimaryPrescribedWork!.Exercise.ExerciseName);
         Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
         Assert.Equal("Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
-        Assert.Contains("Keep attention on one visible shape", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
-        Assert.Contains("Tap once for every noticed wander", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Look at one visible shape", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
+        Assert.Contains("Tap once whenever you notice attention has wandered", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
         Assert.Contains("Practice one loop", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("notice attention moved", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("attention moves away", presentation.PrimaryPrescribedWork.Exercise.Purpose);
         Assert.Contains("mark it", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("resume the same target", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("look back", presentation.PrimaryPrescribedWork.Exercise.Purpose);
         Assert.Contains("honest noticing", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
         Assert.Contains("not feeling calm", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
         Assert.Contains("After this is stable", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
@@ -238,7 +238,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.DoesNotContain("Focus Hold", preflight.Work.Exercise.BranchLevelLabel);
         Assert.Contains("Practice one loop", preflight.Work.Exercise.Purpose);
         Assert.Contains("honest noticing", preflight.Work.Exercise.PracticeGain);
-        Assert.Contains("whether you switched to another shape", preflight.Work.Exercise.EvidenceRecorded);
+        Assert.Contains("whether the hold finished or stopped early", preflight.Work.Exercise.EvidenceRecorded);
         Assert.Contains("After this is stable", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("longer holds", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("distraction", preflight.Work.Exercise.WhereItGoes);
@@ -253,7 +253,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Contains("Does not count", preflight.Work.Exercise.FailureCriteria);
         Assert.Contains("Target is stated before set", preflight.Work.Exercise.FailureCriteria);
         Assert.Contains("WANDERED", preflight.Work.Exercise.HonestyInstruction);
-        Assert.Contains("same shape", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("look back at the shape", preflight.Work.Exercise.HonestyInstruction);
         Assert.Contains("saves how many times you tapped", preflight.Work.Exercise.EvidenceRecorded);
         var primaryMaterial = Assert.IsType<string>(preflight.Work.Exercise.PrimaryMaterial);
         Assert.False(string.IsNullOrWhiteSpace(primaryMaterial));
@@ -388,7 +388,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         var presentation = TrainingPresentationMapper.FromLiveSession(live);
 
         Assert.Equal(
-            "Stay with the same target. If you notice a wander, tap once and continue.",
+            "Look at the target. If you notice a wander, tap once and look back.",
             presentation.CurrentInstruction);
         Assert.Equal(RuntimeInputCommandKind.MarkDrift, presentation.PrimaryCommand?.Command);
         AssertPresentationModelsAvoidFirstLevelTechnicalIdentifiers();
@@ -611,15 +611,14 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
     [Theory]
     [InlineData(DrillId.FH1TargetHold)]
     [InlineData(DrillId.FH2DistractorHold)]
-    public void FocusHoldReviewAsksThePractitionerAPlainQuestion(DrillId drill)
+    public void LegacyFocusHoldReviewDoesNotAskForAnUnobservableMentalReport(DrillId drill)
     {
         var presentation = TrainingPresentationMapper.FromLiveSession(
             LiveStateForDrill(drill, RuntimeSessionPhaseKind.Review));
 
-        Assert.Equal(
-            "Did you keep the same shape in mind for the whole hold?",
-            presentation.CurrentInstruction);
+        Assert.Equal("Hold complete.", presentation.CurrentInstruction);
         Assert.DoesNotContain("evidence", presentation.CurrentInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("same shape", presentation.CurrentInstruction, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

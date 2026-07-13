@@ -38,12 +38,8 @@ public sealed class GeneratedContentRuntimePackagingTests
                 Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
                 Assert.Equal(GeneratedRuntimePhaseCompletionRule.Timed, phase.CompletionRule);
                 Assert.Equal(TimeSpan.FromMinutes(3), phase.ScheduledDuration);
-            },
-            phase =>
-            {
-                Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind);
-                Assert.Equal(GeneratedRuntimePhaseCompletionRule.Manual, phase.CompletionRule);
             });
+        Assert.DoesNotContain(package.Phases, phase => phase.Kind == GeneratedRuntimePhaseKind.Review);
         Assert.Contains(package.InputMaterials, material =>
             material.Kind == GeneratedContentMaterialKind.HoldDuration &&
             material.Value == "3 minutes");
@@ -74,8 +70,8 @@ public sealed class GeneratedContentRuntimePackagingTests
                 Assert.Equal(GeneratedRuntimePhaseKind.ActiveWork, phase.Kind);
                 Assert.Equal(GeneratedRuntimePhaseCompletionRule.Timed, phase.CompletionRule);
                 Assert.Equal(TimeSpan.FromMinutes(5), phase.ScheduledDuration);
-            },
-            phase => Assert.Equal(GeneratedRuntimePhaseKind.Review, phase.Kind));
+            });
+        Assert.DoesNotContain(package.Phases, phase => phase.Kind == GeneratedRuntimePhaseKind.Review);
         Assert.NotEmpty(package.Cues);
         Assert.All(package.Cues, cue =>
         {

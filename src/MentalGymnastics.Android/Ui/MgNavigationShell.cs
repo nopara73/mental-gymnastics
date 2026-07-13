@@ -868,7 +868,7 @@ internal sealed class MgNavigationShell
         var instruction = new TextView(context)
         {
             Text = work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold
-                ? "Hold one target. Tap when you notice a wander, then resume the same target."
+                ? "Look at the target. Tap when you notice a wander, then look back at it."
                 : SessionDoseInstruction(work),
             Gravity = GravityFlags.CenterVertical,
         };
@@ -1153,8 +1153,8 @@ internal sealed class MgNavigationShell
                 };
                 chipRow.SetGravity(GravityFlags.CenterVertical);
                 AddHeroChip(chipRow, FocusHoldDurationValue(startableWork.LoadVariables));
-                AddHeroChip(chipRow, "Same target");
-                AddHeroChip(chipRow, "Tap Mind wandered", last: true);
+                AddHeroChip(chipRow, "Tap each wander");
+                AddHeroChip(chipRow, "Ends automatically", last: true);
                 heroBody.AddView(chipRow, MatchWrapWithTop(MgSpacing.Md));
             }
 
@@ -2074,7 +2074,6 @@ internal sealed class MgNavigationShell
                 [
                     (completed ? FocusHoldDurationLabel(session.LoadVariables) : "Stopped", "hold"),
                     (drifts.ToString(), drifts == 1 ? "wander" : "wanders"),
-                    (changes > 0 ? "Changed" : "Same", "target"),
                 ]),
             MatchWrapWithTop(MgSpacing.Md));
 
@@ -2625,8 +2624,8 @@ internal sealed class MgNavigationShell
                 AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
                 AddFocusedBlock(
                     panel,
-                    "COUNTS WHEN",
-                    StandardDisplay(work));
+                    "THIS PRACTICE",
+                    FocusHoldPracticeContract(work));
                 AddFailureModeSelector(panel, work);
             }
             else
@@ -2693,7 +2692,6 @@ internal sealed class MgNavigationShell
             [
                 (FocusHoldDurationLabel(loadVariables), "hold"),
                 ("Every", "wander"),
-                ("Same", "target"),
             ]);
     }
 
@@ -2724,6 +2722,15 @@ internal sealed class MgNavigationShell
             "duration",
             StringComparison.OrdinalIgnoreCase))?.Value;
         return string.IsNullOrWhiteSpace(value) ? "Planned hold" : value;
+    }
+
+    private static string FocusHoldPracticeContract(TrainingPresentationWorkSummary work)
+    {
+        var distractorInstruction = work.Drill == DrillId.FH2DistractorHold
+            ? " Do not tap for distractors."
+            : string.Empty;
+        return $"Look at the target for {FocusHoldDurationValue(work.LoadVariables)}. " +
+            $"Tap whenever you notice a wander.{distractorInstruction} The hold ends automatically.";
     }
 
     private void AddFocusHoldDurationCue(
@@ -3455,7 +3462,6 @@ internal sealed class MgNavigationShell
                     ? FocusHoldDurationLabel(result.Work.LoadVariables)
                     : "Stopped", "hold"),
                 (evidence.DriftCount.ToString(), evidence.DriftCount == 1 ? "wander" : "wanders"),
-                (evidence.TargetChangeCount > 0 ? "Changed" : "Same", "target"),
             ]);
         panel.AddView(strip, MatchWrapWithTop(MgSpacing.Md));
     }
@@ -3767,7 +3773,6 @@ internal sealed class MgNavigationShell
         if (presentation.Work.Drill == DrillId.FH1TargetHold)
         {
             AddMetricBox(row, "Wanders", evidence.DriftCount.ToString());
-            AddMetricBox(row, "Target", evidence.TargetChangeCount > 0 ? "Changed" : "Same", last: true);
         }
         else
         {

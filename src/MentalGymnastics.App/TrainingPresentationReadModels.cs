@@ -1279,7 +1279,7 @@ public static class TrainingPresentationMapper
             RuntimeSessionPhaseKind.Recovery => "Restart from the last stable step.",
             RuntimeSessionPhaseKind.Review => (live.SourceDrill ?? live.Drill) is
                 DrillId.FH1TargetHold or DrillId.FH2DistractorHold
-                    ? "Did you keep the same shape in mind for the whole hold?"
+                    ? "Hold complete."
                     : "Review what you entered, then finish.",
             _ => "Session complete.",
         };
@@ -1335,7 +1335,7 @@ public static class TrainingPresentationMapper
         return effectiveDrill switch
         {
             DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
-                "Stay with the same target. If you notice a wander, tap once and continue.",
+                "Look at the target. If you notice a wander, tap once and look back.",
             DrillId.DE1PairDiscrimination => "Judge each pair on the named feature.",
             DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => "State and lock the rule before cues begin.",
             DrillId.CO1RuleExtraction => "Commit one testable rule before unseen examples appear.",
@@ -1390,15 +1390,15 @@ public static class TrainingPresentationMapper
             return new TrainingExercisePresentation(
                 drillDefinition.Name,
                 levelLabel,
-                $"Keep attention on one visible shape for {duration}. Tap once for every noticed wander, then continue with the same shape.",
-                "Practice one loop: stay with the target; if you notice attention moved, mark it once and resume the same target.",
+                $"Look at one visible shape for {duration}. Tap once whenever you notice attention has wandered, then look back at it.",
+                "Practice one loop: look at the target; if attention moves away, mark it once and look back.",
                 "The point is honest noticing while the hold continues, not feeling calm or forcing the mind blank.",
                 "After this is stable, later exercises add longer holds, distraction, memory, switching, and transfer.",
                 "Look at the visible shape normally. The shape itself is the target.",
                 $"Counts when: {standard}",
                 $"Does not count when the attempt stops early or this honesty rule is broken: {honestyConstraint}",
                 interaction.ActionInstruction,
-                "The app saves how many times you tapped for a wander, whether you switched to another shape, and whether you finished or stopped.",
+                "The app saves how many times you tapped for a wander and whether the hold finished or stopped early.",
                 primaryMaterial,
                 setupItems ?? [],
                 interaction,

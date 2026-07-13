@@ -35,13 +35,13 @@ The durable rule is:
 
 ### Review And Completion
 
-- The post-hold review asks one ordinary question: whether the practitioner kept the same shape in mind for the whole hold. The actions answer that question directly: `Yes — same shape` or `No — I switched shapes`.
-- The review may state the number of recorded wanders. It must not expose runtime-event counts, evidence-fact counts, expected-fact ratios, or an unexplained zero-change metric.
-- A completed Focus Hold result shows only the prescribed hold duration, recorded wanders, and `Same` or `Changed` for the target. Persistence and Runtime bookkeeping remain available to the program but are not presented as practitioner results.
-- Finishing does not navigate through a transient loading message. The review remains visually stable until the final result is ready, preventing text that appears too briefly to read.
+- Direct Focus Holds have no post-hold review phase. The visible target is fixed by the application, so asking the practitioner whether they kept “the same shape in mind” invents an unexplained, unobservable task.
+- The timed hold completes automatically and proceeds directly to its final result. Legacy direct-Focus-Hold snapshots that already reached the obsolete review phase are completed automatically by the App layer without presenting the question.
+- A completed Focus Hold result shows only the prescribed hold duration and recorded wanders. Persistence and Runtime bookkeeping remain available to the program but are not presented as practitioner results.
+- Completion does not navigate through a transient loading message. The hold remains visually stable until the final result is ready, preventing text that appears too briefly to read.
 - Focus Hold duration means the Runtime-owned hold duration. Planning may estimate setup/review overhead internally, but that estimate is not displayed as though it were time spent holding the target.
 - Runtime retains the legacy return command only for old snapshot/direct-client compatibility; the current App neither presents nor sends it.
-- Target substitution remains decisive evidence, but its report belongs in review rather than beside the held target.
+- Runtime retains target-substitution facts for old snapshots and direct clients, but the current fixed-visual-target interaction does not ask the practitioner to self-report an undefined mental substitution.
 
 ### Shared Live-Screen Attention Budget
 
@@ -80,11 +80,11 @@ FH-1 setup and ready state, FH-2 setup, FH active work before/during/after ackno
 
 ## Verification
 
-- Full solution regression: 904 tests passed.
-- Focused suites: Core 241, Runtime 155, Persistence 119, App 172, Content 217.
+- Full solution regression: 907 tests passed.
+- Focused suites: Core 241, Runtime 155, Persistence 119, App 175, Content 217.
 - Android Debug build: 0 warnings, 0 errors.
 - Android Release build: 0 warnings, 0 errors; signed package installed on the physical SM-S948B after clearing the app's invalid practice state.
-- Runtime coverage includes consecutive wander taps, pause/restore followed by another wander, and target-change reporting during post-hold review.
+- Runtime coverage includes consecutive wander taps, pause/restore followed by another wander, automatic timed completion, and legacy-review snapshot completion without a practitioner prompt.
 - Generated-content and App coverage assert that current FH material and commands contain no return-timing obligation.
 
 ## Remaining Product Work

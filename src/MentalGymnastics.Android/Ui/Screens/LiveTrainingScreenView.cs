@@ -1396,9 +1396,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
     private static string FocusHoldReviewInstruction(LiveEvidencePresentationSummary evidence)
     {
-        return evidence.TargetChangeCount > 0
-            ? "You reported switching to another shape. Finish if that is correct."
-            : "Did you keep the same shape in mind for the whole hold?";
+        _ = evidence;
+        return "Hold complete.";
     }
 
     private static string FocusHoldReviewSummary(LiveEvidencePresentationSummary evidence)
@@ -1406,9 +1405,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         var wanders = evidence.DriftCount == 1
             ? "1 wander recorded."
             : $"{evidence.DriftCount} wanders recorded.";
-        return evidence.TargetChangeCount > 0
-            ? $"{wanders} Shape switch reported."
-            : wanders;
+        return wanders;
     }
 
     private static string FormatCueTime(TimeSpan value)
@@ -2945,7 +2942,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 presentation.Evidence.AnswerCount > 0 ||
                 presentation.Evidence.CueResponseCount > 0)
             .Where(command => command.Command != RuntimeInputCommandKind.MarkTargetChange ||
-                presentation.Evidence.TargetChangeCount == 0)
+                (presentation.SourceDrill ?? presentation.Work.Drill) is not
+                    (DrillId.FH1TargetHold or DrillId.FH2DistractorHold))
             .ToArray();
         var effectiveDrill = presentation.SourceDrill ?? presentation.Work.Drill;
         var focusRecoveryCommand = presentation.ActiveCue is
@@ -2986,7 +2984,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         {
             RuntimeInputCommandKind.FinishPhase when phase == RuntimeSessionPhaseKind.Review &&
                 effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
-                presentation.Evidence.TargetChangeCount > 0 ? "Finish" : "Yes — same shape",
+                "Finish",
             RuntimeInputCommandKind.FinishPhase => FinishPhaseLabel(drill, effectiveDrill, phase, primary),
             RuntimeInputCommandKind.RespondToCue when presentation.ActiveCue is
                 { Kind: RuntimeCueKind.Interruption } =>
@@ -3001,10 +2999,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess when drill == DrillId.DE2SeededAudit => "Mark uncertain",
             RuntimeInputCommandKind.MarkGuess => "I guessed",
-            RuntimeInputCommandKind.MarkTargetChange when phase == RuntimeSessionPhaseKind.Review &&
-                effectiveDrill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold =>
-                "No — I switched shapes",
-            RuntimeInputCommandKind.MarkTargetChange => "I switched targets",
+            RuntimeInputCommandKind.MarkTargetChange => "Report target switch",
             RuntimeInputCommandKind.MarkError => "Report error",
             RuntimeInputCommandKind.Correct => "Correct last response",
             RuntimeInputCommandKind.Abandon when phase == RuntimeSessionPhaseKind.InstructionPrep => "Cancel setup",

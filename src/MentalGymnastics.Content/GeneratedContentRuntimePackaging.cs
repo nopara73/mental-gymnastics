@@ -532,6 +532,12 @@ public static class GeneratedContentRuntimePackager
         }
 
         AddComponentEvidencePhase(phases, materials);
+        if (result.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold &&
+            !materials.Any(material => material.Kind == GeneratedContentMaterialKind.ComponentPayload))
+        {
+            return Array.AsReadOnly(phases.ToArray());
+        }
+
         phases.Add(ManualPhase("review", GeneratedRuntimePhaseKind.Review));
         return Array.AsReadOnly(phases.ToArray());
     }
