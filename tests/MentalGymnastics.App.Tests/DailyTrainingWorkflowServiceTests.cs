@@ -102,6 +102,38 @@ public sealed class DailyTrainingWorkflowServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FormalWorkStartsWithoutASelfDescription()
+    {
+        var configuration = Configuration();
+        var date = TrainingDate.From(2026, 7, 6);
+        var block = new LocalDailyTrainingBlockRecord(
+            "formal-block",
+            order: 1,
+            BranchCode.FH,
+            GlobalLevelId.L1,
+            DrillId.FH1TargetHold,
+            LocalDailyTrainingBlockRole.Test,
+            [new LoadVariable("duration", "3 minutes")],
+            LocalDailyTrainingBlockState.Planned);
+        await new LocalDailyTrainingPrescriptionStore(configuration.LocalDatabaseOptions).SaveAsync(
+            new LocalDailyTrainingPrescriptionRecord(
+                "formal-day",
+                date,
+                date,
+                cycleDay: 1,
+                WeeklySessionKind.TestOrStabilization,
+                DailyTrainingDoseState.Planned,
+                [block]));
+        var service = new DailyTrainingWorkflowService(configuration);
+        await service.MarkPreparedAsync(date, block.BlockId, "formal-session");
+
+        var active = await service.MarkActiveAsync("formal-session");
+
+        Assert.Equal(DailyTrainingWorkflowStatus.Active, active.Status);
+        Assert.Equal(LocalDailyTrainingBlockState.Active, active.CurrentBlock?.Record.State);
+    }
+
+    [Fact]
     public async Task ExplicitStopConsumesEveryUnstartedBlockForTheDate()
     {
         var configuration = Configuration();
@@ -156,7 +188,7 @@ public sealed class DailyTrainingWorkflowServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DueBeginnerReviewBecomesTheDailyActionAndResetsCadenceWhenRecorded()
+    public async Task DueBeginnerReviewIsEvaluatedAndRecordedWithoutAnAcknowledgementPrompt()
     {
         var configuration = Configuration();
         await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).SaveAsync(
@@ -172,23 +204,20 @@ public sealed class DailyTrainingWorkflowServiceTests : IDisposable
 
         var reviewBlock = Assert.Single(due.Blocks);
         Assert.Equal(LocalDailyTrainingBlockRole.Review, reviewBlock.Record.Role);
-        Assert.Equal(DailyTrainingWorkflowStatus.Ready, due.Status);
+        Assert.True(reviewBlock.Record.IsTerminal);
+        Assert.Equal(DailyTrainingWorkflowStatus.Done, due.Status);
 
-        var completed = await service.CompleteDueGlobalReviewAsync(
-            date,
-            reviewBlock.Record.BlockId);
-
-        Assert.Equal(DailyTrainingWorkflowStatus.Done, completed.DailyTraining.Status);
-        Assert.Equal(EvidenceArtifactCategory.GlobalReview, completed.EvidenceArtifact.Artifact.Category);
-        Assert.Contains(
-            completed.EvidenceArtifact.Artifact.ObservableEvidence,
-            evidence => evidence.Kind == ObservableEvidenceKind.GlobalReviewSummary);
         var refreshed = await new CurrentTrainingStateLoader(configuration).LoadAsync(
             new CurrentTrainingStateQuery(date));
         Assert.False(refreshed.GlobalReview.Cadence.IsDue);
         Assert.Equal(date, refreshed.GlobalReview.Cadence.AnchorDate);
         Assert.NotNull(refreshed.LastCompletedGlobalReview);
-        Assert.Equal(completed.GlobalReview.Evaluation.Passed, refreshed.LastCompletedGlobalReview!.Passed);
+        var artifact = Assert.Single(
+            await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).ListAsync(),
+            record => record.Artifact.Category == EvidenceArtifactCategory.GlobalReview);
+        Assert.Contains(
+            artifact.Artifact.ObservableEvidence,
+            evidence => evidence.Kind == ObservableEvidenceKind.GlobalReviewSummary);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CompleteDueGlobalReviewAsync(date, reviewBlock.Record.BlockId).AsTask());
     }

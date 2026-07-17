@@ -341,7 +341,8 @@ public sealed class DailyTrainingWorkflowService
             .ConfigureAwait(false);
         if (existing is not null)
         {
-            return From(existing);
+            return await CompleteAutomaticReviewIfDueAsync(date, existing, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var currentState = await stateLoader.LoadAsync(
@@ -368,7 +369,29 @@ public sealed class DailyTrainingWorkflowService
             blocks);
 
         await prescriptionStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
-        return From(record);
+        return await CompleteAutomaticReviewIfDueAsync(date, record, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<DailyTrainingWorkflowReadModel> CompleteAutomaticReviewIfDueAsync(
+        TrainingDate date,
+        LocalDailyTrainingPrescriptionRecord record,
+        CancellationToken cancellationToken)
+    {
+        var review = record.Blocks.SingleOrDefault(block =>
+            block.Role == LocalDailyTrainingBlockRole.Review &&
+            block.State == LocalDailyTrainingBlockState.Planned);
+        if (review is null || record.Blocks.Any(block => block.State is
+                LocalDailyTrainingBlockState.Prepared or LocalDailyTrainingBlockState.Active))
+        {
+            return From(record);
+        }
+
+        var completed = await CompleteDueGlobalReviewAsync(
+            date,
+            review.BlockId,
+            cancellationToken).ConfigureAwait(false);
+        return completed.DailyTraining;
     }
 
     public async ValueTask<DailyGlobalReviewCompletionResult> CompleteDueGlobalReviewAsync(
@@ -439,15 +462,13 @@ public sealed class DailyTrainingWorkflowService
                 evaluation.Passed
                     ? LocalDailyTrainingBlockState.Completed
                     : LocalDailyTrainingBlockState.Failed,
-                eventId,
-                mainFailureModeAvoided: null)
+                eventId)
             : item.IsTerminal
                 ? item
                 : CopyBlock(
                     item,
                     LocalDailyTrainingBlockState.Skipped,
-                    sessionId: null,
-                    mainFailureModeAvoided: null)).ToArray();
+                    sessionId: null)).ToArray();
         var updated = CopyPrescription(current, DailyTrainingDoseState.Completed, blocks);
         await transaction.CommitAsync(context =>
         {
@@ -496,7 +517,6 @@ public sealed class DailyTrainingWorkflowService
             next,
             LocalDailyTrainingBlockState.Prepared,
             sessionId,
-            mainFailureModeAvoided: null,
             doseState: current.State);
         await prescriptionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         return From(updated);
@@ -504,7 +524,6 @@ public sealed class DailyTrainingWorkflowService
 
     public async ValueTask<DailyTrainingWorkflowReadModel> MarkActiveAsync(
         string sessionId,
-        string? mainFailureModeAvoided = null,
         CancellationToken cancellationToken = default)
     {
         var current = await RequiredBySessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
@@ -515,23 +534,11 @@ public sealed class DailyTrainingWorkflowService
             throw new InvalidOperationException("Only a prepared daily block can start active work.");
         }
 
-        var requiresDeclaredFailureMode = block.Role is
-            LocalDailyTrainingBlockRole.Test or
-            LocalDailyTrainingBlockRole.Stabilization or
-            LocalDailyTrainingBlockRole.Transfer or
-            LocalDailyTrainingBlockRole.Review;
-        if (requiresDeclaredFailureMode && string.IsNullOrWhiteSpace(mainFailureModeAvoided))
-        {
-            throw new InvalidOperationException(
-                "Formal daily work requires a declared main failure mode before active work starts.");
-        }
-
         var updated = ReplaceBlock(
             current,
             block,
             LocalDailyTrainingBlockState.Active,
             sessionId,
-            mainFailureModeAvoided,
             DailyTrainingDoseState.Active);
         await prescriptionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         return From(updated);
@@ -554,7 +561,6 @@ public sealed class DailyTrainingWorkflowService
             block,
             LocalDailyTrainingBlockState.Planned,
             sessionId: null,
-            mainFailureModeAvoided: null,
             doseState: current.State);
         await prescriptionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         return From(updated);
@@ -580,8 +586,7 @@ public sealed class DailyTrainingWorkflowService
             : CopyBlock(
                 block,
                 LocalDailyTrainingBlockState.Skipped,
-                sessionId: null,
-                mainFailureModeAvoided: null)).ToArray();
+                sessionId: null)).ToArray();
         var updated = CopyPrescription(current, DailyTrainingDoseState.Stopped, blocks);
         await prescriptionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         return From(updated);
@@ -618,15 +623,13 @@ public sealed class DailyTrainingWorkflowService
                     ? CopyBlock(
                         item,
                         LocalDailyTrainingBlockState.Abandoned,
-                        sessionId,
-                        item.MainFailureModeAvoided)
+                        sessionId)
                     : item.IsTerminal
                         ? item
                         : CopyBlock(
                             item,
                             LocalDailyTrainingBlockState.Skipped,
-                            sessionId: null,
-                            mainFailureModeAvoided: null))
+                            sessionId: null))
                 .ToArray();
             return CopyPrescription(prescription, DailyTrainingDoseState.Stopped, stoppedBlocks);
         }
@@ -644,7 +647,7 @@ public sealed class DailyTrainingWorkflowService
                 "Unknown terminal runtime outcome."),
         };
         var blocks = prescription.Blocks.Select(item => item.BlockId == block.BlockId
-            ? CopyBlock(item, terminalState, sessionId, item.MainFailureModeAvoided)
+            ? CopyBlock(item, terminalState, sessionId)
             : item).ToArray();
         var nextState = blocks.All(item => item.IsTerminal)
             ? DailyTrainingDoseState.Completed
@@ -684,8 +687,7 @@ public sealed class DailyTrainingWorkflowService
             ? CopyBlock(
                 candidate,
                 LocalDailyTrainingBlockState.Planned,
-                sessionId: null,
-                mainFailureModeAvoided: null)
+                sessionId: null)
             : candidate).ToArray();
         return CopyPrescription(prescription, DailyTrainingDoseState.Planned, blocks);
     }
@@ -698,15 +700,13 @@ public sealed class DailyTrainingWorkflowService
             ? CopyBlock(
                 block,
                 LocalDailyTrainingBlockState.Abandoned,
-                interrupted.SessionId,
-                interrupted.MainFailureModeAvoided)
+                interrupted.SessionId)
             : block.IsTerminal
                 ? block
                 : CopyBlock(
                     block,
                     LocalDailyTrainingBlockState.Skipped,
-                    sessionId: null,
-                    mainFailureModeAvoided: null)).ToArray();
+                    sessionId: null)).ToArray();
         return CopyPrescription(prescription, DailyTrainingDoseState.Stopped, blocks);
     }
 
@@ -996,11 +996,10 @@ public sealed class DailyTrainingWorkflowService
         LocalDailyTrainingBlockRecord block,
         LocalDailyTrainingBlockState state,
         string? sessionId,
-        string? mainFailureModeAvoided,
         DailyTrainingDoseState doseState)
     {
         var blocks = prescription.Blocks.Select(item => item.BlockId == block.BlockId
-            ? CopyBlock(item, state, sessionId, mainFailureModeAvoided)
+            ? CopyBlock(item, state, sessionId)
             : item).ToArray();
         return CopyPrescription(prescription, doseState, blocks);
     }
@@ -1008,8 +1007,7 @@ public sealed class DailyTrainingWorkflowService
     private static LocalDailyTrainingBlockRecord CopyBlock(
         LocalDailyTrainingBlockRecord block,
         LocalDailyTrainingBlockState state,
-        string? sessionId,
-        string? mainFailureModeAvoided)
+        string? sessionId)
     {
         return new LocalDailyTrainingBlockRecord(
             block.BlockId,
@@ -1020,8 +1018,7 @@ public sealed class DailyTrainingWorkflowService
             block.Role,
             block.LoadVariables,
             state,
-            sessionId,
-            mainFailureModeAvoided);
+            sessionId);
     }
 
     private static LocalDailyTrainingPrescriptionRecord CopyPrescription(

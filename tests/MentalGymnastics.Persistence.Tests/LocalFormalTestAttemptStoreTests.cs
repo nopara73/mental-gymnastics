@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
 
@@ -44,6 +45,27 @@ public sealed class LocalFormalTestAttemptStoreTests : IDisposable
         AssertEquivalent(expected, loaded);
         Assert.Single(history);
         AssertEquivalent(expected, Assert.Single(history));
+    }
+
+    [Fact]
+    public async Task LoadsLegacyAttemptThatContainsFailureModeDeclaration()
+    {
+        var databasePath = Path.Combine(tempDirectory, "mental-gymnastics.db");
+        var expected = new LocalFormalTestAttemptRecord(
+            "legacy-attempt",
+            "legacy-artifact",
+            PassingDrillAttempt());
+        await CreateStore(databasePath).SaveAsync(expected);
+
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(databasePath))!.AsObject();
+        document["FormalTestAttempts"]!.AsArray()[0]!.AsObject()["Attempt"]!
+            .AsObject()["MainFailureModeAvoided"] = "unmarked drift";
+        await File.WriteAllTextAsync(databasePath, document.ToJsonString());
+
+        var loaded = await CreateStore(databasePath).LoadAsync(expected.AttemptId);
+
+        Assert.NotNull(loaded);
+        AssertEquivalent(expected, loaded);
     }
 
     [Fact]

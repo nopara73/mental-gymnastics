@@ -131,8 +131,7 @@ public sealed class RuntimePersistenceHandoffTests
                 new StandardEvaluationResult(true, []),
                 FormalTestPassState.StabilizationPass,
                 LocalStabilizationCondition.ControlledDistractor,
-                "After a short WM reconstruction set.",
-                "Target substitution avoided.")));
+                "After a short WM reconstruction set.")));
 
         var artifact = Assert.Single(handoff.EvidenceArtifacts);
         Assert.Equal(LocalProgrammingEventKind.Stabilization, artifact.Event.Kind);
@@ -145,7 +144,6 @@ public sealed class RuntimePersistenceHandoffTests
         Assert.Equal(LocalStabilizationCondition.ControlledDistractor, handoff.StabilizationPass.Condition);
         Assert.Equal(FormalTestPassState.StabilizationPass, handoff.StabilizationPass.Evidence.PassState);
         Assert.True(handoff.StabilizationPass.Evidence.AfterAdjacentWorkOrControlledDistractor);
-        Assert.Equal("Target substitution avoided.", handoff.StabilizationPass.Evidence.MainFailureModeAvoided);
 
         Assert.Null(handoff.FormalTestAttempt);
         Assert.Null(handoff.MaintenanceCheck);

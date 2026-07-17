@@ -136,7 +136,6 @@ public sealed class LocalStabilizationPassStore
     private const string FailureKindPropertyName = "FailureKind";
     private const string DetailPropertyName = "Detail";
     private const string AfterAdjacentWorkOrControlledDistractorPropertyName = "AfterAdjacentWorkOrControlledDistractor";
-    private const string MainFailureModeAvoidedPropertyName = "MainFailureModeAvoided";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -381,7 +380,6 @@ public sealed class LocalStabilizationPassStore
             [PassStatePropertyName] = StableDomainIdentifiers.FormalTestPassStates.ToPersistedId(evidence.PassState),
             [StandardEvaluationResultPropertyName] = WriteStandardEvaluationResult(evidence.StandardEvaluationResult),
             [AfterAdjacentWorkOrControlledDistractorPropertyName] = evidence.AfterAdjacentWorkOrControlledDistractor,
-            [MainFailureModeAvoidedPropertyName] = evidence.MainFailureModeAvoided,
         };
     }
 
@@ -446,8 +444,7 @@ public sealed class LocalStabilizationPassStore
             ReadRequiredString(evidenceObject, StandardPropertyName),
             StableDomainIdentifiers.FormalTestPassStates.FromPersistedId(ReadRequiredString(evidenceObject, PassStatePropertyName)),
             ReadStandardEvaluationResult(ReadRequiredObject(evidenceObject, StandardEvaluationResultPropertyName)),
-            ReadRequiredBoolean(evidenceObject, AfterAdjacentWorkOrControlledDistractorPropertyName),
-            ReadRequiredString(evidenceObject, MainFailureModeAvoidedPropertyName));
+            ReadRequiredBoolean(evidenceObject, AfterAdjacentWorkOrControlledDistractorPropertyName));
     }
 
     private static StandardEvaluationResult ReadStandardEvaluationResult(JsonObject resultObject)

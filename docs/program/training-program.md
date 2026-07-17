@@ -132,7 +132,7 @@ Advancement is never based on participation.
 - The passes occurred across at least seven calendar days.
 - One pass occurred after adjacent branch work or a mild distractor.
 - No pass required changing the standard.
-- The practitioner can identify the main failure mode avoided during the test.
+- Each pass includes observable evidence that the standard and critical constraints were preserved.
 
 Excellence is recorded separately from ownership. Excellent performance may reduce future maintenance volume, but it does not skip levels.
 

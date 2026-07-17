@@ -8,7 +8,7 @@ public sealed class StabilizationOwnershipTests
         "No more than 5 marked drifts; each return within 10 seconds; no target change.";
 
     [Fact]
-    public void ThreeCleanPassesAcrossSevenDaysWithStabilizationDemandProduceOwnership()
+    public void ObservablePassHistoryProducesOwnershipWithoutASelfDescription()
     {
         var evidence = new StabilizationEvidence(
             BranchCode.FH,
@@ -148,34 +148,11 @@ public sealed class StabilizationOwnershipTests
         Assert.Contains(result.Failures, failure => failure.Kind == StabilizationOwnershipFailureKind.StandardChanged);
     }
 
-    [Fact]
-    public void OwnershipRequiresMainFailureModeAvoided()
-    {
-        var evidence = new StabilizationEvidence(
-            BranchCode.FH,
-            GlobalLevelId.L1,
-            [
-                Pass(FormalTestPassState.PassOnce, TrainingDate.From(2026, 7, 1)),
-                Pass(FormalTestPassState.StabilizationPass, TrainingDate.From(2026, 7, 4)),
-                Pass(
-                    FormalTestPassState.StabilizationPass,
-                    TrainingDate.From(2026, 7, 8),
-                    afterAdjacentWorkOrControlledDistractor: true,
-                    mainFailureModeAvoided: ""),
-            ]);
-
-        var result = StabilizationOwnershipEvaluator.Evaluate(evidence);
-
-        Assert.False(result.IsOwned);
-        Assert.Contains(result.Failures, failure => failure.Kind == StabilizationOwnershipFailureKind.MainFailureModeMissing);
-    }
-
     private static StabilizationPassEvidence Pass(
         FormalTestPassState passState,
         TrainingDate date,
         bool afterAdjacentWorkOrControlledDistractor = false,
-        string standard = FocusHoldL1Standard,
-        string mainFailureModeAvoided = "target substitution")
+        string standard = FocusHoldL1Standard)
     {
         return new StabilizationPassEvidence(
             BranchCode.FH,
@@ -184,8 +161,7 @@ public sealed class StabilizationOwnershipTests
             standard,
             passState,
             standardEvaluationResult: PassingStandard(),
-            afterAdjacentWorkOrControlledDistractor,
-            mainFailureModeAvoided);
+            afterAdjacentWorkOrControlledDistractor);
     }
 
     private static StandardEvaluationResult PassingStandard()

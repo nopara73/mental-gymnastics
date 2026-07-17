@@ -304,8 +304,7 @@ public sealed class CoreIntegrationPassTests
             StandardFor(branch, level),
             passState,
             standardEvidence,
-            afterAdjacentWorkOrControlledDistractor: false,
-            "cue anticipation");
+            afterAdjacentWorkOrControlledDistractor: false);
     }
 
     private static MaintenanceCheckEvidence MaintenancePass(

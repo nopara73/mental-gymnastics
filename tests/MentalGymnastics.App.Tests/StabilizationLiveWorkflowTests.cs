@@ -77,9 +77,7 @@ public sealed class StabilizationLiveWorkflowTests : IDisposable
         Assert.True(terminal.IsTerminal);
 
         var completed = await controller.CompleteAsync(
-            new PreUiLiveSessionCompletionRequest(
-                date,
-                mainFailureModeAvoided: "Target substitution avoided."));
+            new PreUiLiveSessionCompletionRequest(date));
 
         Assert.True(completed.IsProcessed);
         Assert.True(completed.WorkflowResult!.ProcessingResult

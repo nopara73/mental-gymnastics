@@ -1088,12 +1088,13 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 var component = components[componentIndex];
                 var summary = GlobalReviewComponentSummary(component.Value);
                 var isHeldTarget = string.Equals(summary.Branch, "FH", StringComparison.Ordinal);
+                var componentName = ComponentDisplayName(summary.Branch);
                 var expanded = isSetup || expandedComponents.Contains(component.Name);
                 var tile = new LinearLayout(Context)
                 {
                     Orientation = Orientation.Vertical,
                     Background = MgTheme.MutedSurface(Context!, cornerRadius: 8),
-                    ContentDescription = $"{summary.Branch}, {summary.Role}. {summary.Criterion}",
+                    ContentDescription = $"{componentName}, {summary.Role}. {summary.Criterion}",
                     Clickable = !isSetup && !isHeldTarget,
                     Focusable = !isSetup && !isHeldTarget,
                 };
@@ -1105,10 +1106,10 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                 var header = new TextView(Context)
                 {
                     Text = isHeldTarget
-                        ? $"{summary.Branch}    {(isSetup ? "HOLD" : "HELD")}"
+                        ? $"{componentName}    {(isSetup ? "HOLD" : "HELD")}"
                         : isSetup
-                            ? summary.Branch
-                            : $"{summary.Branch}    {(expanded ? "-" : "+")}",
+                            ? componentName
+                            : $"{componentName}    {(expanded ? "-" : "+")}",
                 };
                 MgTypography.ApplyLabel(header);
                 header.SetTextColor(MgColors.TrainingDark);
@@ -1130,7 +1131,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
                             : $"{summary.Challenge}{Environment.NewLine}" +
                                 (presentation.AvailableCommands.Any(command =>
                                     command.Command == RuntimeInputCommandKind.SubmitAnswer)
-                                    ? $"Enter {summary.Branch}=answer below."
+                                    ? "Enter your answer below."
                                     : "Keep the answer for the response step."),
                     };
                     if (isHeldTarget)
@@ -2156,7 +2157,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         BeginStructuredForm(
             signature,
-            orderedComponents.Length == 1 ? "YOUR RESPONSE" : "RESPONSES BY BRANCH");
+            orderedComponents.Length == 1 ? "YOUR RESPONSE" : "RESPONSES BY COMPONENT");
         foreach (var component in orderedComponents)
         {
             var branch = ComponentBranch(component);
@@ -2175,7 +2176,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             AddStructuredTextField(
                 presentation,
                 branch,
-                $"{branch}  {summary.Role}",
+                $"{ComponentDisplayName(branch)}  {summary.Role}",
                 string.Equals(branch, "FH", StringComparison.Ordinal)
                     ? "Held target from setup"
                     : "Exact response from this component",
@@ -2371,8 +2372,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         }
 
         BeginStructuredForm(signature, "FIND THE MISMATCH", preserveFields: false);
-        AddStructuredTextField(presentation, "BRANCH", "WRONG BRANCH", "Two-letter branch code");
-        AddStructuredTextField(presentation, "CORRECTION", "CORRECT RESPONSE", "Exact response for that branch");
+        AddStructuredTextField(presentation, "BRANCH", "WRONG COMPONENT", "Component name shown in the report");
+        AddStructuredTextField(presentation, "CORRECTION", "CORRECT RESPONSE", "Exact response for that component");
     }
 
     private void EnsureSeededAuditForm(LiveSessionPresentationReadModel presentation)
@@ -2458,7 +2459,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         AddStructuredTextField(
             presentation,
             "TEST",
-            "DECIDING EVIDENCE",
+            "DECIDING RELATION",
             "The concrete relation that decides the verdict");
     }
 
@@ -2484,10 +2485,10 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             AddStructuredTextField(
                 presentation,
                 branch,
-                branch,
+                ComponentDisplayName(branch),
                 presentation.Work.Drill == DrillId.TI2GlobalReviewTask
                     ? "Exact response from the locked report"
-                    : "Critical result remembered for this branch");
+                    : "Critical result remembered for this component");
         }
     }
 
@@ -2523,8 +2524,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             AddStructuredTextField(
                 presentation,
                 branch,
-                branch,
-                "Exact response remembered for this branch");
+                ComponentDisplayName(branch),
+                "Exact response remembered for this component");
         }
     }
 
@@ -2852,7 +2853,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         var parts = structuredFields
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Value.Text))
-            .Select(pair => $"{pair.Key}={pair.Value.Text!.Trim()}")
+            .Select(pair => $"{pair.Key}={StructuredFieldValue(pair.Key, pair.Value.Text!)}")
             .Concat(structuredChoices
                 .Where(pair => !pair.Key.StartsWith("preserved:", StringComparison.Ordinal))
                 .Select(pair => $"{pair.Key}={pair.Value}"));
@@ -2866,6 +2867,44 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             .Split(':', StringSplitOptions.TrimEntries)[0]
             .Trim()
             .ToUpperInvariant();
+    }
+
+    private static string StructuredFieldValue(string key, string value)
+    {
+        var trimmed = value.Trim();
+        if (!string.Equals(key, "BRANCH", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        return trimmed.ToUpperInvariant() switch
+        {
+            "TARGET HOLD" or "FOCUS HOLD" or "FH" => "FH",
+            "CUE SWITCHING" or "FOCUS SHIFT" or "FS" => "FS",
+            "MEMORY" or "WORKING MEMORY" or "WM" => "WM",
+            "RESPONSE CONTROL" or "INHIBITION" or "IR" => "IR",
+            "ERROR CHECKING" or "DISCRIMINATION" or "DE" => "DE",
+            "RULE FINDING" or "CONCEPT OPERATIONS" or "CO" => "CO",
+            "PRESSURE CONTROL" or "AFFECTIVE INTERFERENCE" or "AI" => "AI",
+            "COMBINED TASK" or "TRANSFER INTEGRATION" or "TI" => "TI",
+            _ => trimmed,
+        };
+    }
+
+    private static string ComponentDisplayName(string branch)
+    {
+        return branch.ToUpperInvariant() switch
+        {
+            "FH" => "Target Hold",
+            "FS" => "Cue Switching",
+            "WM" => "Memory",
+            "IR" => "Response Control",
+            "DE" => "Error Checking",
+            "CO" => "Rule Finding",
+            "AI" => "Pressure Control",
+            "TI" => "Combined Task",
+            _ => "Component",
+        };
     }
 
     private static string EvidenceBranch(PreUiLiveSessionMaterialState requirement)
@@ -3151,8 +3190,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             if (hasComponents)
             {
                 return drill == DrillId.WM2MentalTransform
-                    ? "Final result; rule; BRANCH=answer"
-                    : "BRANCH=answer; BRANCH=answer";
+                    ? "Final result, rule, and each component answer"
+                    : "One answer for each component";
             }
 
             return drill switch
@@ -3170,7 +3209,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
 
         if (phase == RuntimeSessionPhaseKind.Audit && drill == DrillId.TI2GlobalReviewTask)
         {
-            return "Wrong branch and exact correction";
+            return "Wrong component and exact correction";
         }
 
         return drill switch
@@ -3183,7 +3222,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             DrillId.CO2StructureMapping when phase == RuntimeSessionPhaseKind.ActiveWork => "Name the source relations",
             DrillId.CO2StructureMapping => "Relation mapping",
             DrillId.AI1PressureRepeat or DrillId.AI2DisruptionRecovery => "Task result",
-            DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask => "FH=answer; FS=answer; ...",
+            DrillId.TI1CompositeTask or DrillId.TI2GlobalReviewTask => "Use the component response fields",
             _ => "Response",
         };
     }
@@ -3225,8 +3264,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             "RestartRule" => "Restart rule",
             "CompositeTaskPrompt" => "Task",
             "ComponentPayload" => "Component",
-            "ComponentEvidenceRequirement" => "Evidence required",
-            "BranchScoringKey" => "Passing standard",
+            "ComponentEvidenceRequirement" => "What must pass",
+            "BranchScoringKey" => "What must pass",
             "ExpectedReconstruction" or "FinalExpectedOutput" or
             "ExpectedFinding" or "ExpectedClassification" or "ExpectedRule" or "ExpectedMapping" => "Answer key",
             _ => Humanize(material.Name),
@@ -3280,7 +3319,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             "CompositeTaskPrompt" => CompactCompositePrompt(compact),
             "ComponentPayload" => CompactComponent(compact),
             "ComponentEvidenceRequirement" => CompactComponentEvidence(compact),
-            "BranchScoringKey" => "Score each branch separately.",
+            "BranchScoringKey" => "Score each component separately.",
             "OperationStep" => CompactOperationStep(compact),
             "AuditReference" => CompactAuditRecord(compact),
             "LockedOriginalOutput" => CompactLockedOriginal(compact),
@@ -3405,8 +3444,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
             SegmentValue(value, "; task role ") ?? "Complete the component task.");
         var criterion = CompactStandard(
             SegmentValue(value, "; pass criterion ") ?? "Exact response; no component error.");
-        var challenge = SegmentValue(value, "; challenge ") ?? "Complete the branch task.";
-        return $"{branch} · {level}{Environment.NewLine}{role}{Environment.NewLine}{challenge}{Environment.NewLine}{criterion}";
+        var challenge = SegmentValue(value, "; challenge ") ?? "Complete the component task.";
+        return $"{ComponentDisplayName(branch)} · {level}{Environment.NewLine}{role}{Environment.NewLine}{challenge}{Environment.NewLine}{criterion}";
     }
 
     private static (string Branch, string Role, string Challenge, string Criterion) GlobalReviewComponentSummary(string value)
@@ -3427,7 +3466,7 @@ internal sealed class LiveTrainingScreenView : LinearLayout
         };
         var criterion = CompactStandard(
             SegmentValue(value, "; pass criterion ") ?? "Exact response; no component error.");
-        var challenge = SegmentValue(value, "; challenge ") ?? "Complete the branch task.";
+        var challenge = SegmentValue(value, "; challenge ") ?? "Complete the component task.";
         return (branch, role, challenge, criterion);
     }
 
@@ -3476,8 +3515,8 @@ internal sealed class LiveTrainingScreenView : LinearLayout
     {
         var branch = value.StartsWith("branch ", StringComparison.OrdinalIgnoreCase)
             ? value["branch ".Length..].Split(' ', 2)[0]
-            : "Each branch";
-        return $"{branch}: must meet its own standard";
+            : "Each component";
+        return $"{ComponentDisplayName(branch)}: must meet its own standard";
     }
 
     private static string CompactPressure(string value)

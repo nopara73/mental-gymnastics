@@ -13,7 +13,8 @@ internal sealed class BranchTileView : MgPanel
         var levelArray = levels
             .OrderBy(level => level.Level)
             .ToArray();
-        ContentDescription = $"{branch} branch. {string.Join(", ", levelArray.Select(level => $"{level.Level} {level.State}"))}";
+        var branchName = BranchName(branch);
+        ContentDescription = $"{branchName} skill. {string.Join(", ", levelArray.Select(level => $"Level {LevelNumber(level.Level)} {StateMarkerView.LabelTextFor(level.State)}"))}";
         ImportantForAccessibility = ImportantForAccessibility.Yes;
 
         var header = new LinearLayout(context)
@@ -25,7 +26,7 @@ internal sealed class BranchTileView : MgPanel
 
         var branchLabel = new TextView(context)
         {
-            Text = branch.ToString(),
+            Text = branchName,
         };
         MgTypography.ApplyHeading(branchLabel);
         header.AddView(branchLabel, new LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1));
@@ -51,5 +52,23 @@ internal sealed class BranchTileView : MgPanel
 
         AddView(header);
         AddView(rail);
+    }
+
+    private static int LevelNumber(GlobalLevelId level) => ((int)level) + 1;
+
+    private static string BranchName(BranchCode branch)
+    {
+        return branch switch
+        {
+            BranchCode.FH => "Target Hold",
+            BranchCode.FS => "Cue Switching",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Response Control",
+            BranchCode.DE => "Error Checking",
+            BranchCode.CO => "Rule Finding",
+            BranchCode.AI => "Pressure Control",
+            BranchCode.TI => "Combined Task",
+            _ => "Skill",
+        };
     }
 }

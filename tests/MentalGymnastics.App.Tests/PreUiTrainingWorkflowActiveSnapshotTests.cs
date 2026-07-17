@@ -1142,7 +1142,7 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task LiveSessionControllerCompletesFocusHoldTestThroughTheFormalGate()
+    public async Task LiveSessionControllerStartsAndCompletesFocusHoldTestWithoutASelfDescription()
     {
         var configuration = Configuration();
         await SaveStateAsync(
@@ -1181,15 +1181,8 @@ public sealed class PreUiTrainingWorkflowActiveSnapshotTests : IDisposable
         await controller.HandleCommandAsync(
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
 
-        var missingFailureMode = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            controller.CompleteAsync(
-                new PreUiLiveSessionCompletionRequest(SessionDate)).AsTask());
-        Assert.Contains("must name", missingFailureMode.Message, StringComparison.OrdinalIgnoreCase);
-
         var completed = await controller.CompleteAsync(
-            new PreUiLiveSessionCompletionRequest(
-                SessionDate,
-                mainFailureModeAvoided: "unmarked drift"));
+            new PreUiLiveSessionCompletionRequest(SessionDate));
 
         Assert.True(completed.IsProcessed);
         Assert.NotNull(completed.WorkflowResult);

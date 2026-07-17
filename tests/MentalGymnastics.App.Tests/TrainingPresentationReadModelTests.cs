@@ -85,18 +85,12 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal("Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
         Assert.Contains("Look at one visible shape", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
         Assert.Contains("Tap once whenever you notice attention has wandered", presentation.PrimaryPrescribedWork.Exercise.FirstScreenInstruction);
-        Assert.Contains("Practice one loop", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("attention moves away", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("mark it", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("look back", presentation.PrimaryPrescribedWork.Exercise.Purpose);
-        Assert.Contains("honest noticing", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
-        Assert.Contains("not feeling calm", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
-        Assert.Contains("After this is stable", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
-        Assert.Contains("longer holds", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
-        Assert.Contains("distraction", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
-        Assert.Contains("memory", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
-        Assert.Contains("switching", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
-        Assert.Contains("transfer", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("until the hold ends", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("Tap once", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("same target", presentation.PrimaryPrescribedWork.Exercise.Purpose);
+        Assert.Contains("recorded actions", presentation.PrimaryPrescribedWork.Exercise.PracticeGain);
+        Assert.Contains("Later levels", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
+        Assert.Contains("distractors", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
         Assert.DoesNotContain("Focus Shift", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
         Assert.DoesNotContain("Inhibition", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
         Assert.DoesNotContain("No promise this makes you smarter", presentation.PrimaryPrescribedWork.Exercise.WhereItGoes);
@@ -129,7 +123,7 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal(BranchCode.FS, presentation.PrimaryPrescribedWork!.BranchLevels.Single().Branch);
         Assert.Equal(DrillId.FS1CueSwitch, presentation.PrimaryPrescribedWork.Drill);
         Assert.Equal("Cue Switch", presentation.PrimaryPrescribedWork.Exercise.ExerciseName);
-        Assert.Equal("Focus Shift · Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
+        Assert.Equal("Cue Switching · Level 1", presentation.PrimaryPrescribedWork.Exercise.BranchLevelLabel);
         Assert.Equal(AppTrainingSessionType.Practice, presentation.PrimaryPrescribedWork.SessionType);
         Assert.True(presentation.PrimaryPrescribedWork.HasExecutableStandard);
     }
@@ -236,25 +230,21 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Equal("Target Hold", preflight.Work.Exercise.ExerciseName);
         Assert.Equal("Level 1", preflight.Work.Exercise.BranchLevelLabel);
         Assert.DoesNotContain("Focus Hold", preflight.Work.Exercise.BranchLevelLabel);
-        Assert.Contains("Practice one loop", preflight.Work.Exercise.Purpose);
-        Assert.Contains("honest noticing", preflight.Work.Exercise.PracticeGain);
-        Assert.Contains("whether the hold finished or stopped early", preflight.Work.Exercise.EvidenceRecorded);
-        Assert.Contains("After this is stable", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("longer holds", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("distraction", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("memory", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("switching", preflight.Work.Exercise.WhereItGoes);
-        Assert.Contains("transfer", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("until the hold ends", preflight.Work.Exercise.Purpose);
+        Assert.Contains("recorded actions", preflight.Work.Exercise.PracticeGain);
+        Assert.Contains("full hold finished", preflight.Work.Exercise.EvidenceRecorded);
+        Assert.Contains("Later levels", preflight.Work.Exercise.WhereItGoes);
+        Assert.Contains("distractors", preflight.Work.Exercise.WhereItGoes);
         Assert.DoesNotContain("Focus Shift", preflight.Work.Exercise.WhereItGoes);
         Assert.DoesNotContain("No promise this makes you smarter", preflight.Work.Exercise.WhereItGoes);
         Assert.Contains("Look at the visible shape normally", preflight.Work.Exercise.BeforeStartInstruction);
-        Assert.Contains("Counts when", preflight.Work.Exercise.SuccessCriteria);
+        Assert.Contains("To pass", preflight.Work.Exercise.SuccessCriteria);
         Assert.Contains("No more than 5 marked drifts", preflight.Work.Exercise.SuccessCriteria);
-        Assert.Contains("Does not count", preflight.Work.Exercise.FailureCriteria);
-        Assert.Contains("Target is stated before set", preflight.Work.Exercise.FailureCriteria);
-        Assert.Contains("WANDERED", preflight.Work.Exercise.HonestyInstruction);
-        Assert.Contains("look back at the shape", preflight.Work.Exercise.HonestyInstruction);
-        Assert.Contains("saves how many times you tapped", preflight.Work.Exercise.EvidenceRecorded);
+        Assert.Contains("does not count", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("target changes", preflight.Work.Exercise.FailureCriteria);
+        Assert.Contains("Tap once", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("same target", preflight.Work.Exercise.HonestyInstruction);
+        Assert.Contains("records taps", preflight.Work.Exercise.EvidenceRecorded);
         var primaryMaterial = Assert.IsType<string>(preflight.Work.Exercise.PrimaryMaterial);
         Assert.False(string.IsNullOrWhiteSpace(primaryMaterial));
         Assert.False(primaryMaterial.EndsWith(".", StringComparison.Ordinal));
@@ -520,6 +510,34 @@ public sealed class TrainingPresentationReadModelTests : IDisposable
         Assert.Contains(
             presentation.Work.LoadVariables,
             load => load.Name == "duration" && load.Value == "30 seconds");
+    }
+
+    [Fact]
+    public async Task ResultPresentationDoesNotRepeatTheSameFormalTestFailure()
+    {
+        var failure = new StandardEvaluationFailure(
+            StandardFailureKind.NumericalThresholdMissed,
+            FocusHoldStandardMeasurements.ActiveDurationSeconds);
+        var standard = new StandardEvaluationResult(Passed: false, [failure]);
+        var presentation = await ProcessedPresentationAsync(ProcessingResult(
+            sessionType: LocalCompletedSessionType.Test,
+            cleanPerformance: false,
+            standard: standard,
+            gate: new FormalGateDecision(GateOutcome.Fail, [failure])));
+
+        Assert.Equal(["Hold ended before 0:30."], presentation.BlockingFailureDetails);
+    }
+
+    [Fact]
+    public async Task ResultPresentationTranslatesTransferDiagnosticsIntoAConcreteReason()
+    {
+        var presentation = await ProcessedPresentationAsync(ProcessingResult(
+            sessionType: LocalCompletedSessionType.Transfer,
+            transfer: TransferBlocked()));
+
+        Assert.Equal(
+            ["The original skill's passing result was not recorded with this transfer."],
+            presentation.BlockingFailureDetails);
     }
 
     [Theory]

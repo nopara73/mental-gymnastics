@@ -61,7 +61,6 @@ public sealed class LocalFormalTestAttemptStore
     private const string ResultValuePropertyName = "ResultValue";
     private const string FailureTypePropertyName = "FailureType";
     private const string PassStatePropertyName = "PassState";
-    private const string MainFailureModeAvoidedPropertyName = "MainFailureModeAvoided";
     private const string ArtifactPropertyName = "Artifact";
     private const string CategoryPropertyName = "Category";
     private const string ObservableEvidencePropertyName = "ObservableEvidence";
@@ -277,11 +276,6 @@ public sealed class LocalFormalTestAttemptStore
             attemptObject[FailureTypePropertyName] = StableDomainIdentifiers.FailureTypes.ToPersistedId(failureType);
         }
 
-        if (attempt.MainFailureModeAvoided is { } mainFailureModeAvoided)
-        {
-            attemptObject[MainFailureModeAvoidedPropertyName] = mainFailureModeAvoided;
-        }
-
         return attemptObject;
     }
 
@@ -404,8 +398,7 @@ public sealed class LocalFormalTestAttemptStore
             ReadResultEvidence(ReadRequiredObject(attemptObject, ResultEvidencePropertyName)),
             ReadOptionalEnum(attemptObject, FailureTypePropertyName, StableDomainIdentifiers.FailureTypes),
             StableDomainIdentifiers.FormalTestPassStates.FromPersistedId(ReadRequiredString(attemptObject, PassStatePropertyName)),
-            ReadArtifact(ReadRequiredObject(attemptObject, ArtifactPropertyName)),
-            ReadOptionalString(attemptObject, MainFailureModeAvoidedPropertyName));
+            ReadArtifact(ReadRequiredObject(attemptObject, ArtifactPropertyName)));
     }
 
     private static TestTask ReadTask(JsonObject taskObject)

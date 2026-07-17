@@ -155,8 +155,7 @@ public sealed class FormalTestAttempt
         TestResultEvidence resultEvidence,
         FailureType? failureType,
         FormalTestPassState passState,
-        EvidenceArtifact artifact,
-        string? mainFailureModeAvoided = null)
+        EvidenceArtifact artifact)
     {
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(loadVariables);
@@ -205,9 +204,6 @@ public sealed class FormalTestAttempt
         FailureType = failureType;
         PassState = passState;
         Artifact = artifact;
-        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
-            ? null
-            : mainFailureModeAvoided.Trim();
     }
 
     public BranchCode Branch { get; }
@@ -231,6 +227,4 @@ public sealed class FormalTestAttempt
     public FormalTestPassState PassState { get; }
 
     public EvidenceArtifact Artifact { get; }
-
-    public string? MainFailureModeAvoided { get; }
 }

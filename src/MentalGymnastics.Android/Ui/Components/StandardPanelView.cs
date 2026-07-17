@@ -13,7 +13,7 @@ internal sealed class StandardPanelView : MgPanel
         string honestyConstraint)
         : base(context)
     {
-        ContentDescription = $"{title}. Standard: {standard}. Constraint: {honestyConstraint}.";
+        ContentDescription = $"{title}. What counts: {standard}. Required rule: {honestyConstraint}.";
 
         var titleView = new TextView(context)
         {
@@ -23,7 +23,7 @@ internal sealed class StandardPanelView : MgPanel
         AddView(titleView);
 
         AddRow(context, "Standard", standard);
-        AddRow(context, "Constraint", honestyConstraint);
+        AddRow(context, "Required rule", honestyConstraint);
     }
 
     private void AddRow(Context context, string label, string value)

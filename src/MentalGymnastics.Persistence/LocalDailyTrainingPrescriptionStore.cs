@@ -40,8 +40,7 @@ public sealed class LocalDailyTrainingBlockRecord
         LocalDailyTrainingBlockRole role,
         IEnumerable<LoadVariable> loadVariables,
         LocalDailyTrainingBlockState state,
-        string? sessionId = null,
-        string? mainFailureModeAvoided = null)
+        string? sessionId = null)
     {
         if (string.IsNullOrWhiteSpace(blockId))
         {
@@ -94,9 +93,6 @@ public sealed class LocalDailyTrainingBlockRecord
         LoadVariables = Array.AsReadOnly(loads);
         State = state;
         SessionId = normalizedSessionId;
-        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
-            ? null
-            : mainFailureModeAvoided.Trim();
     }
 
     public string BlockId { get; }
@@ -116,8 +112,6 @@ public sealed class LocalDailyTrainingBlockRecord
     public LocalDailyTrainingBlockState State { get; }
 
     public string? SessionId { get; }
-
-    public string? MainFailureModeAvoided { get; }
 
     public bool IsTerminal => State is
         LocalDailyTrainingBlockState.Completed or
@@ -416,7 +410,6 @@ public sealed class LocalDailyTrainingPrescriptionStore
                 ["LoadVariables"] = loads,
                 ["State"] = BlockStates.ToPersistedId(block.State),
                 ["SessionId"] = block.SessionId,
-                ["MainFailureModeAvoided"] = block.MainFailureModeAvoided,
             });
         }
 
@@ -467,8 +460,7 @@ public sealed class LocalDailyTrainingPrescriptionStore
             Roles.FromPersistedId(RequiredString(block, "Role")),
             loads,
             BlockStates.FromPersistedId(RequiredString(block, "State")),
-            OptionalString(block, "SessionId"),
-            OptionalString(block, "MainFailureModeAvoided"));
+            OptionalString(block, "SessionId"));
     }
 
     private static JsonObject WriteDate(TrainingDate date) => new()

@@ -71,8 +71,7 @@ public sealed class RuntimeFormalGateHandoffInput
         TestResultEvidence resultEvidence,
         FormalTestPassState passState,
         FailureType? failureType = null,
-        TestTask? task = null,
-        string? mainFailureModeAvoided = null)
+        TestTask? task = null)
     {
         ArgumentNullException.ThrowIfNull(resultEvidence);
         EnsureDefined(passState, nameof(passState));
@@ -86,9 +85,6 @@ public sealed class RuntimeFormalGateHandoffInput
         PassState = passState;
         FailureType = failureType;
         Task = task;
-        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
-            ? null
-            : mainFailureModeAvoided.Trim();
     }
 
     public TrainingDate Date { get; }
@@ -100,8 +96,6 @@ public sealed class RuntimeFormalGateHandoffInput
     public FailureType? FailureType { get; }
 
     public TestTask? Task { get; }
-
-    public string? MainFailureModeAvoided { get; }
 
     private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum
@@ -139,8 +133,7 @@ public sealed class RuntimeStabilizationCoreHandoffInput
         TrainingDate date,
         StandardEvaluationResult standardEvaluationResult,
         FormalTestPassState passState,
-        bool afterAdjacentWorkOrControlledDistractor,
-        string mainFailureModeAvoided)
+        bool afterAdjacentWorkOrControlledDistractor)
     {
         ArgumentNullException.ThrowIfNull(standardEvaluationResult);
         EnsureDefined(passState, nameof(passState));
@@ -149,7 +142,6 @@ public sealed class RuntimeStabilizationCoreHandoffInput
         StandardEvaluationResult = standardEvaluationResult;
         PassState = passState;
         AfterAdjacentWorkOrControlledDistractor = afterAdjacentWorkOrControlledDistractor;
-        MainFailureModeAvoided = mainFailureModeAvoided ?? string.Empty;
     }
 
     public TrainingDate Date { get; }
@@ -159,8 +151,6 @@ public sealed class RuntimeStabilizationCoreHandoffInput
     public FormalTestPassState PassState { get; }
 
     public bool AfterAdjacentWorkOrControlledDistractor { get; }
-
-    public string MainFailureModeAvoided { get; }
 
     private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum
@@ -430,8 +420,7 @@ public static class RuntimeCoreEvaluationHandoffMapper
             request.FormalGate.ResultEvidence,
             request.FormalGate.FailureType,
             request.FormalGate.PassState,
-            artifact,
-            request.FormalGate.MainFailureModeAvoided);
+            artifact);
     }
 
     private static TestReadinessPracticeSession? BuildReadinessPracticeSession(
@@ -473,8 +462,7 @@ public static class RuntimeCoreEvaluationHandoffMapper
             request.Result.SessionDefinition.Standard.Standard,
             request.Stabilization.PassState,
             request.Stabilization.StandardEvaluationResult,
-            request.Stabilization.AfterAdjacentWorkOrControlledDistractor,
-            request.Stabilization.MainFailureModeAvoided);
+            request.Stabilization.AfterAdjacentWorkOrControlledDistractor);
     }
 
     private static MaintenanceCheckEvidence? BuildMaintenanceCheck(

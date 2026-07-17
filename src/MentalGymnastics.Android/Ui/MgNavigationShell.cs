@@ -30,7 +30,6 @@ internal sealed class MgNavigationShell
     private AndroidActiveSessionResumeSnapshot? activeSessionResumeSnapshot;
     private LocalDataBackupOperationResult? localDataOperation;
     private string liveSessionInput = string.Empty;
-    private string? selectedMainFailureMode;
     private bool restoreConfirmationArmed;
     private bool stopTodayConfirmationArmed;
     private DateTimeOffset? liveBackConfirmationAt;
@@ -155,7 +154,7 @@ internal sealed class MgNavigationShell
 
     public event Action? SessionStartRequested;
 
-    public event Action<string?>? LiveSessionStartRequested;
+    public event Action? LiveSessionStartRequested;
 
     public event Action? PreparedSessionCancelRequested;
 
@@ -163,7 +162,6 @@ internal sealed class MgNavigationShell
 
     public event Action? StopTodayRequested;
 
-    public event Action? GlobalReviewCompletionRequested;
 
     public event Action<RuntimeInputCommandKind, string?, string?>? LiveSessionCommandRequested;
 
@@ -262,7 +260,6 @@ internal sealed class MgNavigationShell
         activeSessionResumeSnapshot = null;
         localDataOperation = null;
         liveSessionInput = string.Empty;
-        selectedMainFailureMode = null;
         restoreConfirmationArmed = false;
         currentScreen = Screen.Today;
         RenderCurrentScreen();
@@ -317,12 +314,6 @@ internal sealed class MgNavigationShell
         var exercise = snapshot?.Presentation.PrimaryPrescribedWork?.Exercise.ExerciseName ?? "exercise";
         AddPanel($"Getting {exercise} ready", "Setting up the exercise.", "Nothing counts until the exercise starts.");
         ResetScrollPosition();
-    }
-
-    public void ShowGlobalReviewCompletionLoading()
-    {
-        // Keep the completed review visible until its final result is ready. Rendering an
-        // intermediate message here creates a brief, unreadable flash on fast devices.
     }
 
     public void RenderSessionStart(AndroidSessionStartSnapshot snapshot)
@@ -786,7 +777,7 @@ internal sealed class MgNavigationShell
         {
             Screen.Live => liveSessionSnapshot?.Presentation.Work.Exercise.ExerciseName ?? "Training",
             Screen.Result => "Result",
-            Screen.BranchDetail => ProgramCatalog.Branches.Single(branch => branch.Code == selectedBranch).Name,
+            Screen.BranchDetail => BranchLabel(selectedBranch),
             Screen.RecordDetail => "Session",
             _ => TitleFor(currentScreen),
         };
@@ -821,13 +812,6 @@ internal sealed class MgNavigationShell
             {
                 AddTodayPrimaryButton(panel, presentation);
             }
-            content.AddView(panel, MatchWrapWithBottom());
-            return;
-        }
-
-        if (state.DailyTraining?.CurrentBlock?.Record.Role == LocalDailyTrainingBlockRole.Review)
-        {
-            AddDueGlobalReviewToday(panel, state);
             content.AddView(panel, MatchWrapWithBottom());
             return;
         }
@@ -1041,7 +1025,7 @@ internal sealed class MgNavigationShell
             DrillId.CO2StructureMapping => $"Map {Load("relation count", "3")} relations across domains.",
             DrillId.AI1PressureRepeat => $"Repeat the source task under {Load("time pressure", "90 seconds")} pressure.",
             DrillId.AI2DisruptionRecovery => $"Resume within {Load("recovery window", "30 seconds")} after disruption.",
-            DrillId.TI1CompositeTask => $"{Load("number of branches", "2")} branches · {Load("task length", "12 minutes")}.",
+            DrillId.TI1CompositeTask => $"{Load("number of branches", "2")} components · {Load("task length", "12 minutes")}.",
             DrillId.TI2GlobalReviewTask => $"Audit the program record for {Load("task length", "20 minutes")}.",
             _ => work.Exercise.FirstScreenInstruction,
         };
@@ -1049,7 +1033,20 @@ internal sealed class MgNavigationShell
 
     private static string StandardDisplay(TrainingPresentationWorkSummary work)
     {
-        return work.Standard ?? "Complete the visible task to its stated standard.";
+        var standard = work.Standard ?? "Complete the visible task to its stated standard.";
+        if (work.Drill is not (DrillId.FH1TargetHold or DrillId.FH2DistractorHold))
+        {
+            return standard;
+        }
+
+        return standard
+            .Replace("every noticed drift marked", "tap once for every noticed wander", StringComparison.OrdinalIgnoreCase)
+            .Replace("marked drifts", "recorded wanders", StringComparison.OrdinalIgnoreCase)
+            .Replace("marked drift", "recorded wander", StringComparison.OrdinalIgnoreCase)
+            .Replace("drifts", "wanders", StringComparison.OrdinalIgnoreCase)
+            .Replace("drift", "wander", StringComparison.OrdinalIgnoreCase)
+            .Replace("no target change", "keep the same target", StringComparison.OrdinalIgnoreCase)
+            .Replace("target substitution", "target change", StringComparison.OrdinalIgnoreCase);
     }
 
     private void AddActiveSessionProblem(PreUiActiveSessionResumeState resume)
@@ -1231,26 +1228,6 @@ internal sealed class MgNavigationShell
         }
     }
 
-    private void AddDueGlobalReviewToday(
-        LinearLayout panel,
-        AndroidTrainingStateSnapshot state)
-    {
-        var review = state.CurrentState.GlobalReview;
-        AddCompactScreenHeading(panel, "Global review", "Cycle review due today");
-        AddDailyDoseProgress(panel, state.Presentation);
-        var decision = SelectReviewDecision(review);
-        AddWarningRow(
-            panel,
-            "Decision",
-            ReviewDecisionLabel(decision),
-            ColorForReviewDecision(review, decision));
-        AddPrimaryButton(panel, "Review practice records", enabled: true, () =>
-        {
-            currentScreen = Screen.Review;
-            RenderCurrentScreen();
-        });
-    }
-
     private void AddTodayPrimaryButton(
         LinearLayout panel,
         CurrentTrainingPresentationReadModel presentation)
@@ -1270,68 +1247,6 @@ internal sealed class MgNavigationShell
             TodayPrimaryActionLabel(presentation),
             presentation.PrimaryActionEnabled,
             () => SessionStartRequested?.Invoke());
-    }
-
-    private void AddTodayPurposePreview(LinearLayout panel, TrainingExercisePresentation exercise)
-    {
-        var card = new LinearLayout(context)
-        {
-            Orientation = Orientation.Vertical,
-            Background = MgTheme.TintedSurface(context, MgColors.Surface, MgColors.HairlineSoft, cornerRadius: 8),
-        };
-        card.SetPadding(Dp(MgSpacing.Md), Dp(MgSpacing.Md), Dp(MgSpacing.Md), Dp(MgSpacing.Md));
-        card.Elevation = Dp(1);
-
-        var whyDetail = string.IsNullOrWhiteSpace(exercise.PracticeGain)
-            ? exercise.Purpose
-            : $"{exercise.Purpose} {exercise.PracticeGain}";
-        AddTodayPurposeRow(card, MgGlyphKind.Target, "What you practice", whyDetail, MgColors.Training);
-        AddTodayPurposeRow(card, MgGlyphKind.Next, "How it gets harder", exercise.WhereItGoes, MgColors.TestReady);
-
-        panel.AddView(card, MatchWrapWithTop(MgSpacing.Md));
-    }
-
-    private void AddTodayPurposeRow(
-        LinearLayout card,
-        MgGlyphKind glyph,
-        string title,
-        string detail,
-        Color color)
-    {
-        var row = new LinearLayout(context)
-        {
-            Orientation = Orientation.Horizontal,
-        };
-        row.SetGravity(GravityFlags.CenterVertical);
-
-        row.AddView(
-            new MgGlyphView(context, glyph, color, filled: false),
-            new LinearLayout.LayoutParams(Dp(40), Dp(40)));
-
-        var stack = new LinearLayout(context)
-        {
-            Orientation = Orientation.Vertical,
-        };
-        var stackLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
-        stackLayout.SetMargins(Dp(MgSpacing.Md), 0, 0, 0);
-        row.AddView(stack, stackLayout);
-
-        var titleView = new TextView(context)
-        {
-            Text = title,
-        };
-        MgTypography.ApplyBody(titleView);
-        stack.AddView(titleView, MatchWrap());
-
-        var detailView = new TextView(context)
-        {
-            Text = detail,
-        };
-        MgTypography.ApplyMicro(detailView);
-        detailView.SetTextColor(MgColors.InkMuted);
-        stack.AddView(detailView, MatchWrapWithTop(MgSpacing.Xs));
-
-        card.AddView(row, MatchWrapWithTop(card.ChildCount == 0 ? 0 : MgSpacing.Sm));
     }
 
     private void AddHeroChip(LinearLayout row, string label, bool last = false)
@@ -1506,7 +1421,7 @@ internal sealed class MgNavigationShell
     private void AddBranchPreview(CurrentTrainingStateReadModel state)
     {
         var panel = Panel();
-        AddSectionTitle(panel, "Branch state");
+        AddSectionTitle(panel, "Skill status");
         foreach (var branch in ProgramCatalog.Branches.Select(branch => branch.Code))
         {
             var statuses = state.BranchLevelStates
@@ -1525,7 +1440,7 @@ internal sealed class MgNavigationShell
             row.SetGravity(GravityFlags.CenterVertical);
             row.SetPadding(0, Dp(MgSpacing.Xs), 0, Dp(MgSpacing.Xs));
 
-            var branchLabel = Label(branch.ToString(), minWidthDp: 42);
+            var branchLabel = Label(SkillShortLabel(branch), minWidthDp: 64);
             row.AddView(branchLabel);
             foreach (var status in statuses.Take(5))
             {
@@ -1606,7 +1521,7 @@ internal sealed class MgNavigationShell
             AddMetricBox(scope, "Best case", $"{forecast.BestCaseCalendarDays}+ days");
             AddMetricBox(scope, "Typical day", $"about {forecast.AverageMinutesPerTrainingDay} min", last: true);
             panel.AddView(scope, MatchWrapWithTop(MgSpacing.Md));
-            AddMuted(panel, "Perfect clean path. Missed days, failed gates, and restoration extend it.");
+            AddMuted(panel, "This estimate assumes every required test passes on schedule. Missed days and failed tests extend it.");
         }
 
         if (completion.State == ProgramCompletionState.CompleteMaintenanceRequired)
@@ -1671,7 +1586,7 @@ internal sealed class MgNavigationShell
             Clickable = true,
             Focusable = true,
             Background = MgTheme.Surface(context, cornerRadius: 8),
-            ContentDescription = $"{branch.Name}, {current.Level}, {(currentMaintenanceDue ? "Maintenance due" : BranchStateLabel(current.State))}. Open branch.",
+            ContentDescription = $"{branch.Name}, {current.Level}, {(currentMaintenanceDue ? "Recheck due" : BranchStateLabel(current.State))}. Open skill.",
         };
         row.SetPadding(Dp(MgSpacing.Md), Dp(MgSpacing.Md), Dp(MgSpacing.Md), Dp(MgSpacing.Md));
         row.Click += (_, _) =>
@@ -1727,11 +1642,10 @@ internal sealed class MgNavigationShell
     {
         if (state is null)
         {
-            AddPanel("Branch unavailable", "Training state is not loaded.", "Return to Map.");
+            AddPanel("Skill unavailable", "Training state is not loaded.", "Return to Map.");
             return;
         }
 
-        var branch = ProgramCatalog.Branches.Single(item => item.Code == selectedBranch);
         var levels = state.CurrentState.BranchLevelStates
             .Where(status => status.Branch == selectedBranch)
             .OrderBy(status => status.Level)
@@ -1756,9 +1670,9 @@ internal sealed class MgNavigationShell
         {
             var button = new Button(context)
             {
-                Text = level.Level.ToString(),
+                Text = LevelRank(level.Level).ToString(),
                 Enabled = level.Level != selectedLevel,
-                ContentDescription = $"{level.Level}, {BranchStateLabel(level.State)}",
+                ContentDescription = $"Level {LevelRank(level.Level)}, {BranchStateLabel(level.State)}",
             };
             button.SetAllCaps(false);
             button.SetMinHeight(Dp(48));
@@ -1789,13 +1703,13 @@ internal sealed class MgNavigationShell
             AddFocusedBlock(panel, "Standard", standard.Standard);
         }
 
-        AddFocusedBlock(panel, "Demand", standard.Demand);
         if (selected.State == BranchLevelState.Unopened)
         {
-            var unlockRule = selectedLevel == GlobalLevelId.L1
-                ? branch.UnlockRule
-                : standard.Gate;
-            AddWarningRow(panel, "Unlock", unlockRule, MgColors.Recovery);
+            AddWarningRow(
+                panel,
+                "Why locked",
+                "Complete the required earlier skill levels and due rechecks first.",
+                MgColors.Recovery);
         }
 
         var evidenceCount = state.CurrentState.EvidenceSummaries.Count(artifact =>
@@ -1835,13 +1749,13 @@ internal sealed class MgNavigationShell
         return state switch
         {
             BranchLevelState.Unopened => "Locked",
-            BranchLevelState.Training => "Training",
-            BranchLevelState.TestReady => "Test ready",
-            BranchLevelState.PassedOnce => "Passed once",
-            BranchLevelState.Stabilizing => "Stabilizing",
-            BranchLevelState.Owned => "Owned",
-            BranchLevelState.Maintenance => "Maintenance due",
-            BranchLevelState.Decayed => "Decayed",
+            BranchLevelState.Training => "Practice",
+            BranchLevelState.TestReady => "Ready for test",
+            BranchLevelState.PassedOnce => "First test passed",
+            BranchLevelState.Stabilizing => "Repeat tests",
+            BranchLevelState.Owned => "Stable",
+            BranchLevelState.Maintenance => "Recheck due",
+            BranchLevelState.Decayed => "Needs recheck",
             _ => state.ToString(),
         };
     }
@@ -2358,15 +2272,7 @@ internal sealed class MgNavigationShell
         }
 
         AddReviewFoundationSummary(panel, state.CurrentState);
-        if (reviewDue)
-        {
-            AddPrimaryButton(
-                panel,
-                "Complete review",
-                enabled: true,
-                () => GlobalReviewCompletionRequested?.Invoke());
-        }
-        else if (next is not null)
+        if (next is not null)
         {
             AddPrimaryButton(panel, "Open next exercise", enabled: true, () =>
             {
@@ -2421,7 +2327,7 @@ internal sealed class MgNavigationShell
             MgTypography.ApplyLabel(branchLabel);
             var stateLabel = new TextView(context)
             {
-                Text = current == default ? "Locked" : current.Level.ToString(),
+                Text = current == default ? "Locked" : $"Level {LevelRank(current.Level)}",
                 Gravity = GravityFlags.Center,
             };
             MgTypography.ApplyBody(stateLabel);
@@ -2596,13 +2502,14 @@ internal sealed class MgNavigationShell
 
         if (preflight.Work is { } work)
         {
-            var requiresFailureMode = RequiresFailureModeSelection(work);
             var isFocusHold = work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold;
-            if (!isFocusHold)
-            {
-                AddCompactScreenHeading(panel, work.Exercise.ExerciseName, work.Exercise.BranchLevelLabel);
-                AddBody(panel, work.Exercise.Purpose);
-            }
+            var isFormalTest = work.SessionType == AppTrainingSessionType.Test;
+            AddCompactScreenHeading(
+                panel,
+                isFormalTest ? "This is a test." : work.Exercise.ExerciseName,
+                isFormalTest
+                    ? $"{work.Exercise.ExerciseName} · {work.Exercise.BranchLevelLabel}"
+                    : $"{work.Exercise.BranchLevelLabel} · {WorkRoleLabel(work)}");
 
             if (isFocusHold)
             {
@@ -2610,23 +2517,15 @@ internal sealed class MgNavigationShell
                 target.SetDense(dense: true);
                 target.Update(work.Exercise.PrimaryMaterial);
                 panel.AddView(target, MatchWrapWithTop(MgSpacing.Md));
-
-                var prompt = new TextView(context)
-                {
-                    Text = work.Drill == DrillId.FH2DistractorHold
-                        ? "Keep attention on this exact shape. Let distractors pass."
-                        : "Keep attention on this exact shape.",
-                    Gravity = GravityFlags.Center,
-                };
-                MgTypography.ApplyHeading(prompt);
-                panel.AddView(prompt, MatchWrapWithTop(MgSpacing.Md));
                 AddFocusHoldDurationCue(panel, work.LoadVariables);
-                AddInteractionProtocol(panel, work.Exercise.InteractionProtocol);
                 AddFocusedBlock(
                     panel,
-                    "THIS PRACTICE",
+                    "WHAT TO DO",
                     FocusHoldPracticeContract(work));
-                AddFailureModeSelector(panel, work);
+                AddFocusedBlock(
+                    panel,
+                    StandardBlockLabel(work),
+                    StandardDisplay(work));
             }
             else
             {
@@ -2636,13 +2535,12 @@ internal sealed class MgNavigationShell
                     panel,
                     StandardBlockLabel(work),
                     StandardDisplay(work));
-                AddFailureModeSelector(panel, work);
             }
 
             AddPrimaryButton(
                 panel,
                 preflight.CanStart ? PreflightStartLabel(work) : "Blocked",
-                preflight.CanStart && (!requiresFailureMode || selectedMainFailureMode is not null),
+                preflight.CanStart,
                 HandlePreflightStartRequested);
         }
         else
@@ -2727,10 +2625,11 @@ internal sealed class MgNavigationShell
     private static string FocusHoldPracticeContract(TrainingPresentationWorkSummary work)
     {
         var distractorInstruction = work.Drill == DrillId.FH2DistractorHold
-            ? " Do not tap for distractors."
+            ? " Ignore distractors; do not tap for them."
             : string.Empty;
-        return $"Look at the target for {FocusHoldDurationValue(work.LoadVariables)}. " +
-            $"Tap whenever you notice a wander.{distractorInstruction} The hold ends automatically.";
+        return "Look at the target until the hold ends. " +
+            "Tap once whenever you notice your attention has wandered, then return to the same target. " +
+            $"The timer continues after a wander.{distractorInstruction}";
     }
 
     private void AddFocusHoldDurationCue(
@@ -2971,181 +2870,10 @@ internal sealed class MgNavigationShell
         panel.AddView(material, MatchWrapWithTop(MgSpacing.Md));
     }
 
-    private void AddDrillSetupSteps(
-        LinearLayout panel,
-        DrillId drill)
-    {
-        var labels = drill switch
-        {
-            DrillId.FH1TargetHold => ("Target", "Tap wander", "Resume"),
-            DrillId.FH2DistractorHold => ("Target", "Ignore", "Resume"),
-            DrillId.FS1CueSwitch or DrillId.FS2InvalidCueFilter => ("Targets", "Watch", "Switch"),
-            DrillId.WM1DelayedReconstruction => ("Study", "Hide", "Rebuild"),
-            DrillId.WM2MentalTransform => ("Study", "Transform", "Explain"),
-            DrillId.IR1GoNoGoRule or DrillId.IR2ExceptionRule => ("Rule", "Watch", "Withhold"),
-            DrillId.DE1PairDiscrimination => ("Compare", "Mark guess", "Decide"),
-            DrillId.DE2SeededAudit => ("Lock", "Find", "Submit"),
-            DrillId.CO1RuleExtraction => ("Examples", "Rule", "Test"),
-            DrillId.CO2StructureMapping => ("Roles", "Relations", "Map"),
-            DrillId.AI1PressureRepeat => ("Standard", "Pressure", "Repeat"),
-            DrillId.AI2DisruptionRecovery => ("Task", "Disrupt", "Resume"),
-            DrillId.TI1CompositeTask => ("Parts", "Perform", "Evidence"),
-            DrillId.TI2GlobalReviewTask => ("Evidence", "Audit", "Decide"),
-            _ => ("Read", "Perform", "Record"),
-        };
-
-        var steps = new LinearLayout(context)
-        {
-            Orientation = Orientation.Horizontal,
-        };
-        AddSetupStep(steps, MgGlyphKind.Read, labels.Item1, MgColors.TrainingDark);
-        AddSetupStep(steps, MgGlyphKind.Hold, labels.Item2, MgColors.TestReady);
-        AddSetupStep(steps, MgGlyphKind.Check, labels.Item3, MgColors.PassedOnce);
-        panel.AddView(steps, MatchWrapWithTop(MgSpacing.Md));
-    }
-
-    private void AddSetupStep(
-        LinearLayout row,
-        MgGlyphKind glyph,
-        string label,
-        Color color)
-    {
-        var step = new LinearLayout(context)
-        {
-            Orientation = Orientation.Vertical,
-        };
-        step.SetGravity(GravityFlags.Center);
-        var icon = new MgGlyphView(
-            context,
-            glyph,
-            color,
-            filled: false,
-            showContainer: false)
-        {
-            ImportantForAccessibility = ImportantForAccessibility.No,
-        };
-        step.AddView(icon, new LinearLayout.LayoutParams(Dp(36), Dp(36)));
-        var text = new TextView(context)
-        {
-            Text = label,
-            Gravity = GravityFlags.Center,
-        };
-        MgTypography.ApplyLabel(text);
-        step.AddView(text, MatchWrapWithTop(MgSpacing.Xs));
-        row.AddView(step, new LinearLayout.LayoutParams(0, Dp(64), 1));
-    }
-
     private void HandlePreflightStartRequested()
     {
         ShowLiveSessionLoading();
-        LiveSessionStartRequested?.Invoke(selectedMainFailureMode);
-    }
-
-    private void AddFailureModeSelector(
-        LinearLayout panel,
-        TrainingPresentationWorkSummary work)
-    {
-        if (!RequiresFailureModeSelection(work) || work.Drill is null)
-        {
-            return;
-        }
-
-        var label = new TextView(context)
-        {
-            Text = "Guard against",
-        };
-        MgTypography.ApplyLabel(label);
-        label.SetTextColor(MgColors.InkMuted);
-        panel.AddView(label, MatchWrapWithTop(MgSpacing.Md));
-
-        var modes = ProgramCatalog.Drills.Single(drill => drill.Id == work.Drill.Value)
-            .FailureModes
-            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Take(3);
-        foreach (var mode in modes)
-        {
-            var selected = string.Equals(mode, selectedMainFailureMode, StringComparison.Ordinal);
-            var button = new Button(context)
-            {
-                Text = mode,
-                ContentDescription = selected ? $"Selected: {mode}" : $"Select: {mode}",
-            };
-            button.SetAllCaps(false);
-            button.SetSingleLine(false);
-            button.SetMinHeight(Dp(44));
-            button.SetPadding(Dp(MgSpacing.Md), Dp(MgSpacing.Xs), Dp(MgSpacing.Md), Dp(MgSpacing.Xs));
-            MgTypography.ApplyBody(button);
-            button.SetTextColor(selected ? Color.White : MgColors.Ink);
-            button.Background = selected
-                ? MgTheme.Filled(context, MgColors.TrainingDark, cornerRadius: 8)
-                : MgTheme.Outline(context, MgColors.Hairline, cornerRadius: 8);
-            button.Click += (_, _) =>
-            {
-                selectedMainFailureMode = mode;
-                RenderCurrentScreen(resetScroll: false);
-            };
-            panel.AddView(button, MatchWrapWithTop(MgSpacing.Xs));
-        }
-    }
-
-    private static bool RequiresFailureModeSelection(TrainingPresentationWorkSummary work)
-    {
-        return work.SessionType is
-            AppTrainingSessionType.Test or
-            AppTrainingSessionType.Stabilization or
-            AppTrainingSessionType.Transfer;
-    }
-
-    private void AddPreflightWorkHeader(
-        LinearLayout panel,
-        TrainingPresentationWorkSummary work)
-    {
-        var row = new LinearLayout(context)
-        {
-            Orientation = Orientation.Horizontal,
-            Background = MgTheme.TintedSurface(context, MgColors.TrainingPanel, MgColors.HairlineSoft, cornerRadius: 8),
-        };
-        row.SetGravity(GravityFlags.CenterVertical);
-        row.SetPadding(Dp(MgSpacing.Lg), Dp(MgSpacing.Md), Dp(MgSpacing.Lg), Dp(MgSpacing.Md));
-
-        row.AddView(
-            new MgGlyphView(context, MgGlyphKind.Hold, MgColors.TrainingDark),
-            new LinearLayout.LayoutParams(Dp(52), Dp(52)));
-
-        var stack = new LinearLayout(context)
-        {
-            Orientation = Orientation.Vertical,
-        };
-        var stackLayout = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1);
-        stackLayout.SetMargins(Dp(MgSpacing.Md), 0, 0, 0);
-        row.AddView(stack, stackLayout);
-
-        var title = new TextView(context)
-        {
-            Text = WorkTitle(work),
-        };
-        MgTypography.ApplyHeading(title);
-        stack.AddView(title, MatchWrap());
-
-        var marker = new TextView(context)
-        {
-            Text = PreflightWorkMarker(work),
-            Gravity = GravityFlags.Center,
-            Background = MgTheme.TintedSurface(context, MgColors.Surface, MgColors.Training, cornerRadius: 8),
-        };
-        marker.SetTextColor(MgColors.Ink);
-        marker.SetPadding(Dp(MgSpacing.Sm), Dp(MgSpacing.Xs), Dp(MgSpacing.Sm), Dp(MgSpacing.Xs));
-        MgTypography.ApplyMicro(marker);
-        stack.AddView(marker, WrapWrapWithTop(MgSpacing.Xs));
-
-        var branch = new TextView(context)
-        {
-            Text = work.Exercise.BranchLevelLabel,
-        };
-        MgTypography.ApplyLabel(branch);
-        stack.AddView(branch, MatchWrapWithTop(MgSpacing.Xs));
-
-        panel.AddView(row, MatchWrapWithTop(MgSpacing.Md));
+        LiveSessionStartRequested?.Invoke();
     }
 
     private void AddPreflightRequirement(
@@ -3511,7 +3239,7 @@ internal sealed class MgNavigationShell
             DrillId.DE2SeededAudit => (Load("quantity") ?? "--", "errors set"),
             DrillId.CO1RuleExtraction => (Load("example count") ?? "--", "examples"),
             DrillId.CO2StructureMapping => (Load("relation count") ?? "--", "relations"),
-            DrillId.TI1CompositeTask => (Load("number of branches") ?? "--", "branches"),
+            DrillId.TI1CompositeTask => (Load("number of branches") ?? "--", "components"),
             _ => ("1", "task"),
         };
     }
@@ -3528,7 +3256,7 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.TimedOut => "Standard not met",
             TrainingResultPresentationOutcomeKind.PassedOnce => "First pass counted",
             TrainingResultPresentationOutcomeKind.Stabilizing => "Clean repeat counted",
-            TrainingResultPresentationOutcomeKind.Owned => "Level owned",
+            TrainingResultPresentationOutcomeKind.Owned => "Level stable",
             TrainingResultPresentationOutcomeKind.NoAdvancement => "Practice saved",
             _ => "Result saved",
         };
@@ -3770,13 +3498,13 @@ internal sealed class MgNavigationShell
         };
         row.SetGravity(GravityFlags.CenterVertical);
         row.SetPadding(0, Dp(MgSpacing.Sm), 0, 0);
-        if (presentation.Work.Drill == DrillId.FH1TargetHold)
+        if (presentation.Work.Drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
             AddMetricBox(row, "Wanders", evidence.DriftCount.ToString());
         }
         else
         {
-            AddMetricBox(row, "Drifts", evidence.DriftCount.ToString());
+            AddMetricBox(row, "Rule slips", evidence.DriftCount.ToString());
             AddMetricBox(row, "Guesses", evidence.GuessCount.ToString());
             AddMetricBox(row, "Errors", evidence.ErrorCount.ToString());
             AddMetricBox(row, "Fixes", evidence.CorrectionCount.ToString(), last: true);
@@ -3852,7 +3580,7 @@ internal sealed class MgNavigationShell
         row.SetGravity(GravityFlags.CenterVertical);
         row.SetPadding(0, Dp(MgSpacing.Md), 0, 0);
 
-        row.AddView(Label(branch.ToString(), minWidthDp: 40), WrapWrap());
+        row.AddView(Label(SkillShortLabel(branch), minWidthDp: 64), WrapWrap());
 
         var track = new LinearLayout(context)
         {
@@ -3916,7 +3644,7 @@ internal sealed class MgNavigationShell
 
         if (summary.StabilizationPassCount > 0)
         {
-            signals.Add(new("S", "Stabilize", summary.StabilizationPassCount.ToString(), MgColors.TestReady, Filled: false));
+            signals.Add(new("S", "Repeat tests", summary.StabilizationPassCount.ToString(), MgColors.TestReady, Filled: false));
         }
 
         if (summary.MaintenanceCheckCount > 0)
@@ -3948,7 +3676,7 @@ internal sealed class MgNavigationShell
         if (summary.LatestEvidenceCategory.HasValue)
         {
             var target = summary.LatestBranch.HasValue && summary.LatestLevel.HasValue
-                ? $"{summary.LatestBranch.Value} {LevelCode(summary.LatestLevel.Value)}"
+                ? $"{BranchLabel(summary.LatestBranch.Value)} {LevelCode(summary.LatestLevel.Value)}"
                 : "Program";
             AddInspectionRow(
                 panel,
@@ -3979,11 +3707,11 @@ internal sealed class MgNavigationShell
 
         var signals = new List<VisualSignal>();
         AddStateSignal(signals, includeZeros, "B", "Blocked", blockedCount, MgColors.Blocked, blockedCount > 0);
-        AddStateSignal(signals, includeZeros, "D", "Decayed", decayedCount, MgColors.Blocked, decayedCount > 0);
+        AddStateSignal(signals, includeZeros, "D", "Needs recheck", decayedCount, MgColors.Blocked, decayedCount > 0);
         AddStateSignal(signals, includeZeros, "M", "Due", dueCount, MgColors.Maintenance, dueCount > 0);
         AddStateSignal(signals, includeZeros, "1", "Pass once", passedOnceCount, MgColors.PassedOnce, false);
-        AddStateSignal(signals, includeZeros, "S", "Stabilize", stabilizingCount, MgColors.TestReady, false);
-        AddStateSignal(signals, includeZeros, "O", "Owned", ownedCount, MgColors.Owned, ownedCount > 0);
+        AddStateSignal(signals, includeZeros, "S", "Repeat tests", stabilizingCount, MgColors.TestReady, false);
+        AddStateSignal(signals, includeZeros, "O", "Stable", ownedCount, MgColors.Owned, ownedCount > 0);
         AddStateSignal(signals, includeZeros, "TR", "Transfer", transferCount, MgColors.Transfer, false);
 
         AddSignalStrip(panel, signals);
@@ -4061,7 +3789,7 @@ internal sealed class MgNavigationShell
         {
             var branch = work.BranchEmphasis.Count == 0
                 ? "Program"
-                : string.Join(" / ", work.BranchEmphasis);
+                : string.Join(" / ", work.BranchEmphasis.Select(BranchLabel));
             AddInspectionRow(panel, "TR", "Transfer", $"{WeeklySessionLabel(work.Session)} · {branch}", MgColors.Transfer);
         }
     }
@@ -4078,7 +3806,7 @@ internal sealed class MgNavigationShell
 
         var panel = Panel();
         var first = rows[0];
-        AddMarkerHeader(panel, "Maintenance / decay", first.Marker, first.Color);
+        AddMarkerHeader(panel, "Rechecks", first.Marker, first.Color);
         foreach (var row in rows)
         {
             AddInspectionRow(panel, row.Marker, row.Label, row.Detail, row.Color, row.Filled);
@@ -4106,7 +3834,7 @@ internal sealed class MgNavigationShell
         var parts = new List<string>();
         if (decayedCount > 0)
         {
-            parts.Add($"{decayedCount} decayed");
+            parts.Add($"{decayedCount} need a passing recheck");
         }
 
         if (failedCount > 0)
@@ -4122,7 +3850,7 @@ internal sealed class MgNavigationShell
         AddInspectionRow(
             panel,
             decayedCount > 0 ? "D" : "M",
-            "Maintenance / decay",
+            "Rechecks",
             string.Join(" · ", parts),
             decayedCount > 0 || failedCount > 0 ? MgColors.Blocked : MgColors.Maintenance,
             filled: decayedCount > 0 || failedCount > 0);
@@ -4271,7 +3999,7 @@ internal sealed class MgNavigationShell
     {
         var cell = new TextView(context)
         {
-            Text = $"{signal.Branch}\n{signal.Level} · {signal.State}",
+            Text = $"{BranchLabel(signal.Branch)}\n{signal.Level} · {signal.State}",
             Gravity = GravityFlags.Center,
             Background = signal.Filled
                 ? MgTheme.Filled(context, signal.Color, cornerRadius: 8)
@@ -4300,7 +4028,7 @@ internal sealed class MgNavigationShell
         {
             var branch = next.BranchEmphasis.Count == 0
                 ? "Program"
-                : string.Join(" / ", next.BranchEmphasis);
+                : string.Join(" / ", next.BranchEmphasis.Select(BranchLabel));
             AddInspectionRow(
                 panel,
                 ">",
@@ -4969,8 +4697,8 @@ internal sealed class MgNavigationShell
         {
             rows.Add(new InspectionSignal(
                 "D",
-                $"{FormatBranchLevel(status.Branch, status.Level)} · Decayed",
-                "Restoration required before advancement.",
+                $"{FormatBranchLevel(status.Branch, status.Level)} · Needs recheck",
+                "A passing recheck is required before related levels can advance.",
                 MgColors.Blocked,
                 Filled: true));
         }
@@ -5022,10 +4750,10 @@ internal sealed class MgNavigationShell
     {
         return source switch
         {
-            CurrentTrainingStateBlockerSource.Category => "Category gate",
-            CurrentTrainingStateBlockerSource.WeeklyProgramming => "Weekly gate",
-            CurrentTrainingStateBlockerSource.DependencyCap => "Dependency gate",
-            CurrentTrainingStateBlockerSource.GlobalBalance => "Balance gate",
+            CurrentTrainingStateBlockerSource.Category => "Program requirement",
+            CurrentTrainingStateBlockerSource.WeeklyProgramming => "Scheduled later",
+            CurrentTrainingStateBlockerSource.DependencyCap => "Required earlier skill",
+            CurrentTrainingStateBlockerSource.GlobalBalance => "Program balance",
             _ => "Blocked",
         };
     }
@@ -5059,7 +4787,7 @@ internal sealed class MgNavigationShell
         }
 
         var label = ReviewDecisionKindLabel(decision.Kind);
-        return decision.Branch.HasValue ? $"{label} · {decision.Branch.Value}" : label;
+        return decision.Branch.HasValue ? $"{label} · {BranchLabel(decision.Branch.Value)}" : label;
     }
 
     private static string ReviewDecisionDetail(CurrentGlobalReviewReadModel review)
@@ -5113,10 +4841,10 @@ internal sealed class MgNavigationShell
     {
         var label = emphasis.Kind switch
         {
-            LocalProgressEmphasisKind.RestoreDecayedBranch => "Restore decayed branch",
-            LocalProgressEmphasisKind.ResolveMaintenanceBlocker => "Resolve maintenance",
-            LocalProgressEmphasisKind.EmphasizeBottleneckBranch => "Emphasize bottleneck",
-            LocalProgressEmphasisKind.ContinueMaintenance => "Continue maintenance",
+            LocalProgressEmphasisKind.RestoreDecayedBranch => "Rebuild this skill",
+            LocalProgressEmphasisKind.ResolveMaintenanceBlocker => "Pass the required recheck",
+            LocalProgressEmphasisKind.EmphasizeBottleneckBranch => "Practice the weakest skill",
+            LocalProgressEmphasisKind.ContinueMaintenance => "Continue rechecks",
             _ => "Continue training",
         };
 
@@ -5125,7 +4853,7 @@ internal sealed class MgNavigationShell
             return $"{label} · {FormatBranchLevel(emphasis.Branch.Value, emphasis.Level.Value)}";
         }
 
-        return emphasis.Branch.HasValue ? $"{label} · {emphasis.Branch.Value}" : label;
+        return emphasis.Branch.HasValue ? $"{label} · {BranchLabel(emphasis.Branch.Value)}" : label;
     }
 
     private static Color ColorForProgressEmphasis(LocalProgrammedEmphasis emphasis)
@@ -5176,7 +4904,7 @@ internal sealed class MgNavigationShell
                 : "Maintain this level",
             TrainingPresentationPriorityKind.UrgentBlocker => "Start blocked",
             TrainingPresentationPriorityKind.Recovery => "Reduced-load work",
-            TrainingPresentationPriorityKind.Deload => "Deload work",
+            TrainingPresentationPriorityKind.Deload => "Reduced practice",
             TrainingPresentationPriorityKind.NoAvailableWork => "No startable work",
             _ => presentation.PrimaryPrescribedWork is { } work ? work.Exercise.ExerciseName : "Next exercise",
         };
@@ -5197,45 +4925,16 @@ internal sealed class MgNavigationShell
         return $"{work.Exercise.ExerciseName} · {work.Exercise.BranchLevelLabel}";
     }
 
-    private static string RoleMarker(TrainingPresentationWorkSummary work)
-    {
-        return WorkRoleLabel(work) switch
-        {
-            "Practice" => ">",
-            "Load" => "L",
-            "Test" => "T",
-            "Stabilize" => "S",
-            "Regress" => "R",
-            "Transfer" => "X",
-            "Recover" => "R",
-            "Maintain" => "M",
-            _ => ">",
-        };
-    }
-
-    private static string PreflightWorkMarker(TrainingPresentationWorkSummary work)
-    {
-        return work.Drill == DrillId.FH1TargetHold ? "Hold" : RoleMarker(work);
-    }
-
-    private static string LoadSummary(IReadOnlyList<LoadVariable> variables)
-    {
-        return variables.Count == 0
-            ? "No added load variables."
-            : string.Join(", ", variables.Select(variable => $"{variable.Name}: {variable.Value}"));
-    }
-
-    private static string RequiredEvidenceLabel(SessionPreflightPresentationReadModel preflight)
-    {
-        return preflight.ExpectedEvidenceFactCount <= 0
-            ? "The app saves what happened."
-            : $"The app saves {preflight.ExpectedEvidenceFactCount} observable items.";
-    }
-
     private static string PreflightStartLabel(TrainingPresentationWorkSummary work)
     {
-        _ = work;
-        return "Continue to ready screen";
+        return work.SessionType switch
+        {
+            AppTrainingSessionType.Test => "Continue to test",
+            AppTrainingSessionType.Stabilization => "Continue to repeat test",
+            AppTrainingSessionType.Maintenance => "Continue to check",
+            AppTrainingSessionType.Transfer => "Continue to transfer task",
+            _ => "Continue to practice",
+        };
     }
 
     private static string LiveMaterialText(LiveSessionPresentationReadModel presentation)
@@ -5391,7 +5090,7 @@ internal sealed class MgNavigationShell
 
         return branches.Length == 1
             ? [BranchShortLabel(branches[0])]
-            : [branches[0].BranchLabel, $"{branches.Length} branches"];
+            : [branches[0].BranchLabel, $"{branches.Length} skills"];
     }
 
     private static string BranchSummary(IReadOnlyList<TrainingBranchLevelPresentation> branchLevels)
@@ -5402,7 +5101,34 @@ internal sealed class MgNavigationShell
 
     private static string BranchLabel(BranchCode branch)
     {
-        return ProgramCatalog.Branches.Single(item => item.Code == branch).Name;
+        return branch switch
+        {
+            BranchCode.FH => "Target Hold",
+            BranchCode.FS => "Cue Switching",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Response Control",
+            BranchCode.DE => "Error Checking",
+            BranchCode.CO => "Rule Finding",
+            BranchCode.AI => "Pressure Control",
+            BranchCode.TI => "Combined Task",
+            _ => "Skill",
+        };
+    }
+
+    private static string SkillShortLabel(BranchCode branch)
+    {
+        return branch switch
+        {
+            BranchCode.FH => "Hold",
+            BranchCode.FS => "Switch",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Control",
+            BranchCode.DE => "Check",
+            BranchCode.CO => "Rules",
+            BranchCode.AI => "Pressure",
+            BranchCode.TI => "Combined",
+            _ => "Skill",
+        };
     }
 
     private static string BranchShortLabel(TrainingBranchLevelPresentation branchLevel)
@@ -5419,7 +5145,7 @@ internal sealed class MgNavigationShell
 
     private static string LevelCode(GlobalLevelId level)
     {
-        return $"L{LevelRank(level)}";
+        return $"Level {LevelRank(level)}";
     }
 
     private static int LevelRank(GlobalLevelId level)
@@ -5501,7 +5227,7 @@ internal sealed class MgNavigationShell
 
         return presentation.Priority switch
         {
-            TrainingPresentationPriorityKind.DecayRestoration => "Decayed",
+            TrainingPresentationPriorityKind.DecayRestoration => "Needs recheck",
             TrainingPresentationPriorityKind.MaintenanceDue => presentation.MaintenanceDecayPriority?.Kind switch
             {
                 TrainingMaintenanceDecayPriorityKind.MaintenanceFailed => "Failed",
@@ -5510,7 +5236,7 @@ internal sealed class MgNavigationShell
             },
             TrainingPresentationPriorityKind.UrgentBlocker => "Blocked",
             TrainingPresentationPriorityKind.Recovery => "Recovery",
-            TrainingPresentationPriorityKind.Deload => "Deload",
+            TrainingPresentationPriorityKind.Deload => "Reduced week",
             TrainingPresentationPriorityKind.NoAvailableWork => "Blocked",
             _ => presentation.PrimaryActionEnabled ? "Ready" : "Blocked",
         };
@@ -5529,13 +5255,13 @@ internal sealed class MgNavigationShell
             return work.SessionType.Value switch
             {
                 AppTrainingSessionType.Practice => "Practice",
-                AppTrainingSessionType.Load => "Load",
+                AppTrainingSessionType.Load => "Harder practice",
                 AppTrainingSessionType.Test => "Test",
-                AppTrainingSessionType.Stabilization => "Stabilize",
-                AppTrainingSessionType.Regression => "Restoration",
+                AppTrainingSessionType.Stabilization => "Repeat test",
+                AppTrainingSessionType.Regression => "Rebuild",
                 AppTrainingSessionType.Transfer => "Transfer",
-                AppTrainingSessionType.Recovery => "Recover",
-                AppTrainingSessionType.Maintenance => "Maintenance due",
+                AppTrainingSessionType.Recovery => "Reduced practice",
+                AppTrainingSessionType.Maintenance => "Check",
                 _ => "Work",
             };
         }
@@ -5566,12 +5292,23 @@ internal sealed class MgNavigationShell
 
     private static string StandardBlockLabel(TrainingPresentationWorkSummary work)
     {
-        if (!work.HasExecutableStandard)
+        if (!work.HasExecutableStandard || work.SessionType is
+            AppTrainingSessionType.Practice or
+            AppTrainingSessionType.Load or
+            AppTrainingSessionType.Recovery)
         {
-            return "Practice target";
+            return "WHAT COUNTS";
         }
 
-        return work.SessionType == AppTrainingSessionType.Practice ? "Level test" : "Pass";
+        return work.SessionType switch
+        {
+            AppTrainingSessionType.Test => "TO PASS THIS TEST",
+            AppTrainingSessionType.Stabilization => "TO PASS THIS REPEAT",
+            AppTrainingSessionType.Transfer => "TO PASS THIS TRANSFER TEST",
+            AppTrainingSessionType.Maintenance => "TO PASS THIS CHECK",
+            AppTrainingSessionType.Regression => "TO COMPLETE THIS REBUILD",
+            _ => "WHAT COUNTS",
+        };
     }
 
     private static string WeeklySessionLabel(WeeklySessionKind session)
@@ -5579,15 +5316,15 @@ internal sealed class MgNavigationShell
         return session switch
         {
             WeeklySessionKind.Practice => "Practice",
-            WeeklySessionKind.Load => "Load",
-            WeeklySessionKind.RecoveryOrLightMaintenance => "Recover or maintain",
-            WeeklySessionKind.TestOrStabilization => "Test or stabilize",
+            WeeklySessionKind.Load => "Harder practice",
+            WeeklySessionKind.RecoveryOrLightMaintenance => "Reduced practice or recheck",
+            WeeklySessionKind.TestOrStabilization => "Test or repeat test",
             WeeklySessionKind.OffOrRecovery => "Recover",
-            WeeklySessionKind.Maintenance => "Maintain",
-            WeeklySessionKind.TransferOrStabilization => "Transfer or stabilize",
+            WeeklySessionKind.Maintenance => "Recheck",
+            WeeklySessionKind.TransferOrStabilization => "Transfer or repeat test",
             WeeklySessionKind.Recovery => "Recover",
             WeeklySessionKind.Transfer => "Transfer",
-            WeeklySessionKind.Stabilization => "Stabilize",
+            WeeklySessionKind.Stabilization => "Repeat test",
             WeeklySessionKind.RecoveryOrRetest => "Recover or retest",
             _ => "Work",
         };
@@ -5618,7 +5355,7 @@ internal sealed class MgNavigationShell
             TrainingPresentationPriorityKind.MaintenanceDue => "Maintenance due",
             TrainingPresentationPriorityKind.UrgentBlocker => "Start blocked",
             TrainingPresentationPriorityKind.Recovery => "Recovery work",
-            TrainingPresentationPriorityKind.Deload => "Deload",
+            TrainingPresentationPriorityKind.Deload => "Reduced week",
             TrainingPresentationPriorityKind.NoAvailableWork => "No work available",
             _ => presentation.PrimaryPrescribedWork is { } work ? work.Exercise.ExerciseName : "Next exercise",
         };
@@ -5657,7 +5394,7 @@ internal sealed class MgNavigationShell
         {
             TrainingPresentationPrimaryActionKind.StartMaintenance => "Maintain",
             TrainingPresentationPrimaryActionKind.StartRecovery => "Recover",
-            TrainingPresentationPrimaryActionKind.StartDeload => "Deload",
+            TrainingPresentationPrimaryActionKind.StartDeload => "Start reduced practice",
             TrainingPresentationPrimaryActionKind.RestoreDecayedWork => "Restore",
             TrainingPresentationPrimaryActionKind.ResolveBlocker => "Blocked",
             TrainingPresentationPrimaryActionKind.StartLiveSession => "Start",
@@ -5684,10 +5421,10 @@ internal sealed class MgNavigationShell
     {
         return kind switch
         {
-            TrainingMaintenanceDecayPriorityKind.DecayRestoration => "Restore required",
-            TrainingMaintenanceDecayPriorityKind.MaintenanceFailed => "Maintenance failed",
-            TrainingMaintenanceDecayPriorityKind.MaintenanceWarning => "Maintenance warning",
-            _ => "Maintenance due",
+            TrainingMaintenanceDecayPriorityKind.DecayRestoration => "Passing recheck required",
+            TrainingMaintenanceDecayPriorityKind.MaintenanceFailed => "Recheck failed",
+            TrainingMaintenanceDecayPriorityKind.MaintenanceWarning => "Recheck soon",
+            _ => "Recheck due",
         };
     }
 
@@ -5706,12 +5443,12 @@ internal sealed class MgNavigationShell
     {
         if (priority.Kind == TrainingMaintenanceDecayPriorityKind.DecayRestoration)
         {
-            return "Restoration required before advancement.";
+            return "A passing recheck is required before related levels can advance.";
         }
 
         if (priority.BlocksAdvancement)
         {
-            return "Blocks advancement.";
+            return "Related levels cannot advance until this passes.";
         }
 
         if (priority.ConsecutiveFailures > 0)
@@ -5729,17 +5466,17 @@ internal sealed class MgNavigationShell
         var branchLevel = $"{BranchLabel(priority.Branch)} level {LevelRank(priority.Level)}";
         if (priority.Kind == TrainingMaintenanceDecayPriorityKind.DecayRestoration)
         {
-            return $"{branchLevel} needs restoration before related progress can continue.";
+            return $"{branchLevel} needs a passing recheck before related progress can continue.";
         }
 
         if (priority.ConsecutiveFailures > 0)
         {
-            return $"{branchLevel} has {priority.ConsecutiveFailures} failed maintenance checks.";
+            return $"{branchLevel} has {priority.ConsecutiveFailures} failed rechecks.";
         }
 
         return priority.DaysSinceLastPassingCheck.HasValue
             ? $"{branchLevel} was last checked {priority.DaysSinceLastPassingCheck.Value} days ago."
-            : $"{branchLevel} needs a passing maintenance check.";
+            : $"{branchLevel} needs a passing recheck.";
     }
 
     private static Color MaintenancePriorityColor(TrainingMaintenanceDecayPriority priority)
@@ -6000,15 +5737,15 @@ internal sealed class MgNavigationShell
             TrainingResultPresentationOutcomeKind.TimedOut => "The exercise ran out of time before the required work was complete. No successful set was recorded.",
             TrainingResultPresentationOutcomeKind.Failed => FailureOutcomeText(result),
             TrainingResultPresentationOutcomeKind.NoAdvancement => "Session saved. Continue from Today.",
-            TrainingResultPresentationOutcomeKind.CleanPractice => "Clean practice counted. The branch level is unchanged.",
+            TrainingResultPresentationOutcomeKind.CleanPractice => "Practice counted. Your current level is unchanged.",
             TrainingResultPresentationOutcomeKind.TestReady => "Two clean practices counted. The level test is next.",
             TrainingResultPresentationOutcomeKind.PassedOnce => "One successful set counted. Repeat cleanly before this level is considered stable.",
             TrainingResultPresentationOutcomeKind.Stabilizing => "Clean repeat counted. Keep repeating until the level is stable.",
             TrainingResultPresentationOutcomeKind.Owned => "This level is now stable enough to count.",
-            TrainingResultPresentationOutcomeKind.Maintenance => "Maintenance check counted.",
-            TrainingResultPresentationOutcomeKind.MaintenanceWarning => "Maintenance check recorded, but this level still needs attention.",
-            TrainingResultPresentationOutcomeKind.MaintenanceFailed => "Maintenance check did not pass. The app will prescribe repair work.",
-            TrainingResultPresentationOutcomeKind.Decayed => "This level has slipped and needs restoration work before related progress can continue.",
+            TrainingResultPresentationOutcomeKind.Maintenance => "Recheck passed.",
+            TrainingResultPresentationOutcomeKind.MaintenanceWarning => "Recheck recorded, but this level still needs attention.",
+            TrainingResultPresentationOutcomeKind.MaintenanceFailed => "Recheck did not pass. The next exercise will rebuild this skill.",
+            TrainingResultPresentationOutcomeKind.Decayed => "This level needs a new passing recheck before related progress can continue.",
             TrainingResultPresentationOutcomeKind.Recovery => "Reduced-load recovery work saved. Continue from Today.",
             TrainingResultPresentationOutcomeKind.Blocked => "Progress stayed blocked until the listed issue is resolved.",
             TrainingResultPresentationOutcomeKind.TransferEligible => "This work is ready to be used in a transfer exercise.",
@@ -6065,20 +5802,20 @@ internal sealed class MgNavigationShell
     {
         if (result.StateTransition is { Changed: true } transition)
         {
-            return $"{FormatBranchLevel(transition.Branch, transition.Level)}: {ResultStateLabel(transition.FromState)} -> {ResultStateLabel(transition.ToState)}.";
+            return $"{FormatBranchLevel(transition.Branch, transition.Level)} changed from {ResultStateLabel(transition.FromState)} to {ResultStateLabel(transition.ToState)}.";
         }
 
         return result.Outcome switch
         {
-            TrainingResultPresentationOutcomeKind.Maintenance => "Branch level unchanged; maintenance contact recorded.",
-            TrainingResultPresentationOutcomeKind.MaintenanceWarning => "Branch level unchanged; maintenance warning remains.",
-            TrainingResultPresentationOutcomeKind.Decayed => "Dependent advancement is capped until restoration.",
-            TrainingResultPresentationOutcomeKind.Recovery => "Branch level unchanged; reduced-load work recorded.",
+            TrainingResultPresentationOutcomeKind.Maintenance => "Your current level is unchanged; the passing recheck was recorded.",
+            TrainingResultPresentationOutcomeKind.MaintenanceWarning => "Your current level is unchanged; another recheck is needed.",
+            TrainingResultPresentationOutcomeKind.Decayed => "Related levels cannot advance until this level passes a recheck.",
+            TrainingResultPresentationOutcomeKind.Recovery => "Your current level is unchanged; reduced practice was recorded.",
             TrainingResultPresentationOutcomeKind.Abandoned
                 or TrainingResultPresentationOutcomeKind.TimedOut
                 or TrainingResultPresentationOutcomeKind.Failed => "You stay on this exercise; try it again when ready.",
             TrainingResultPresentationOutcomeKind.Blocked => "Resolve the blocker before progress can change.",
-            _ => "No branch-level state changed.",
+            _ => "Your current level is unchanged.",
         };
     }
 
@@ -6124,11 +5861,11 @@ internal sealed class MgNavigationShell
         return category switch
         {
             EvidenceArtifactCategory.Test => "Test",
-            EvidenceArtifactCategory.Stabilization => "Stabilization",
+            EvidenceArtifactCategory.Stabilization => "Repeat test",
             EvidenceArtifactCategory.Transfer => "Transfer",
-            EvidenceArtifactCategory.Maintenance => "Maintenance",
+            EvidenceArtifactCategory.Maintenance => "Recheck",
             EvidenceArtifactCategory.GlobalReview => "Review",
-            EvidenceArtifactCategory.Load => "Load",
+            EvidenceArtifactCategory.Load => "Harder practice",
             _ => "Session",
         };
     }
@@ -6138,12 +5875,13 @@ internal sealed class MgNavigationShell
         return sessionType switch
         {
             LocalCompletedSessionType.Practice => "Practice",
-            LocalCompletedSessionType.Load => "Load",
+            LocalCompletedSessionType.Load => "Harder practice",
             LocalCompletedSessionType.Test => "Test",
-            LocalCompletedSessionType.Stabilization => "Stabilization",
-            LocalCompletedSessionType.Regression => "Regression",
+            LocalCompletedSessionType.Stabilization => "Repeat test",
+            LocalCompletedSessionType.Regression => "Rebuild",
             LocalCompletedSessionType.Transfer => "Transfer",
-            LocalCompletedSessionType.Recovery => "Recovery",
+            LocalCompletedSessionType.Recovery => "Reduced practice",
+            LocalCompletedSessionType.Maintenance => "Recheck",
             LocalCompletedSessionType.Review => "Review",
             _ => "Session",
         };
@@ -6162,15 +5900,15 @@ internal sealed class MgNavigationShell
             ObservableEvidenceKind.FailedItemList => "Missed items",
             ObservableEvidenceKind.RepeatabilityRecord => "Repeatability",
             ObservableEvidenceKind.OutputSample => "Output",
-            ObservableEvidenceKind.BranchMapping => "Branch mapping",
-            ObservableEvidenceKind.CriticalConstraintRecord => "Constraint",
-            ObservableEvidenceKind.LoadVariableRecord => "Load",
-            ObservableEvidenceKind.BottleneckNote => "Bottleneck",
+            ObservableEvidenceKind.BranchMapping => "Component mapping",
+            ObservableEvidenceKind.CriticalConstraintRecord => "Required rule",
+            ObservableEvidenceKind.LoadVariableRecord => "Difficulty",
+            ObservableEvidenceKind.BottleneckNote => "Weakest skill",
             ObservableEvidenceKind.AuditResult => "Audit",
             ObservableEvidenceKind.DelayedReconstruction => "Delayed recall",
-            ObservableEvidenceKind.MaintenanceCheck => "Maintenance",
+            ObservableEvidenceKind.MaintenanceCheck => "Recheck",
             ObservableEvidenceKind.GlobalReviewSummary => "Review",
-            _ => "Evidence",
+            _ => "Record",
         };
     }
 
@@ -6178,7 +5916,7 @@ internal sealed class MgNavigationShell
     {
         return category switch
         {
-            EvidenceArtifactCategory.Load => "L",
+            EvidenceArtifactCategory.Load => "+",
             EvidenceArtifactCategory.Test => "T",
             EvidenceArtifactCategory.Stabilization => "S",
             EvidenceArtifactCategory.Transfer => "TR",
@@ -6217,13 +5955,13 @@ internal sealed class MgNavigationShell
         return state switch
         {
             BranchLevelState.Unopened => "Locked",
-            BranchLevelState.Training => "Training",
-            BranchLevelState.TestReady => "Test ready",
-            BranchLevelState.PassedOnce => "Passed once",
-            BranchLevelState.Stabilizing => "Stabilizing",
-            BranchLevelState.Owned => "Owned",
-            BranchLevelState.Maintenance => "Maintenance",
-            BranchLevelState.Decayed => "Decayed",
+            BranchLevelState.Training => "Practice",
+            BranchLevelState.TestReady => "Ready for test",
+            BranchLevelState.PassedOnce => "First test passed",
+            BranchLevelState.Stabilizing => "Repeat tests",
+            BranchLevelState.Owned => "Stable",
+            BranchLevelState.Maintenance => "Recheck due",
+            BranchLevelState.Decayed => "Needs recheck",
             _ => state.ToString(),
         };
     }
@@ -6238,8 +5976,8 @@ internal sealed class MgNavigationShell
             BranchLevelState.PassedOnce => "One pass",
             BranchLevelState.Stabilizing => "Needs repeats",
             BranchLevelState.Owned => "Stable",
-            BranchLevelState.Maintenance => "Maintenance",
-            BranchLevelState.Decayed => "Needs restoration",
+            BranchLevelState.Maintenance => "Recheck due",
+            BranchLevelState.Decayed => "Needs recheck",
             _ => StateLabel(state),
         };
     }
@@ -6262,13 +6000,13 @@ internal sealed class MgNavigationShell
     {
         return kind switch
         {
-            GlobalReviewDecisionKind.ContinueCurrentProgression => "Continue current progression",
-            GlobalReviewDecisionKind.EmphasizeBottleneckBranch => "Emphasize bottleneck",
-            GlobalReviewDecisionKind.RestoreDecayedBranch => "Restore decayed branch",
-            GlobalReviewDecisionKind.OpenAdvancedBranch => "Open advanced branch",
-            GlobalReviewDecisionKind.PauseTestsForDeload => "Pause tests for deload",
+            GlobalReviewDecisionKind.ContinueCurrentProgression => "Continue current level",
+            GlobalReviewDecisionKind.EmphasizeBottleneckBranch => "Practice the weakest skill",
+            GlobalReviewDecisionKind.RestoreDecayedBranch => "Recheck a lapsed skill",
+            GlobalReviewDecisionKind.OpenAdvancedBranch => "Start an advanced skill",
+            GlobalReviewDecisionKind.PauseTestsForDeload => "Pause tests for a reduced week",
             GlobalReviewDecisionKind.AttemptTransferIntegrationTransfer => "Attempt transfer",
-            _ => "Programmed decision",
+            _ => "Next program step",
         };
     }
 
@@ -6276,13 +6014,13 @@ internal sealed class MgNavigationShell
     {
         return kind switch
         {
-            GlobalReviewFailureKind.WholePractitionerInputMissing => "Whole-practitioner input missing",
-            GlobalReviewFailureKind.PrerequisiteBranchDecayed => "Prerequisite decayed",
-            GlobalReviewFailureKind.MaintenanceCheckOverdue => "Maintenance overdue",
-            GlobalReviewFailureKind.BottleneckProgrammedResponseMissing => "Programmed response missing",
-            GlobalReviewFailureKind.CurrentTransferOrStabilizationArtifactMissing => "Transfer or stabilization record missing",
-            GlobalReviewFailureKind.ParticipationOnlyAdvancement => "Participation-only advancement",
-            _ => "Blocked review input",
+            GlobalReviewFailureKind.WholePractitionerInputMissing => "Required progress summary missing",
+            GlobalReviewFailureKind.PrerequisiteBranchDecayed => "Required earlier skill needs a recheck",
+            GlobalReviewFailureKind.MaintenanceCheckOverdue => "Passing recheck overdue",
+            GlobalReviewFailureKind.BottleneckProgrammedResponseMissing => "Weakest skill has no next exercise",
+            GlobalReviewFailureKind.CurrentTransferOrStabilizationArtifactMissing => "Required repeat or transfer result missing",
+            GlobalReviewFailureKind.ParticipationOnlyAdvancement => "Progress was recorded without a passing result",
+            _ => "Required review record missing",
         };
     }
 

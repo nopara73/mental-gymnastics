@@ -215,7 +215,6 @@ public enum StabilizationOwnershipFailureKind
     SevenDaySpanMissing,
     AdjacentWorkOrDistractorPassMissing,
     StandardChanged,
-    MainFailureModeMissing,
 }
 
 public enum MaintenanceCurrencyState

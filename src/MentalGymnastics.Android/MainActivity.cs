@@ -1,5 +1,6 @@
 namespace MentalGymnastics.Android;
 
+using MentalGymnastics.App;
 using MentalGymnastics.Core;
 using MentalGymnastics.Runtime;
 
@@ -18,6 +19,7 @@ public class MainActivity : Activity
     private const string ProtocolAuditDrillExtra = "mental_gymnastics.audit_drill";
     private const string ProtocolAuditLevelExtra = "mental_gymnastics.audit_level";
     private const string ProtocolAuditViewExtra = "mental_gymnastics.audit_view";
+    private const string ProtocolAuditSessionTypeExtra = "mental_gymnastics.audit_session_type";
 #endif
 
     private readonly SemaphoreSlim liveSessionGate = new(1, 1);
@@ -71,7 +73,6 @@ public class MainActivity : Activity
         shell.PreparedSessionCancelRequested += HandlePreparedSessionCancelRequested;
         shell.LiveSessionStopRequested += HandleLiveSessionStopRequested;
         shell.StopTodayRequested += HandleStopTodayRequested;
-        shell.GlobalReviewCompletionRequested += HandleGlobalReviewCompletionRequested;
         shell.LiveSessionCommandRequested += HandleLiveSessionCommandRequested;
         shell.ImmersivePracticeChanged += HandleImmersivePracticeChanged;
         shell.LocalBackupExportRequested += HandleLocalBackupExportRequested;
@@ -95,7 +96,6 @@ public class MainActivity : Activity
             shell.PreparedSessionCancelRequested -= HandlePreparedSessionCancelRequested;
             shell.LiveSessionStopRequested -= HandleLiveSessionStopRequested;
             shell.StopTodayRequested -= HandleStopTodayRequested;
-            shell.GlobalReviewCompletionRequested -= HandleGlobalReviewCompletionRequested;
             shell.LiveSessionCommandRequested -= HandleLiveSessionCommandRequested;
             shell.ImmersivePracticeChanged -= HandleImmersivePracticeChanged;
             shell.LocalBackupExportRequested -= HandleLocalBackupExportRequested;
@@ -432,7 +432,19 @@ public class MainActivity : Activity
                         level = parsedLevel;
                     }
 
-                    var auditStart = await host.PrepareProtocolAuditSessionAsync(drill, level, cancellationToken)
+                    var sessionTypeValue = Intent?.GetStringExtra(ProtocolAuditSessionTypeExtra);
+                    var sessionType = AppTrainingSessionType.Maintenance;
+                    if (!string.IsNullOrWhiteSpace(sessionTypeValue) &&
+                        !Enum.TryParse(sessionTypeValue, ignoreCase: true, out sessionType))
+                    {
+                        throw new InvalidOperationException($"Unknown protocol-audit session type: {sessionTypeValue}");
+                    }
+
+                    var auditStart = await host.PrepareProtocolAuditSessionAsync(
+                            drill,
+                            level,
+                            sessionType,
+                            cancellationToken)
                         .ConfigureAwait(false);
                     var auditView = Intent?.GetStringExtra(ProtocolAuditViewExtra);
                     if (string.Equals(auditView, "preflight", StringComparison.OrdinalIgnoreCase))
@@ -553,14 +565,14 @@ public class MainActivity : Activity
         }
     }
 
-    private void HandleLiveSessionStartRequested(string? mainFailureModeAvoided)
+    private void HandleLiveSessionStartRequested()
     {
         if (loadCancellation is null)
         {
             return;
         }
 
-        _ = StartLiveSessionAsync(mainFailureModeAvoided, loadCancellation.Token);
+        _ = StartLiveSessionAsync(loadCancellation.Token);
     }
 
     private void HandlePreparedSessionCancelRequested()
@@ -616,40 +628,6 @@ public class MainActivity : Activity
         }
     }
 
-    private void HandleGlobalReviewCompletionRequested()
-    {
-        if (loadCancellation is not null)
-        {
-            _ = CompleteGlobalReviewAsync(loadCancellation.Token);
-        }
-    }
-
-    private async Task CompleteGlobalReviewAsync(CancellationToken cancellationToken)
-    {
-        if (appHost is null || shell is null)
-        {
-            return;
-        }
-
-        RunOnUiThread(() => shell?.ShowGlobalReviewCompletionLoading());
-        try
-        {
-            var snapshot = await appHost.CompleteDueGlobalReviewAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (!cancellationToken.IsCancellationRequested)
-            {
-                RunOnUiThread(() => shell?.Render(snapshot));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception exception)
-        {
-            RunOnUiThread(() => shell?.ShowError(exception));
-        }
-    }
-
     private async Task StopTodayAsync(CancellationToken cancellationToken)
     {
         if (appHost is null || shell is null)
@@ -674,9 +652,7 @@ public class MainActivity : Activity
         }
     }
 
-    private async Task StartLiveSessionAsync(
-        string? mainFailureModeAvoided,
-        CancellationToken cancellationToken)
+    private async Task StartLiveSessionAsync(CancellationToken cancellationToken)
     {
         if (appHost is null || shell is null)
         {
@@ -689,9 +665,7 @@ public class MainActivity : Activity
             StopLiveRefresh();
             RunOnUiThread(() => shell?.ShowLiveSessionLoading());
 
-            var snapshot = await appHost.StartPreparedLiveSessionAsync(
-                cancellationToken,
-                mainFailureModeAvoided: mainFailureModeAvoided)
+            var snapshot = await appHost.StartPreparedLiveSessionAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (cancellationToken.IsCancellationRequested)
             {

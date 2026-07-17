@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
 
@@ -35,6 +36,30 @@ public sealed class LocalDailyTrainingPrescriptionStoreTests : IDisposable
         Assert.Equal("session-1", loaded.Blocks[0].SessionId);
         Assert.Equal(LocalDailyTrainingBlockState.Planned, loaded.Blocks[1].State);
         Assert.Single(await store.ListAsync());
+    }
+
+    [Fact]
+    public async Task LoadsLegacyDailyBlockThatContainsFailureModeDeclaration()
+    {
+        var databasePath = Path.Combine(tempDirectory, "legacy-daily.json");
+        var store = new LocalDailyTrainingPrescriptionStore(
+            LocalDatabaseOptions.ForAppOwnedPath(databasePath));
+        var expected = Prescription(
+            "legacy-daily",
+            DailyTrainingDoseState.Planned,
+            Block("legacy-block", 1, BranchCode.FH, LocalDailyTrainingBlockState.Planned));
+        await store.SaveAsync(expected);
+
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(databasePath))!.AsObject();
+        document["DailyTrainingPrescriptions"]!.AsArray()[0]!.AsObject()["Blocks"]!
+            .AsArray()[0]!.AsObject()["MainFailureModeAvoided"] = "target substitution";
+        await File.WriteAllTextAsync(databasePath, document.ToJsonString());
+
+        var loaded = await store.LoadByDateAsync(expected.Date);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(expected.PrescriptionId, loaded.PrescriptionId);
+        Assert.Equal(expected.Blocks[0].BlockId, loaded.Blocks[0].BlockId);
     }
 
     [Fact]

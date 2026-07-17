@@ -936,7 +936,7 @@ public static class TrainingPresentationMapper
             blocker.Branch,
             blocker.Level,
             SeverityFor(blocker.Source),
-            blocker.Detail);
+            PractitionerDetail(blocker));
     }
 
     private static TrainingPresentationBlockerSummary BlockerSummaryFor(
@@ -947,7 +947,7 @@ public static class TrainingPresentationMapper
             blocker.Branch,
             blocker.Level,
             TrainingPresentationBlockerSeverity.Blocking,
-            blocker.Detail);
+            PractitionerDetail(blocker));
     }
 
     private static TrainingPresentationBlockerSummary RejectionSummaryFor(
@@ -959,6 +959,151 @@ public static class TrainingPresentationMapper
             Level: null,
             TrainingPresentationBlockerSeverity.Blocking,
             rejection.Detail);
+    }
+
+    private static string PractitionerDetail(NextTrainingWorkBlocker blocker)
+    {
+        if (blocker.TestReadinessFailureKind is { } readiness)
+        {
+            return readiness switch
+            {
+                TestReadinessFailureKind.PrerequisiteNotOwned =>
+                    "A required earlier skill has not passed all of its repeat tests.",
+                TestReadinessFailureKind.PrerequisiteMaintenanceOverdue =>
+                    "A required earlier skill needs a passing recheck.",
+                TestReadinessFailureKind.RecentCleanPracticeMissing =>
+                    "Complete two clean practices at this exercise and difficulty before testing.",
+                TestReadinessFailureKind.StandardNotStated or
+                TestReadinessFailureKind.HonestyConstraintNotNamed =>
+                    "The required test rules could not be verified. Set up the test again.",
+                _ => blocker.Detail,
+            };
+        }
+
+        if (blocker.TransferEligibilityFailureKind is { } transfer)
+        {
+            return transfer switch
+            {
+                TransferEligibilityFailureKind.TransferTaskDoesNotMatchSourceBranch =>
+                    "This transfer task does not match the skill being tested.",
+                TransferEligibilityFailureKind.TrainedCapacityNotSpecified or
+                TransferEligibilityFailureKind.TrainedCapacityNotInSourceBranch =>
+                    "The transfer setup does not identify the skill it is meant to test.",
+                TransferEligibilityFailureKind.SourceDemandNotPreserved =>
+                    "The task changed the tested difficulty instead of only changing the context.",
+                TransferEligibilityFailureKind.ContextNotChanged =>
+                    "The transfer task must use a genuinely different context.",
+                TransferEligibilityFailureKind.SourceStandardEvidenceMissing or
+                TransferEligibilityFailureKind.SourceStandardDoesNotMatchCatalog or
+                TransferEligibilityFailureKind.SourceStandardNotVisible =>
+                    "The original skill's passing result was not recorded with this transfer.",
+                TransferEligibilityFailureKind.RetestRequirementMissing =>
+                    "A second equivalent transfer task is still required.",
+                _ => blocker.Detail,
+            };
+        }
+
+        if (blocker.DependencyCapReason is { } dependency)
+        {
+            return dependency switch
+            {
+                DependencyCapReason.DecayedPrerequisite =>
+                    "A required earlier skill needs to be restored with a passing recheck.",
+                DependencyCapReason.OverduePrerequisiteMaintenance =>
+                    "A required earlier skill needs a passing recheck.",
+                _ => blocker.Detail,
+            };
+        }
+
+        if (blocker.GlobalBalanceIssueKind is { } balance)
+        {
+            return GlobalBalanceDetail(balance);
+        }
+
+        if (blocker.WeeklyConstraintKind is { } weekly)
+        {
+            return WeeklyConstraintDetail(weekly);
+        }
+
+        return blocker.Source switch
+        {
+            NextTrainingWorkBlockerSource.Decay or
+            NextTrainingWorkBlockerSource.MaintenanceCurrency =>
+                "This skill needs a passing recheck before ordinary progress can continue.",
+            _ => blocker.Detail,
+        };
+    }
+
+    private static string PractitionerDetail(CurrentTrainingStateBlocker blocker)
+    {
+        if (blocker.CategoryBlockerKind is { } category)
+        {
+            return category switch
+            {
+                PractitionerCategoryBlockerKind.MaintenanceNotCurrent =>
+                    "A required skill needs a passing recheck.",
+                PractitionerCategoryBlockerKind.LastGlobalReviewNotPassed =>
+                    "The latest whole-program check must pass before this classification can change.",
+                _ => "Required earlier skill levels have not yet completed their tests and repeat tests.",
+            };
+        }
+
+        if (blocker.WeeklyConstraintKind is { } weekly)
+        {
+            return WeeklyConstraintDetail(weekly);
+        }
+
+        if (blocker.DependencyCapReason is { } dependency)
+        {
+            return dependency switch
+            {
+                DependencyCapReason.DecayedPrerequisite =>
+                    "A required earlier skill needs to be restored with a passing recheck.",
+                DependencyCapReason.OverduePrerequisiteMaintenance =>
+                    "A required earlier skill needs a passing recheck.",
+                _ => blocker.Detail,
+            };
+        }
+
+        return blocker.GlobalBalanceIssueKind is { } balance
+            ? GlobalBalanceDetail(balance)
+            : blocker.Detail;
+    }
+
+    private static string WeeklyConstraintDetail(WeeklyProgrammingConstraintKind constraint)
+    {
+        return constraint switch
+        {
+            WeeklyProgrammingConstraintKind.BeginnerFixedTemplateRequired =>
+                "Use this week's prescribed beginner schedule before adding different test work.",
+            WeeklyProgrammingConstraintKind.MaintenanceNotCurrent =>
+                "Complete the due recheck before starting another test.",
+            WeeklyProgrammingConstraintKind.RecoveryRequired =>
+                "Complete the prescribed reduced practice before another test.",
+            WeeklyProgrammingConstraintKind.AdvancementTestingSuspended =>
+                "New tests are paused for the rest of this reduced-load week.",
+            _ => "This week's schedule does not allow another test yet.",
+        };
+    }
+
+    private static string GlobalBalanceDetail(GlobalBalanceIssueKind issue)
+    {
+        return issue switch
+        {
+            GlobalBalanceIssueKind.FoundationalOwnedLevelSpreadTooWide =>
+                "Bring the lower foundational skills up before advancing this one.",
+            GlobalBalanceIssueKind.AdvancedPrerequisiteMaintenanceOverdue =>
+                "A required earlier skill needs a passing recheck.",
+            GlobalBalanceIssueKind.AdvancedPrerequisiteDecayed or
+            GlobalBalanceIssueKind.ConceptOperationsPrerequisiteDecayed or
+            GlobalBalanceIssueKind.AffectiveInterferencePrerequisiteDecayed =>
+                "A required earlier skill needs to be restored with a passing recheck.",
+            GlobalBalanceIssueKind.TransferIntegrationComponentFailedLastGlobalReview =>
+                "A component that failed the latest whole-program check must pass before this skill advances.",
+            GlobalBalanceIssueKind.AdvancedClassificationRequiresPassedGlobalReview =>
+                "The latest whole-program check must pass before advanced classification.",
+            _ => "A required related skill must pass before this one can advance.",
+        };
     }
 
     private static TrainingPresentationBlockerKind BlockerKindFor(
@@ -1024,7 +1169,7 @@ public static class TrainingPresentationMapper
                 DaysSinceLastPassingCheck: null,
                 ConsecutiveFailures: 0,
                 BlocksAdvancement: true,
-                $"{BranchName(decayed.Branch)} {LevelName(decayed.Level)} is decayed and must be restored before ordinary advancement work.");
+                $"{BranchName(decayed.Branch)} {LevelName(decayed.Level)} needs a new passing check before related levels can advance.");
         }
 
         var due = state.DueMaintenance
@@ -1048,7 +1193,12 @@ public static class TrainingPresentationMapper
             due.Currency.DaysSinceLastPassingCheck,
             due.Currency.ConsecutiveFailures,
             state.BlockedAdvancement.Any(blocker => blocker.Branch == due.BranchLevel.Branch),
-            $"{BranchName(due.BranchLevel.Branch)} {LevelName(due.BranchLevel.Level)} maintenance is {due.Currency.State}.");
+            due.Currency.State switch
+            {
+                MaintenanceCurrencyState.Failed => $"{BranchName(due.BranchLevel.Branch)} {LevelName(due.BranchLevel.Level)} needs a passing recheck after a failed check.",
+                MaintenanceCurrencyState.Warning => $"{BranchName(due.BranchLevel.Branch)} {LevelName(due.BranchLevel.Level)} will need a recheck soon.",
+                _ => $"{BranchName(due.BranchLevel.Branch)} {LevelName(due.BranchLevel.Level)} is due for a recheck.",
+            });
     }
 
     private static TrainingMaintenanceDecayPriorityKind MaintenanceKindFor(
@@ -1303,8 +1453,8 @@ public static class TrainingPresentationMapper
             DrillId.CO2StructureMapping => "Map roles and relations, not surface words.",
             DrillId.AI1PressureRepeat => "Pressure changes the context, not the standard.",
             DrillId.AI2DisruptionRecovery => "After disruption, resume from the last stable step.",
-            DrillId.TI1CompositeTask => "Every branch has its own scored response.",
-            DrillId.TI2GlobalReviewTask => "Answer every branch, audit the locked report, then rebuild it from memory.",
+            DrillId.TI1CompositeTask => "Every component has its own scored response.",
+            DrillId.TI2GlobalReviewTask => "Answer every component, check the locked report, then rebuild it from memory.",
             _ => "Start when the rule is clear.",
         };
     }
@@ -1322,7 +1472,7 @@ public static class TrainingPresentationMapper
                 : "Choose the verdict and cite the deciding relation.",
             DrillId.TI2GlobalReviewTask => beforeStart
                 ? "Read the locked report, then start the audit."
-                : "Name the wrong branch and its exact correction.",
+                : "Name the wrong component and its exact correction.",
             _ => beforeStart
                 ? "Lock the original, then start the audit."
                 : "Record only findings you can support.",
@@ -1342,8 +1492,8 @@ public static class TrainingPresentationMapper
             DrillId.CO2StructureMapping => "Name the relations before the mapping prompt appears.",
             DrillId.AI1PressureRepeat => "Repeat the source task to the same standard.",
             DrillId.AI2DisruptionRecovery => "Resume from the last stable step.",
-            DrillId.TI1CompositeTask => "Answer every component. Each branch is scored separately.",
-            DrillId.TI2GlobalReviewTask => "Answer every component. Keep the branch responses separate.",
+            DrillId.TI1CompositeTask => "Answer every component. Each one is scored separately.",
+            DrillId.TI2GlobalReviewTask => "Answer every component. Keep the responses separate.",
             _ => "Complete the visible task to its stated standard.",
         };
     }
@@ -1383,7 +1533,7 @@ public static class TrainingPresentationMapper
         var levelLabel = $"Level {LevelRank(level)}";
         var branchLevel = $"{CompactBranchName(branch)} · {levelLabel}";
 
-        if (drill == DrillId.FH1TargetHold)
+        if (drill is DrillId.FH1TargetHold or DrillId.FH2DistractorHold)
         {
             var duration = LoadVariableValue(loadVariables, "duration", "the planned time");
             var interaction = DrillInteractionProtocolCatalog.Get(drill);
@@ -1391,14 +1541,14 @@ public static class TrainingPresentationMapper
                 drillDefinition.Name,
                 levelLabel,
                 $"Look at one visible shape for {duration}. Tap once whenever you notice attention has wandered, then look back at it.",
-                "Practice one loop: look at the target; if attention moves away, mark it once and look back.",
-                "The point is honest noticing while the hold continues, not feeling calm or forcing the mind blank.",
-                "After this is stable, later exercises add longer holds, distraction, memory, switching, and transfer.",
+                "Look at the target until the hold ends. Tap once for each noticed wander, then look back at the same target.",
+                "The hold counts only when it finishes and the recorded actions meet the displayed standard.",
+                "Later levels extend the hold or add distractors while keeping the same marking rule.",
                 "Look at the visible shape normally. The shape itself is the target.",
-                $"Counts when: {standard}",
-                $"Does not count when the attempt stops early or this honesty rule is broken: {honestyConstraint}",
-                interaction.ActionInstruction,
-                "The app saves how many times you tapped for a wander and whether the hold finished or stopped early.",
+                $"To pass: {standard}",
+                "The attempt does not count if it stops early, the target changes, or a noticed wander is not recorded.",
+                "Tap once whenever you notice attention has wandered, then return to the same target. The timer continues.",
+                "The app records taps, target changes, and whether the full hold finished.",
                 primaryMaterial,
                 setupItems ?? [],
                 interaction,
@@ -1411,14 +1561,14 @@ public static class TrainingPresentationMapper
             drillDefinition.Name,
             branchLevel,
             demand,
-            drillDefinition.Purpose,
-            $"This attempt trains the stated demand: {demand}",
-            "Clean work earns harder constraints, stabilization, and transfer.",
+            demand,
+            "The app scores the required responses, timing, and displayed rules.",
+            "Later levels increase the task load only after the displayed standard is met repeatedly.",
             $"{interactionProtocol.AttentionInstruction} {interactionProtocol.DeviceInstruction}",
-            $"Counts when: {standard}",
-            $"Does not count when: {drillDefinition.FailureModes}",
+            $"To pass: {standard}",
+            "The result does not count when a required response is missing, wrong, late, or breaks a displayed rule.",
             interactionProtocol.ActionInstruction,
-            "The session records observable results, missed steps, and failed constraints.",
+            "The app records responses, timing, omissions, and rule breaks.",
             primaryMaterial,
             setupItems ?? [],
             interactionProtocol,
@@ -1559,8 +1709,8 @@ public static class TrainingPresentationMapper
             DrillId.CO2StructureMapping => "Map roles and relations, not surface words.",
             DrillId.AI1PressureRepeat => "Repeat the source task to the same standard.",
             DrillId.AI2DisruptionRecovery => "Resume the source task after disruption.",
-            DrillId.TI1CompositeTask => "Answer every component; every branch must pass.",
-            DrillId.TI2GlobalReviewTask => "Answer each branch, find one mismatch, then rebuild the locked report.",
+            DrillId.TI1CompositeTask => "Answer every component; every component must pass.",
+            DrillId.TI2GlobalReviewTask => "Answer each component, find one mismatch, then rebuild the locked report.",
             _ => value,
         };
     }
@@ -2014,11 +2164,74 @@ public static class TrainingPresentationMapper
                 .Where(failure => failure.Kind != StandardFailureKind.OutputIncomplete ||
                     !hasSpecificIncompleteOutputReason)
                 .Select(failure => StandardFailurePresentation(failure, loadVariables)),
-            .. processing.FormalGateDecision?.BlockingFailures.Select(failure => failure.Detail) ?? [],
-            .. processing.StabilizationOwnershipResult?.Failures.Select(failure => failure.Detail) ?? [],
-            .. processing.DecayResult?.Failures.Select(failure => failure.Detail) ?? [],
-            .. processing.TransferEligibilityResult?.Failures.Select(failure => failure.Detail) ?? [],
+            .. processing.StabilizationOwnershipResult?.Failures.Select(StabilizationFailurePresentation) ?? [],
+            .. processing.DecayResult?.Failures.Select(DecayFailurePresentation) ?? [],
+            .. processing.TransferEligibilityResult?.Failures.Select(TransferFailurePresentation) ?? [],
         ];
+    }
+
+    private static string StabilizationFailurePresentation(StabilizationOwnershipFailure failure)
+    {
+        return failure.Kind switch
+        {
+            StabilizationOwnershipFailureKind.InsufficientCleanPasses =>
+                "Three passing tests at the same standard are required.",
+            StabilizationOwnershipFailureKind.StabilizationPassesMissing =>
+                "Two passing repeat tests are still required.",
+            StabilizationOwnershipFailureKind.StabilizationPassesNotOnDifferentDays =>
+                "The two repeat tests must pass on different days.",
+            StabilizationOwnershipFailureKind.StabilizationWindowMissed =>
+                "The repeat tests did not both pass within 14 days of the first test.",
+            StabilizationOwnershipFailureKind.SevenDaySpanMissing =>
+                "The first and last passing tests must be at least seven days apart.",
+            StabilizationOwnershipFailureKind.AdjacentWorkOrDistractorPassMissing =>
+                "One repeat test must pass after related work or a planned distraction.",
+            StabilizationOwnershipFailureKind.StandardChanged =>
+                "All three tests must use the same standard.",
+            _ => failure.Detail,
+        };
+    }
+
+    private static string DecayFailurePresentation(DecayRestorationFailure failure)
+    {
+        return failure.Kind switch
+        {
+            DecayRestorationFailureKind.DecayRequiresMaintenanceState or
+            DecayRestorationFailureKind.MaintenanceCurrencyDoesNotMatchBranchLevel or
+            DecayRestorationFailureKind.RestorationRequiresDecayedState or
+            DecayRestorationFailureKind.RestorationEvidenceDoesNotMatchBranchLevel =>
+                "This recheck does not match the skill that needs it.",
+            DecayRestorationFailureKind.MaintenanceFailureThresholdNotMet =>
+                "Two failed rechecks are required before restoration work is assigned.",
+            DecayRestorationFailureKind.LastOwnedStandardPassMissing =>
+                "Pass the last required standard once.",
+            DecayRestorationFailureKind.LowerLoadTransferCheckMissing =>
+                "Pass one easier transfer check.",
+            _ => failure.Detail,
+        };
+    }
+
+    private static string TransferFailurePresentation(TransferEligibilityFailure failure)
+    {
+        return failure.Kind switch
+        {
+            TransferEligibilityFailureKind.TransferTaskDoesNotMatchSourceBranch =>
+                "This transfer task does not match the skill being tested.",
+            TransferEligibilityFailureKind.TrainedCapacityNotSpecified or
+            TransferEligibilityFailureKind.TrainedCapacityNotInSourceBranch =>
+                "The transfer setup does not identify the skill it is meant to test.",
+            TransferEligibilityFailureKind.SourceDemandNotPreserved =>
+                "The task changed the tested difficulty instead of only changing the context.",
+            TransferEligibilityFailureKind.ContextNotChanged =>
+                "The transfer task must use a genuinely different context.",
+            TransferEligibilityFailureKind.SourceStandardEvidenceMissing or
+            TransferEligibilityFailureKind.SourceStandardDoesNotMatchCatalog or
+            TransferEligibilityFailureKind.SourceStandardNotVisible =>
+                "The original skill's passing result was not recorded with this transfer.",
+            TransferEligibilityFailureKind.RetestRequirementMissing =>
+                "A second equivalent transfer task is still required.",
+            _ => failure.Detail,
+        };
     }
 
     private static string StandardFailurePresentation(
@@ -2078,12 +2291,12 @@ public static class TrainingPresentationMapper
     {
         var reveals = new List<TrainingPresentationReveal>
         {
-            new(TrainingPresentationRevealKind.BranchLadder, state.BranchLevelStates.Count, "Branch ladder"),
+            new(TrainingPresentationRevealKind.BranchLadder, state.BranchLevelStates.Count, "Skill levels"),
             new(TrainingPresentationRevealKind.WeeklyPlan, state.AvailableNextWork.Count, "Weekly plan"),
         };
 
         AddReveal(reveals, TrainingPresentationRevealKind.BlockerDetails, state.BlockedAdvancement.Count, "Blocked advancement");
-        AddReveal(reveals, TrainingPresentationRevealKind.MaintenanceDetails, state.DueMaintenance.Count, "Maintenance and decay");
+        AddReveal(reveals, TrainingPresentationRevealKind.MaintenanceDetails, state.DueMaintenance.Count, "Rechecks");
         AddReveal(reveals, TrainingPresentationRevealKind.RecentSessions, state.RecentSessions.Count, "Recent sessions");
         AddReveal(reveals, TrainingPresentationRevealKind.EvidenceArtifacts, state.EvidenceSummaries.Count, "Practice records");
         AddReveal(reveals, TrainingPresentationRevealKind.GlobalReviewDetails, state.GlobalReview.Evaluation.Failures.Count, "Global review");
@@ -2161,21 +2374,32 @@ public static class TrainingPresentationMapper
 
     private static string BranchName(BranchCode branch)
     {
-        return ProgramCatalog.Branches.Single(item => item.Code == branch).Name;
+        return branch switch
+        {
+            BranchCode.FH => "Target Hold",
+            BranchCode.FS => "Cue Switching",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Response Control",
+            BranchCode.DE => "Error Checking",
+            BranchCode.CO => "Rule Finding",
+            BranchCode.AI => "Pressure Control",
+            BranchCode.TI => "Combined Task",
+            _ => "Skill",
+        };
     }
 
     private static string CompactBranchName(BranchCode branch)
     {
         return branch switch
         {
-            BranchCode.FH => "Focus Hold",
-            BranchCode.FS => "Focus Shift",
-            BranchCode.WM => "Working Memory",
-            BranchCode.IR => "Inhibition",
-            BranchCode.DE => "Discrimination",
-            BranchCode.CO => "Concept Operations",
-            BranchCode.AI => "Pressure",
-            BranchCode.TI => "Transfer",
+            BranchCode.FH => "Target Hold",
+            BranchCode.FS => "Cue Switching",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Response Control",
+            BranchCode.DE => "Error Checking",
+            BranchCode.CO => "Rule Finding",
+            BranchCode.AI => "Pressure Control",
+            BranchCode.TI => "Combined Task",
             _ => BranchName(branch),
         };
     }

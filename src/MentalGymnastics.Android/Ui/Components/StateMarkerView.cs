@@ -36,13 +36,13 @@ internal sealed class StateMarkerView : TextView
         return state switch
         {
             BranchLevelState.Unopened => "Locked",
-            BranchLevelState.Training => "Training",
-            BranchLevelState.TestReady => "Test",
-            BranchLevelState.PassedOnce => "1/3",
-            BranchLevelState.Stabilizing => "Stab",
-            BranchLevelState.Owned => "Owned",
-            BranchLevelState.Maintenance => "Due",
-            BranchLevelState.Decayed => "Decayed",
+            BranchLevelState.Training => "Practice",
+            BranchLevelState.TestReady => "Test next",
+            BranchLevelState.PassedOnce => "1 of 3",
+            BranchLevelState.Stabilizing => "Repeats",
+            BranchLevelState.Owned => "Stable",
+            BranchLevelState.Maintenance => "Recheck",
+            BranchLevelState.Decayed => "Recheck",
             _ => state.ToString(),
         };
     }

@@ -78,8 +78,7 @@ public sealed class RuntimeFormalAttemptPersistenceInput
         FormalTestPassState passState,
         FailureType? failureType = null,
         string? attemptId = null,
-        TestTask? task = null,
-        string? mainFailureModeAvoided = null)
+        TestTask? task = null)
     {
         ArgumentNullException.ThrowIfNull(resultEvidence);
         EnsureDefined(passState, nameof(passState));
@@ -94,7 +93,6 @@ public sealed class RuntimeFormalAttemptPersistenceInput
         FailureType = failureType;
         AttemptId = NormalizeOptionalString(attemptId);
         Task = task;
-        MainFailureModeAvoided = NormalizeOptionalString(mainFailureModeAvoided);
     }
 
     public TestResultEvidence ResultEvidence { get; }
@@ -106,8 +104,6 @@ public sealed class RuntimeFormalAttemptPersistenceInput
     public string? AttemptId { get; }
 
     public TestTask? Task { get; }
-
-    public string? MainFailureModeAvoided { get; }
 
     private static string? NormalizeOptionalString(string? value)
     {
@@ -136,7 +132,6 @@ public sealed class RuntimeStabilizationPersistenceInput
         FormalTestPassState passState,
         LocalStabilizationCondition condition,
         string conditionDescription,
-        string mainFailureModeAvoided,
         string? passId = null,
         string? formalTestAttemptId = null)
     {
@@ -151,18 +146,10 @@ public sealed class RuntimeStabilizationPersistenceInput
                 nameof(conditionDescription));
         }
 
-        if (string.IsNullOrWhiteSpace(mainFailureModeAvoided))
-        {
-            throw new ArgumentException(
-                "Stabilization handoff must identify the main failure mode avoided.",
-                nameof(mainFailureModeAvoided));
-        }
-
         StandardEvaluationResult = standardEvaluationResult;
         PassState = passState;
         Condition = condition;
         ConditionDescription = conditionDescription;
-        MainFailureModeAvoided = mainFailureModeAvoided;
         PassId = NormalizeOptionalString(passId);
         FormalTestAttemptId = NormalizeOptionalString(formalTestAttemptId);
     }
@@ -174,8 +161,6 @@ public sealed class RuntimeStabilizationPersistenceInput
     public LocalStabilizationCondition Condition { get; }
 
     public string ConditionDescription { get; }
-
-    public string MainFailureModeAvoided { get; }
 
     public string? PassId { get; }
 
@@ -411,8 +396,7 @@ public static class RuntimePersistenceHandoffMapper
             request.FormalAttempt.ResultEvidence,
             request.FormalAttempt.FailureType,
             request.FormalAttempt.PassState,
-            formalArtifact.Record.Artifact,
-            request.FormalAttempt.MainFailureModeAvoided);
+            formalArtifact.Record.Artifact);
 
         return new LocalFormalTestAttemptRecord(
             ids.FormalAttemptId!,
@@ -443,8 +427,7 @@ public static class RuntimePersistenceHandoffMapper
             result.SessionDefinition.Standard.Standard,
             request.Stabilization.PassState,
             request.Stabilization.StandardEvaluationResult,
-            afterAdjacentWorkOrControlledDistractor,
-            request.Stabilization.MainFailureModeAvoided);
+            afterAdjacentWorkOrControlledDistractor);
 
         return new LocalStabilizationPassRecord(
             ids.StabilizationPassId!,

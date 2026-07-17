@@ -31,7 +31,7 @@ internal sealed class LevelCellView : LinearLayout
 
         var label = new TextView(context)
         {
-            Text = status.Level.ToString(),
+            Text = LevelNumber(status.Level).ToString(),
             Gravity = GravityFlags.Center,
             ImportantForAccessibility = ImportantForAccessibility.No,
         };
@@ -100,15 +100,15 @@ internal sealed class LevelCellView : LinearLayout
     {
         return state switch
         {
-            BranchLevelState.Unopened => "",
-            BranchLevelState.Training => "",
-            BranchLevelState.TestReady => "T",
+            BranchLevelState.Unopened => "–",
+            BranchLevelState.Training => "•",
+            BranchLevelState.TestReady => "▶",
             BranchLevelState.PassedOnce => "1",
-            BranchLevelState.Stabilizing => "S",
-            BranchLevelState.Owned => "O",
-            BranchLevelState.Maintenance => "M",
-            BranchLevelState.Decayed => "D",
-            _ => "",
+            BranchLevelState.Stabilizing => "↻",
+            BranchLevelState.Owned => "✓",
+            BranchLevelState.Maintenance => "↻",
+            BranchLevelState.Decayed => "!",
+            _ => "–",
         };
     }
 
@@ -153,8 +153,23 @@ internal sealed class LevelCellView : LinearLayout
             overlays.Add("next prescribed work");
         }
 
+        var branch = status.Branch switch
+        {
+            BranchCode.FH => "Target Hold",
+            BranchCode.FS => "Cue Switching",
+            BranchCode.WM => "Memory",
+            BranchCode.IR => "Response Control",
+            BranchCode.DE => "Error Checking",
+            BranchCode.CO => "Rule Finding",
+            BranchCode.AI => "Pressure Control",
+            BranchCode.TI => "Combined Task",
+            _ => "Skill",
+        };
+        var state = StateMarkerView.LabelTextFor(status.State);
         return overlays.Count == 0
-            ? $"{status.Branch} {status.Level}, {status.State}"
-            : $"{status.Branch} {status.Level}, {status.State}, {string.Join(", ", overlays)}";
+            ? $"{branch} level {LevelNumber(status.Level)}, {state}"
+            : $"{branch} level {LevelNumber(status.Level)}, {state}, {string.Join(", ", overlays)}";
     }
+
+    private static int LevelNumber(GlobalLevelId level) => ((int)level) + 1;
 }

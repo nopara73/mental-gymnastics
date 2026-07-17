@@ -152,7 +152,6 @@ public sealed class LocalProgrammingEventTransactionContext
     private const string ResultValuePropertyName = "ResultValue";
     private const string FailureTypePropertyName = "FailureType";
     private const string PassStatePropertyName = "PassState";
-    private const string MainFailureModeAvoidedPropertyName = "MainFailureModeAvoided";
     private const string SessionTypePropertyName = "SessionType";
     private const string SessionBranchLevelsPropertyName = "BranchLevels";
     private const string IntensityPropertyName = "Intensity";
@@ -524,11 +523,6 @@ public sealed class LocalProgrammingEventTransactionContext
         if (attempt.FailureType is { } failureType)
         {
             attemptObject[FailureTypePropertyName] = StableDomainIdentifiers.FailureTypes.ToPersistedId(failureType);
-        }
-
-        if (attempt.MainFailureModeAvoided is { } mainFailureModeAvoided)
-        {
-            attemptObject[MainFailureModeAvoidedPropertyName] = mainFailureModeAvoided;
         }
 
         return attemptObject;

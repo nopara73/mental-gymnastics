@@ -329,8 +329,7 @@ public sealed class CompleteProgramReachabilityTests
                 item.Branch == status.Branch && item.Level == status.Level).Standard,
             passState,
             new StandardEvaluationResult(Passed: true, Failures: []),
-            controlled,
-            "Documented main failure mode avoided.");
+            controlled);
     }
 
     private static PractitionerState Replace(

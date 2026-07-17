@@ -416,8 +416,7 @@ public sealed class CompletedRuntimeSessionProcessor
                     latestFormalPass.Standard,
                     latestFormalPass.PassState,
                     new StandardEvaluationResult(Passed: true, Failures: []),
-                    afterAdjacentWorkOrControlledDistractor: false,
-                    latestFormalPass.MainFailureModeAvoided ?? string.Empty))
+                    afterAdjacentWorkOrControlledDistractor: false))
             .OfType<StabilizationPassEvidence>()
             .Append(currentPass)
             .ToArray();
@@ -501,8 +500,7 @@ public sealed class CompletedRuntimeSessionProcessor
                 formalGate.ResultEvidence,
                 formalGate.PassState,
                 formalGate.FailureType,
-                task: formalGate.Task,
-                mainFailureModeAvoided: formalGate.MainFailureModeAvoided);
+                task: formalGate.Task);
     }
 
     private static RuntimeStabilizationPersistenceInput? BuildStabilizationPersistenceInput(
@@ -524,8 +522,7 @@ public sealed class CompletedRuntimeSessionProcessor
             stabilization.StandardEvaluationResult,
             stabilization.PassState,
             condition,
-            description,
-            stabilization.MainFailureModeAvoided);
+            description);
     }
 
     private static RuntimeMaintenancePersistenceInput? BuildMaintenancePersistenceInput(

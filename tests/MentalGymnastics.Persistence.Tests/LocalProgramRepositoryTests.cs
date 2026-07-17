@@ -455,8 +455,7 @@ public sealed class LocalProgramRepositoryTests : IDisposable
                 "FH L1 target hold standard",
                 FormalTestPassState.StabilizationPass,
                 CleanResult(),
-                afterAdjacentWorkOrControlledDistractor: false,
-                mainFailureModeAvoided: "unmarked drift"));
+                afterAdjacentWorkOrControlledDistractor: false));
     }
 
     private static LocalDecayHistoryRecord Decay(

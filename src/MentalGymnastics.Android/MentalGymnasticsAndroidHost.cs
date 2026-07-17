@@ -17,7 +17,6 @@ public sealed class MentalGymnasticsAndroidHost
     private readonly LocalDataBackupWorkflowService localDataService;
     private AndroidSessionStartSnapshot? preparedSessionStart;
     private PreUiLiveSessionController? liveSessionController;
-    private string? activeMainFailureModeAvoided;
     private bool startupStateReconciled;
 #if DEBUG
     private ManualRuntimeClock? protocolAuditClock;
@@ -143,6 +142,7 @@ public sealed class MentalGymnasticsAndroidHost
     public async Task<AndroidSessionStartSnapshot> PrepareProtocolAuditSessionAsync(
         DrillId drill,
         GlobalLevelId? level = null,
+        AppTrainingSessionType sessionType = AppTrainingSessionType.Maintenance,
         CancellationToken cancellationToken = default)
     {
         var definition = ExecutableStandardCatalog.Standards
@@ -163,10 +163,32 @@ public sealed class MentalGymnasticsAndroidHost
                     new BranchLevelStatus(
                         definition.Branch,
                         definition.Level,
-                        BranchLevelState.Maintenance),
+                        sessionType switch
+                        {
+                            AppTrainingSessionType.Test => BranchLevelState.TestReady,
+                            AppTrainingSessionType.Stabilization => BranchLevelState.PassedOnce,
+                            AppTrainingSessionType.Maintenance => BranchLevelState.Maintenance,
+                            _ => BranchLevelState.Training,
+                        }),
                 ]),
                 cancellationToken)
             .ConfigureAwait(false);
+
+        if (sessionType == AppTrainingSessionType.Test)
+        {
+            await SaveProtocolAuditCleanPracticeAsync(
+                    definition,
+                    "practice-a",
+                    today.AddDays(-2),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await SaveProtocolAuditCleanPracticeAsync(
+                    definition,
+                    "practice-b",
+                    today.AddDays(-1),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         var preparation = await workflowService.PrepareNextSessionWithDefaultsAsync(
             new PreUiTrainingWorkflowDefaultPreparationRequest(
@@ -176,7 +198,7 @@ public sealed class MentalGymnasticsAndroidHost
                         definition.Branch,
                         definition.Level,
                         drill,
-                        AppTrainingSessionType.Maintenance)),
+                        sessionType)),
                 preparationSource: $"android-protocol-audit-{drill}-{definition.Level}-{Guid.NewGuid():N}"),
             cancellationToken).ConfigureAwait(false);
         if (!preparation.IsPrepared || preparation.RuntimeSession is null)
@@ -191,8 +213,58 @@ public sealed class MentalGymnasticsAndroidHost
             today,
             await localDataService.LoadAsync(cancellationToken).ConfigureAwait(false));
         liveSessionController = null;
-        activeMainFailureModeAvoided = null;
         return preparedSessionStart;
+    }
+
+    private async Task SaveProtocolAuditCleanPracticeAsync(
+        ExecutableTrainingStandardDefinition definition,
+        string suffix,
+        DateTime completedOn,
+        CancellationToken cancellationToken)
+    {
+        var date = TrainingDate.From(completedOn.Year, completedOn.Month, completedOn.Day);
+        var sessionId = $"android-protocol-audit-{definition.Drill}-{definition.Level}-{suffix}";
+        var artifactId = $"{sessionId}-artifact";
+        var eventReference = new LocalProgrammingEventReference(
+            sessionId,
+            LocalProgrammingEventKind.Practice,
+            definition.Branch,
+            definition.Level,
+            definition.Drill);
+
+        await new LocalEvidenceArtifactStore(Configuration.LocalDatabaseOptions)
+            .SaveAsync(
+                new LocalEvidenceArtifactRecord(
+                    artifactId,
+                    eventReference,
+                    new EvidenceArtifact(
+                        EvidenceArtifactCategory.Practice,
+                        date,
+                        [new ObservableEvidence(
+                            ObservableEvidenceKind.OutputSample,
+                            "Completed the exercise for the full duration within its observable standard.")],
+                        "Clean practice.")),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await new LocalSessionHistoryStore(Configuration.LocalDatabaseOptions)
+            .SaveAsync(
+                new LocalSessionHistoryRecord(
+                    sessionId,
+                    date,
+                    LocalCompletedSessionType.Practice,
+                    [new LocalSessionBranchLevel(definition.Branch, definition.Level)],
+                    definition.Drill,
+                    transferTask: null,
+                    LocalSessionIntensity.Moderate,
+                    TrainingLoadProfileCatalog.Get(definition.Branch, definition.Level)
+                        .TargetStage.LoadVariables,
+                    cleanPerformance: true,
+                    "Completed the full practice within the observable standard.",
+                    recoveryMarked: false,
+                    deloadMarked: false,
+                    [artifactId]),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<AndroidLiveSessionSnapshot> StartPreparedProtocolAuditSessionAsync(
@@ -406,34 +478,9 @@ public sealed class MentalGymnasticsAndroidHost
     }
 #endif
 
-    public async Task<AndroidTrainingStateSnapshot> CompleteDueGlobalReviewAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var today = DateTime.Now.Date;
-        var trainingDate = TrainingDate.From(today.Year, today.Month, today.Day);
-        var daily = await dailyTrainingService.LoadOrCreateAsync(trainingDate, cancellationToken)
-            .ConfigureAwait(false);
-        var block = daily.CurrentBlock?.Record
-            ?? throw new InvalidOperationException("No global review is due today.");
-        if (block.Role != LocalDailyTrainingBlockRole.Review)
-        {
-            throw new InvalidOperationException("Today's prescription is not a global review.");
-        }
-
-        await dailyTrainingService.CompleteDueGlobalReviewAsync(
-            trainingDate,
-            block.BlockId,
-            cancellationToken).ConfigureAwait(false);
-        preparedSessionStart = null;
-        liveSessionController = null;
-        activeMainFailureModeAvoided = null;
-        return await LoadTodayAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     public async Task<AndroidLiveSessionSnapshot> StartPreparedLiveSessionAsync(
         CancellationToken cancellationToken = default,
-        bool saveActiveSnapshot = true,
-        string? mainFailureModeAvoided = null)
+        bool saveActiveSnapshot = true)
     {
         var prepared = preparedSessionStart?.Preparation
             ?? throw new InvalidOperationException("No exercise is ready to start.");
@@ -444,10 +491,6 @@ public sealed class MentalGymnasticsAndroidHost
         {
             throw new InvalidOperationException(PreparationRejectionDetail(prepared));
         }
-
-        activeMainFailureModeAvoided = ValidateFailureModeSelection(
-            prepared.Selection.SelectedWork,
-            mainFailureModeAvoided);
 
         var started = await workflowService.StartResumableSessionAsync(
             new PreUiTrainingWorkflowStartRequest(
@@ -471,7 +514,6 @@ public sealed class MentalGymnasticsAndroidHost
 
         await dailyTrainingService.MarkActiveAsync(
             runtimeSession.SessionId,
-            activeMainFailureModeAvoided,
             cancellationToken).ConfigureAwait(false);
 
         return LiveSnapshot(state);
@@ -496,7 +538,6 @@ public sealed class MentalGymnasticsAndroidHost
 
         preparedSessionStart = null;
         liveSessionController = null;
-        activeMainFailureModeAvoided = null;
         return await LoadTodayAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -508,7 +549,6 @@ public sealed class MentalGymnasticsAndroidHost
         await dailyTrainingService.StopRemainingAsync(date, cancellationToken).ConfigureAwait(false);
         preparedSessionStart = null;
         liveSessionController = null;
-        activeMainFailureModeAvoided = null;
         return await LoadTodayAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -573,7 +613,6 @@ public sealed class MentalGymnasticsAndroidHost
         {
             preparedSessionStart = null;
             liveSessionController = null;
-            activeMainFailureModeAvoided = null;
             return new AndroidActiveSessionResumeSnapshot(
                 resumed.State,
                 LiveSession: null,
@@ -587,7 +626,6 @@ public sealed class MentalGymnasticsAndroidHost
             resumed.CueScheduler,
             inputMaterials: resumed.InputMaterials,
             appSessionType: RestoredAppSessionType(resumed.State, trainingState));
-        activeMainFailureModeAvoided = trainingState.DailyTraining?.CurrentBlock?.Record.MainFailureModeAvoided;
         var state = await liveSessionController.ResumeFromLifecycleAsync(cancellationToken)
             .ConfigureAwait(false);
         return new AndroidActiveSessionResumeSnapshot(
@@ -638,7 +676,6 @@ public sealed class MentalGymnasticsAndroidHost
 
         preparedSessionStart = null;
         liveSessionController = null;
-        activeMainFailureModeAvoided = null;
         return await LoadTodayAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -690,8 +727,7 @@ public sealed class MentalGymnasticsAndroidHost
                 recoveryMarked: isRecovery,
                 deloadMarked: isRecovery &&
                     currentState.DeloadDecision.ShouldDeload &&
-                    !deloadAlreadyMarked,
-                mainFailureModeAvoided: activeMainFailureModeAvoided),
+                    !deloadAlreadyMarked),
             cancellationToken).ConfigureAwait(false);
         var dailyTraining = result.WorkflowResult?.ProcessingResult.DailyTraining;
 
@@ -706,7 +742,6 @@ public sealed class MentalGymnasticsAndroidHost
 
             preparedSessionStart = null;
             liveSessionController = null;
-            activeMainFailureModeAvoided = null;
         }
 
         return new AndroidLiveSessionCompletionSnapshot(
@@ -771,7 +806,6 @@ public sealed class MentalGymnasticsAndroidHost
         {
             preparedSessionStart = null;
             liveSessionController = null;
-            activeMainFailureModeAvoided = null;
             startupStateReconciled = false;
         }
 
@@ -851,38 +885,6 @@ public sealed class MentalGymnasticsAndroidHost
         };
     }
 
-    private static string? ValidateFailureModeSelection(
-        SelectedTrainingWork? selectedWork,
-        string? selectedFailureMode)
-    {
-        if (selectedWork is null)
-        {
-            return null;
-        }
-
-        var requiresSelection = selectedWork.SessionType is
-            AppTrainingSessionType.Test or
-            AppTrainingSessionType.Stabilization or
-            AppTrainingSessionType.Transfer;
-        if (!requiresSelection)
-        {
-            return null;
-        }
-
-        var documented = ProgramCatalog.Drills.Single(drill => drill.Id == selectedWork.Drill)
-            .FailureModes
-            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var normalized = string.IsNullOrWhiteSpace(selectedFailureMode)
-            ? null
-            : selectedFailureMode.Trim();
-        if (normalized is null || !documented.Contains(normalized, StringComparer.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Select the documented failure mode you will guard against before formal work starts.");
-        }
-
-        return normalized;
-    }
 }
 
 public sealed record AndroidTrainingStateSnapshot(

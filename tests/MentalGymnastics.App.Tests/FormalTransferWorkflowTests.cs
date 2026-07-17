@@ -92,9 +92,7 @@ public sealed class FormalTransferWorkflowTests : IDisposable
         Assert.True(terminal.IsTerminal);
 
         var completed = await restoredAtReview.CompleteAsync(
-            new PreUiLiveSessionCompletionRequest(
-                TestDate,
-                mainFailureModeAvoided: "responding to distractor"));
+            new PreUiLiveSessionCompletionRequest(TestDate));
 
         var processing = completed.WorkflowResult!.ProcessingResult;
         Assert.True(processing.StandardEvaluationResult!.Passed);
@@ -185,9 +183,7 @@ public sealed class FormalTransferWorkflowTests : IDisposable
             new PreUiLiveSessionCommandRequest(RuntimeInputCommandKind.FinishPhase));
         Assert.True(terminal.IsTerminal);
 
-        var completed = await controller.CompleteAsync(new PreUiLiveSessionCompletionRequest(
-            TestDate,
-            mainFailureModeAvoided: "unsupported inference"));
+        var completed = await controller.CompleteAsync(new PreUiLiveSessionCompletionRequest(TestDate));
         Assert.True(completed.WorkflowResult!.ProcessingResult.StandardEvaluationResult!.Passed);
         Assert.True(completed.WorkflowResult.ProcessingResult.TransferEligibilityResult!.IsEligible);
     }

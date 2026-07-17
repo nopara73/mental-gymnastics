@@ -316,7 +316,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.MaintenanceCurrency,
                     dueMaintenance.BranchLevel.Branch,
                     dueMaintenance.BranchLevel.Level,
-                    $"{dueMaintenance.BranchLevel.Branch} {dueMaintenance.BranchLevel.Level} maintenance is {dueMaintenance.Currency.State}.",
+                    "This skill needs a passing recheck before ordinary progress can continue.",
                     MaintenanceCurrencyState: dueMaintenance.Currency.State),
             ],
             currentState);
@@ -401,7 +401,7 @@ public sealed class NextTrainingWorkSelector
                 NextTrainingWorkBlockerSource.BranchState,
                 requested.Branch,
                 requested.Level,
-                $"{requested.Branch} {requested.Level} is not open for training."));
+                "This skill level is not open yet."));
         }
 
         if (!DrillBelongsToBranch(requested.Drill, requested.Branch))
@@ -410,7 +410,7 @@ public sealed class NextTrainingWorkSelector
                 NextTrainingWorkBlockerSource.BranchState,
                 requested.Branch,
                 requested.Level,
-                $"{requested.Drill} does not belong to {requested.Branch}."));
+                "This exercise is not part of the selected skill."));
         }
 
         if (branchLevelState == BranchLevelState.Decayed &&
@@ -422,7 +422,7 @@ public sealed class NextTrainingWorkSelector
                 NextTrainingWorkBlockerSource.Decay,
                 requested.Branch,
                 requested.Level,
-                $"{requested.Branch} {requested.Level} is decayed and must be restored before ordinary advancement work."));
+                "This skill needs a passing recheck before ordinary progress can continue."));
         }
 
         if (requested.SessionType == AppTrainingSessionType.Stabilization &&
@@ -432,7 +432,7 @@ public sealed class NextTrainingWorkSelector
                 NextTrainingWorkBlockerSource.BranchState,
                 requested.Branch,
                 requested.Level,
-                "Stabilization work requires a passed-once or stabilizing branch-level state."));
+                "A repeat test is available only after the first test has passed."));
         }
 
         if (IsAdvancementWork(requested.SessionType) &&
@@ -443,7 +443,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.WeeklyProgramming,
                     constraint.Branch,
                     Level: null,
-                    constraint.Detail,
+                    WeeklyConstraintDetail(constraint.Kind),
                     WeeklyConstraintKind: constraint.Kind)));
         }
 
@@ -457,7 +457,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.TestReadiness,
                     requested.Branch,
                     requested.Level,
-                    failure.Detail,
+                    TestReadinessDetail(failure.Kind),
                     TestReadinessFailureKind: failure.Kind)));
         }
 
@@ -470,7 +470,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.BranchState,
                     requested.Branch,
                     requested.Level,
-                    "The L4 transfer is the formal level gate and requires a test-ready state."));
+                    "The Level 4 transfer test is not ready yet."));
             }
 
             transferEligibility = TransferEligibilityEvaluator.Evaluate(
@@ -481,7 +481,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.TransferEligibility,
                     requested.Branch,
                     requested.Level,
-                    failure.Detail,
+                    TransferDetail(failure.Kind),
                     TransferEligibilityFailureKind: failure.Kind)));
         }
 
@@ -496,7 +496,7 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.DependencyCap,
                     cap.PrerequisiteBranch,
                     cap.PrerequisiteLevel,
-                    cap.Detail,
+                    DependencyDetail(cap.Reason),
                     DependencyCapReason: cap.Reason)));
 
             blockers.AddRange(GlobalBalanceEvaluator.EvaluateAdvancement(
@@ -510,11 +510,99 @@ public sealed class NextTrainingWorkSelector
                     NextTrainingWorkBlockerSource.GlobalBalance,
                     issue.Branch,
                     issue.Level,
-                    issue.Detail,
+                    GlobalBalanceDetail(issue.Kind),
                     GlobalBalanceIssueKind: issue.Kind)));
         }
 
         return new WorkValidationResult(blockers, testReadiness, transferEligibility);
+    }
+
+    private static string TestReadinessDetail(TestReadinessFailureKind failure)
+    {
+        return failure switch
+        {
+            TestReadinessFailureKind.PrerequisiteNotOwned =>
+                "A required earlier skill has not passed all of its repeat tests.",
+            TestReadinessFailureKind.PrerequisiteMaintenanceOverdue =>
+                "A required earlier skill needs a passing recheck.",
+            TestReadinessFailureKind.RecentCleanPracticeMissing =>
+                "Complete two clean practices at this exercise and difficulty before testing.",
+            TestReadinessFailureKind.StandardNotStated or
+            TestReadinessFailureKind.HonestyConstraintNotNamed =>
+                "The required test rules could not be verified. Set up the test again.",
+            _ => "This test is not ready yet.",
+        };
+    }
+
+    private static string TransferDetail(TransferEligibilityFailureKind failure)
+    {
+        return failure switch
+        {
+            TransferEligibilityFailureKind.TransferTaskDoesNotMatchSourceBranch =>
+                "This transfer task does not match the skill being tested.",
+            TransferEligibilityFailureKind.TrainedCapacityNotSpecified or
+            TransferEligibilityFailureKind.TrainedCapacityNotInSourceBranch =>
+                "The transfer setup does not identify the skill it is meant to test.",
+            TransferEligibilityFailureKind.SourceDemandNotPreserved =>
+                "The task changed the tested difficulty instead of only changing the context.",
+            TransferEligibilityFailureKind.ContextNotChanged =>
+                "The transfer task must use a genuinely different context.",
+            TransferEligibilityFailureKind.SourceStandardEvidenceMissing or
+            TransferEligibilityFailureKind.SourceStandardDoesNotMatchCatalog or
+            TransferEligibilityFailureKind.SourceStandardNotVisible =>
+                "The original skill's passing result was not recorded with this transfer.",
+            TransferEligibilityFailureKind.RetestRequirementMissing =>
+                "A second equivalent transfer task is still required.",
+            _ => "This transfer test is not ready yet.",
+        };
+    }
+
+    private static string DependencyDetail(DependencyCapReason reason)
+    {
+        return reason switch
+        {
+            DependencyCapReason.DecayedPrerequisite =>
+                "A required earlier skill needs to be restored with a passing recheck.",
+            DependencyCapReason.OverduePrerequisiteMaintenance =>
+                "A required earlier skill needs a passing recheck.",
+            _ => "A required earlier skill must pass before this one can advance.",
+        };
+    }
+
+    private static string GlobalBalanceDetail(GlobalBalanceIssueKind issue)
+    {
+        return issue switch
+        {
+            GlobalBalanceIssueKind.FoundationalOwnedLevelSpreadTooWide =>
+                "Bring the lower foundational skills up before advancing this one.",
+            GlobalBalanceIssueKind.AdvancedPrerequisiteMaintenanceOverdue =>
+                "A required earlier skill needs a passing recheck.",
+            GlobalBalanceIssueKind.AdvancedPrerequisiteDecayed or
+            GlobalBalanceIssueKind.ConceptOperationsPrerequisiteDecayed or
+            GlobalBalanceIssueKind.AffectiveInterferencePrerequisiteDecayed =>
+                "A required earlier skill needs to be restored with a passing recheck.",
+            GlobalBalanceIssueKind.TransferIntegrationComponentFailedLastGlobalReview =>
+                "A component that failed the latest whole-program check must pass before this skill advances.",
+            GlobalBalanceIssueKind.AdvancedClassificationRequiresPassedGlobalReview =>
+                "The latest whole-program check must pass before advanced classification.",
+            _ => "A required related skill must pass before this one can advance.",
+        };
+    }
+
+    private static string WeeklyConstraintDetail(WeeklyProgrammingConstraintKind constraint)
+    {
+        return constraint switch
+        {
+            WeeklyProgrammingConstraintKind.BeginnerFixedTemplateRequired =>
+                "Use this week's prescribed beginner schedule before adding different test work.",
+            WeeklyProgrammingConstraintKind.MaintenanceNotCurrent =>
+                "Complete the due recheck before starting another test.",
+            WeeklyProgrammingConstraintKind.RecoveryRequired =>
+                "Complete the prescribed reduced practice before another test.",
+            WeeklyProgrammingConstraintKind.AdvancementTestingSuspended =>
+                "New tests are paused for the rest of this reduced-load week.",
+            _ => "This week's schedule does not allow another test yet.",
+        };
     }
 
     private static TestReadinessRequest BuildTestReadinessRequest(

@@ -139,8 +139,7 @@ public sealed class PreUiLiveSessionCompletionRequest
         LocalSessionIntensity intensity = LocalSessionIntensity.Moderate,
         string? notes = null,
         bool recoveryMarked = false,
-        bool deloadMarked = false,
-        string? mainFailureModeAvoided = null)
+        bool deloadMarked = false)
     {
         if (!Enum.IsDefined(intensity))
         {
@@ -152,9 +151,6 @@ public sealed class PreUiLiveSessionCompletionRequest
         Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
         RecoveryMarked = recoveryMarked;
         DeloadMarked = deloadMarked;
-        MainFailureModeAvoided = string.IsNullOrWhiteSpace(mainFailureModeAvoided)
-            ? null
-            : mainFailureModeAvoided.Trim();
     }
 
     public TrainingDate CompletedOn { get; }
@@ -166,8 +162,6 @@ public sealed class PreUiLiveSessionCompletionRequest
     public bool RecoveryMarked { get; }
 
     public bool DeloadMarked { get; }
-
-    public string? MainFailureModeAvoided { get; }
 }
 
 public sealed record PreUiLiveSessionCompletionResult(
@@ -439,7 +433,6 @@ public sealed class PreUiLiveSessionController
                     material.Name,
                     material.Value)));
         var standardResult = EvaluateStandard(evaluatedStandard, standardEvaluation);
-        EnsurePassingFormalWorkNamesFailureMode(request, standardResult);
         var formalGate = FormalGateFor(request, standardResult);
         var readinessPractice = ReadinessPracticeFor(snapshot, standardResult);
         var stabilization = StabilizationFor(request, snapshot, standardResult);
@@ -753,8 +746,7 @@ public sealed class PreUiLiveSessionController
             task: appSessionType == AppTrainingSessionType.Transfer
                 ? TestTask.ForTransfer(TransferTestCatalog.TransferTests.Single(test =>
                     test.SourceBranch == commandHandler.EventLog.SessionDefinition.Branch).TransferTask)
-                : null,
-            mainFailureModeAvoided: request.MainFailureModeAvoided);
+                : null);
     }
 
     private RuntimeReadinessPracticeHandoffInput? ReadinessPracticeFor(
@@ -811,8 +803,7 @@ public sealed class PreUiLiveSessionController
             request.CompletedOn,
             standardResult,
             standardResult.Passed ? FormalTestPassState.StabilizationPass : FormalTestPassState.Fail,
-            afterAdjacentWorkOrControlledDistractor: ControlledDemandWasPresented(snapshot),
-            request.MainFailureModeAvoided ?? string.Empty);
+            afterAdjacentWorkOrControlledDistractor: ControlledDemandWasPresented(snapshot));
     }
 
     private bool ControlledDemandWasPresented(RuntimeSessionSnapshot snapshot)
@@ -923,21 +914,6 @@ public sealed class PreUiLiveSessionController
             signals,
             isFirstFailureOfType: true,
             repeatedOverloadInSameBranch: false);
-    }
-
-    private void EnsurePassingFormalWorkNamesFailureMode(
-        PreUiLiveSessionCompletionRequest request,
-        StandardEvaluationResult? standardResult)
-    {
-        if (standardResult?.Passed != true ||
-            !IsFormalGateSession() && appSessionType != AppTrainingSessionType.Stabilization ||
-            !string.IsNullOrWhiteSpace(request.MainFailureModeAvoided))
-        {
-            return;
-        }
-
-        throw new InvalidOperationException(
-            "A passing formal or stabilization session must name the documented failure mode the practitioner avoided.");
     }
 
     private bool IsFormalGateSession()

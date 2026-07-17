@@ -132,8 +132,7 @@ public sealed class RuntimeCoreEvaluationHandoffTests
                 TrainingDate.From(2026, 7, 8),
                 new StandardEvaluationResult(true, []),
                 FormalTestPassState.StabilizationPass,
-                afterAdjacentWorkOrControlledDistractor: true,
-                "Target substitution avoided.")));
+                afterAdjacentWorkOrControlledDistractor: true)));
         var ownership = StabilizationOwnershipEvaluator.Evaluate(new StabilizationEvidence(
             BranchCode.FH,
             GlobalLevelId.L1,
@@ -340,8 +339,7 @@ public sealed class RuntimeCoreEvaluationHandoffTests
             StandardFor(BranchCode.FH, GlobalLevelId.L1),
             passState,
             new StandardEvaluationResult(true, []),
-            afterAdjacentWorkOrControlledDistractor: false,
-            "Target substitution avoided.");
+            afterAdjacentWorkOrControlledDistractor: false);
     }
 
     private static string StandardFor(BranchCode branch, GlobalLevelId level)

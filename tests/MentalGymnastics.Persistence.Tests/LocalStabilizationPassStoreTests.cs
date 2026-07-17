@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MentalGymnastics.Core;
 using MentalGymnastics.Persistence;
 
@@ -53,6 +54,27 @@ public sealed class LocalStabilizationPassStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadsLegacyStabilizationPassThatContainsFailureModeDeclaration()
+    {
+        var databasePath = Path.Combine(tempDirectory, "mental-gymnastics.db");
+        var expected = PassRecord(
+            "legacy-stabilization-pass",
+            FormalTestPassState.StabilizationPass,
+            TrainingDate.From(2026, 7, 8));
+        await CreateStore(databasePath).SaveAsync(expected);
+
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(databasePath))!.AsObject();
+        document["StabilizationPasses"]!.AsArray()[0]!.AsObject()["Evidence"]!
+            .AsObject()["MainFailureModeAvoided"] = "restarting after drift";
+        await File.WriteAllTextAsync(databasePath, document.ToJsonString());
+
+        var loaded = await CreateStore(databasePath).LoadAsync(expected.PassId);
+
+        Assert.NotNull(loaded);
+        AssertEquivalent(expected, loaded);
+    }
+
+    [Fact]
     public async Task ListByBranchLevelReturnsOnlyMatchingPassesInDateOrder()
     {
         var databasePath = Path.Combine(tempDirectory, "mental-gymnastics.db");
@@ -64,8 +86,7 @@ public sealed class LocalStabilizationPassStoreTests : IDisposable
             TrainingDate.From(2026, 7, 2),
             branch: BranchCode.WM,
             drill: DrillId.WM1DelayedReconstruction,
-            standard: "At least 4 of 5 exact; no invented items.",
-            mainFailureModeAvoided: "invented item");
+            standard: "At least 4 of 5 exact; no invented items.");
         var earliest = PassRecord("earliest", FormalTestPassState.PassOnce, TrainingDate.From(2026, 7, 1));
 
         await store.SaveAsync(latest);
@@ -236,7 +257,6 @@ public sealed class LocalStabilizationPassStoreTests : IDisposable
         bool afterAdjacentWorkOrControlledDistractor = false,
         LocalStabilizationCondition condition = LocalStabilizationCondition.OrdinaryVariance,
         string conditionDescription = "ordinary weekly variance",
-        string mainFailureModeAvoided = "target substitution",
         string evidenceArtifactId = "artifact-default",
         string? formalTestAttemptId = null,
         string? completedSessionId = null)
@@ -260,8 +280,7 @@ public sealed class LocalStabilizationPassStoreTests : IDisposable
                     : new StandardEvaluationResult(
                         false,
                         [new StandardEvaluationFailure(StandardFailureKind.CriticalConstraintBroken, "target changed")]),
-                afterAdjacentWorkOrControlledDistractor,
-                mainFailureModeAvoided));
+                afterAdjacentWorkOrControlledDistractor));
     }
 
     private static void AssertEquivalent(
@@ -290,6 +309,5 @@ public sealed class LocalStabilizationPassStoreTests : IDisposable
         Assert.Equal(expected.StandardEvaluationResult.Passed, actual.StandardEvaluationResult.Passed);
         Assert.Equal(expected.StandardEvaluationResult.Failures, actual.StandardEvaluationResult.Failures);
         Assert.Equal(expected.AfterAdjacentWorkOrControlledDistractor, actual.AfterAdjacentWorkOrControlledDistractor);
-        Assert.Equal(expected.MainFailureModeAvoided, actual.MainFailureModeAvoided);
     }
 }

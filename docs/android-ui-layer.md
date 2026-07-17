@@ -224,6 +224,19 @@ Android screens must preserve these guards:
 - Recovery and deload are reduced-load programming states, not advancement.
 - Local backup restore must warn that it replaces local data and must show validation status.
 
+## Practitioner-Facing Language And Input
+
+Android must ask for input only when the action is necessary to execute or score the exercise, or when the practitioner is making a real choice with a visible consequence. Acknowledgements, taxonomy selections, and self-descriptions must not be used as substitutes for runtime evidence.
+
+- State a transition into a formal test explicitly before it starts.
+- Tell the practitioner what action to take, when the exercise ends, and what observable result counts.
+- Record timing, answers, corrections, cue responses, and other observable events through Runtime instead of asking the practitioner to certify them afterward.
+- Do not expose raw branch codes, enum names, identifiers, serialized content, storage terminology, or internal failure classifications.
+- Remove choices that do not alter execution, scoring, or a legitimate user decision.
+- Keep self-reported actions only when making the report is itself part of the exercise protocol, such as tapping once when attention is noticed wandering.
+
+For Target Hold, both practice and test setup use direct instructions: look at one target until the hold ends, tap once when attention is noticed wandering, return to the same target, and continue without restarting the timer. The test setup must also say that it is a test.
+
 ## Testing Expectations
 
 Prefer deterministic tests around workflow contracts rather than brittle visual snapshots:

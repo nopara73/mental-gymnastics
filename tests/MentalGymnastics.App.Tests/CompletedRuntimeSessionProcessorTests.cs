@@ -15,7 +15,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task PassedFormalTestIsEvaluatedByCoreAndPersistedAtomically()
+    public async Task ObservableFormalPassSucceedsWithoutASelfDescriptionAndPersistsAtomically()
     {
         var configuration = Configuration();
         await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.TestReady));
@@ -47,8 +47,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 formalGate: new RuntimeFormalGateHandoffInput(
                     SessionDate,
                     new TestResultEvidence(TestResultEvidenceKind.Score, "drifts=4; max_return=8s"),
-                    FormalTestPassState.PassOnce,
-                    mainFailureModeAvoided: "Target substitution avoided.")));
+                    FormalTestPassState.PassOnce)));
 
         var state = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
         var sessionRecord = await new LocalSessionHistoryStore(configuration.LocalDatabaseOptions)
@@ -70,7 +69,6 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
         Assert.True(sessionRecord.CleanPerformance);
         Assert.NotNull(attempt);
         Assert.Equal(FormalTestPassState.PassOnce, attempt.Attempt.PassState);
-        Assert.Equal("Target substitution avoided.", attempt.Attempt.MainFailureModeAvoided);
         Assert.NotNull(generated);
         Assert.Equal(LocalGeneratedDrillInstanceState.Completed, generated.State);
         Assert.Equal("session-formal-pass-artifact-1", generated.ResultEvidenceArtifactId);
@@ -120,8 +118,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 formalGate: new RuntimeFormalGateHandoffInput(
                     SessionDate,
                     new TestResultEvidence(TestResultEvidenceKind.Score, "Universal start passed."),
-                    FormalTestPassState.PassOnce,
-                    mainFailureModeAvoided: "Target substitution avoided.")));
+                    FormalTestPassState.PassOnce)));
 
         var stored = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
 
@@ -183,7 +180,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
     }
 
     [Fact]
-    public async Task FailedFormalTestPersistsFailureEvidenceAndReturnsTrainingWithoutAppGrantingProgress()
+    public async Task ObjectiveConstraintFailureStillPreventsAdvancement()
     {
         var configuration = Configuration();
         await SaveStateAsync(configuration, Status(BranchCode.FH, GlobalLevelId.L1, BranchLevelState.TestReady));
@@ -365,14 +362,12 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                     SessionDate,
                     clean,
                     FormalTestPassState.StabilizationPass,
-                    afterAdjacentWorkOrControlledDistractor: true,
-                    "Target substitution avoided."),
+                    afterAdjacentWorkOrControlledDistractor: true),
                 stabilizationPersistence: new RuntimeStabilizationPersistenceInput(
                     clean,
                     FormalTestPassState.StabilizationPass,
                     LocalStabilizationCondition.ControlledDistractor,
-                    "After controlled distractor.",
-                    "Target substitution avoided.")));
+                    "After controlled distractor.")));
 
         var state = await new LocalPractitionerStateStore(configuration.LocalDatabaseOptions).LoadAsync();
         var stabilization = await new LocalStabilizationPassStore(configuration.LocalDatabaseOptions)
@@ -578,8 +573,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
                 StandardFor(BranchCode.FH, GlobalLevelId.L1),
                 passState,
                 new StandardEvaluationResult(true, []),
-                afterAdjacent,
-                "Target substitution avoided."));
+                afterAdjacent));
 
         await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(artifact);
         await new LocalStabilizationPassStore(configuration.LocalDatabaseOptions).SaveAsync(record);
@@ -615,8 +609,7 @@ public sealed class CompletedRuntimeSessionProcessorTests : IDisposable
             new TestResultEvidence(TestResultEvidenceKind.Score, "Formal standard passed."),
             failureType: null,
             FormalTestPassState.PassOnce,
-            artifact.Artifact,
-            "Target substitution avoided.");
+            artifact.Artifact);
 
         await new LocalEvidenceArtifactStore(configuration.LocalDatabaseOptions).SaveAsync(artifact);
         await new LocalFormalTestAttemptStore(configuration.LocalDatabaseOptions).SaveAsync(

@@ -9,8 +9,7 @@ public sealed class StabilizationPassEvidence
         string standard,
         FormalTestPassState passState,
         StandardEvaluationResult standardEvaluationResult,
-        bool afterAdjacentWorkOrControlledDistractor,
-        string mainFailureModeAvoided)
+        bool afterAdjacentWorkOrControlledDistractor)
     {
         ArgumentNullException.ThrowIfNull(standardEvaluationResult);
 
@@ -26,7 +25,6 @@ public sealed class StabilizationPassEvidence
         PassState = passState;
         StandardEvaluationResult = standardEvaluationResult;
         AfterAdjacentWorkOrControlledDistractor = afterAdjacentWorkOrControlledDistractor;
-        MainFailureModeAvoided = mainFailureModeAvoided ?? string.Empty;
     }
 
     public BranchCode Branch { get; }
@@ -42,8 +40,6 @@ public sealed class StabilizationPassEvidence
     public StandardEvaluationResult StandardEvaluationResult { get; }
 
     public bool AfterAdjacentWorkOrControlledDistractor { get; }
-
-    public string MainFailureModeAvoided { get; }
 
     public bool IsCleanPass =>
         StandardEvaluationResult.Passed &&
@@ -112,7 +108,6 @@ public static class StabilizationOwnershipEvaluator
         EvaluateCalendarSpan(cleanPasses, failures);
         EvaluateAdjacentWorkOrDistractorPass(cleanPasses, failures);
         EvaluateStandardStability(cleanPasses, failures);
-        EvaluateMainFailureMode(cleanPasses, failures);
 
         return Result(cleanPasses, failures);
     }
@@ -196,18 +191,6 @@ public static class StabilizationOwnershipEvaluator
             failures.Add(new StabilizationOwnershipFailure(
                 StabilizationOwnershipFailureKind.StandardChanged,
                 "Ownership cannot be granted when the standard changed during stabilization."));
-        }
-    }
-
-    private static void EvaluateMainFailureMode(
-        IReadOnlyList<StabilizationPassEvidence> cleanPasses,
-        ICollection<StabilizationOwnershipFailure> failures)
-    {
-        if (cleanPasses.Any(pass => string.IsNullOrWhiteSpace(pass.MainFailureModeAvoided)))
-        {
-            failures.Add(new StabilizationOwnershipFailure(
-                StabilizationOwnershipFailureKind.MainFailureModeMissing,
-                "Each pass must identify the main failure mode avoided."));
         }
     }
 

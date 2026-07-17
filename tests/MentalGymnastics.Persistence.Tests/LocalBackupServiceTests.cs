@@ -273,8 +273,7 @@ public sealed class LocalBackupServiceTests : IDisposable
                 "No more than 5 marked drifts; each return within 10 seconds; no target change.",
                 FormalTestPassState.StabilizationPass,
                 PassedEvaluation(),
-                afterAdjacentWorkOrControlledDistractor: true,
-                mainFailureModeAvoided: "unmarked drift"));
+                afterAdjacentWorkOrControlledDistractor: true));
     }
 
     private static LocalMaintenanceCheckRecord MaintenanceRecord()

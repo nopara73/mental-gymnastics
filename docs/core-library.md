@@ -100,7 +100,7 @@ Illegal transitions return invalid results and preserve the current state. App c
 
 `FormalGateDecisionEngine` turns a formal attempt plus standard evidence into a gate outcome. It does not grant ownership from one pass.
 
-`StabilizationOwnershipEvaluator` is the ownership authority. Ownership requires three clean passes of the same standard, across at least seven days, with two stabilization passes, one adjacent-work or controlled-distractor pass, unchanged standard, and a named main failure mode avoided.
+`StabilizationOwnershipEvaluator` is the ownership authority. Ownership requires three clean passes of the same standard, across at least seven days, with two stabilization passes, one adjacent-work or controlled-distractor pass, and an unchanged standard.
 
 ### Readiness and Prerequisites
 
